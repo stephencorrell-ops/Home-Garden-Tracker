@@ -1,0 +1,50 @@
+add_garden:
+  fields: {name: {required: true, selector: {text: {}}}, ph_entity: {selector: {entity: {domain: sensor}}}, ph_min: {selector: {number: {min: 3, max: 10, step: 0.1, mode: box}}}, ph_max: {selector: {number: {min: 3, max: 10, step: 0.1, mode: box}}}}
+update_garden:
+  fields: {garden: {required: true, selector: {text: {}}}, name: {selector: {text: {}}}, ph_entity: {selector: {entity: {domain: sensor}}}, ph_min: {selector: {number: {min: 3, max: 10, step: 0.1, mode: box}}}, ph_max: {selector: {number: {min: 3, max: 10, step: 0.1, mode: box}}}}
+remove_garden:
+  fields: {garden: {required: true, selector: {text: {}}}}
+add_adjunct_type:
+  fields: {garden: {required: true, selector: {text: {}}}, name: {required: true, selector: {text: {}}}, per_year: {selector: {number: {min: 1, max: 12, mode: box}}}, interval_days: {selector: {number: {min: 1, max: 365, mode: box}}}}
+remove_adjunct_type:
+  fields: {garden: {required: true, selector: {text: {}}}, adjunct: {required: true, selector: {text: {}}}}
+log_adjunct:
+  fields: {garden: {required: true, selector: {text: {}}}, adjunct: {required: true, example: sulfur, selector: {text: {}}}, date: {selector: {date: {}}}, product: {selector: {text: {}}}, amount: {selector: {text: {}}}, notes: {selector: {text: {}}}}
+log_ph:
+  fields: {garden: {required: true, selector: {text: {}}}, value: {required: true, selector: {number: {min: 3, max: 10, step: 0.1, mode: box}}}, date: {selector: {date: {}}}}
+add_variety:
+  fields: {garden: {required: true, selector: {text: {}}}, species: {required: true, example: tomato, selector: {text: {}}}, variety: {required: true, example: Sungold, selector: {text: {}}}, plants: {selector: {number: {min: 1, max: 1000, mode: box}}}, origin: {selector: {select: {options: [seed, start]}}}, planted_date: {selector: {date: {}}}, in_ground_date: {selector: {date: {}}}, days_to_harvest: {selector: {number: {min: 0, max: 3650, mode: box}}}, expected_harvest_date: {selector: {date: {}}}, expected_yield: {description: Pounds per plant, selector: {number: {min: 0, mode: box}}}, notes: {selector: {text: {multiline: true}}}, kind: {selector: {select: {options: [plant, tree]}}}}
+update_variety:
+  fields: {plant: {required: true, selector: {text: {}}}, name: {selector: {text: {}}}, garden: {selector: {text: {}}}, planted_date: {selector: {date: {}}}, in_ground_date: {selector: {date: {}}}, days_to_harvest: {selector: {number: {min: 0, max: 3650, mode: box}}}, expected_harvest_date: {selector: {date: {}}}, expected_yield: {selector: {number: {min: 0, mode: box}}}, notes: {selector: {text: {multiline: true}}}, add_plants: {selector: {number: {min: 1, max: 1000, mode: box}}}}
+set_harvest:
+  fields: {plant: {required: true, selector: {text: {}}}, expected_date: {selector: {date: {}}}, expected_yield: {selector: {number: {min: 0, mode: box}}}}
+log_stage:
+  fields: {plant: {required: true, selector: {text: {}}}, stage: {required: true, selector: {select: {options: [planted, upotted, in_ground]}}}, date: {selector: {date: {}}}}
+log_fertilizer:
+  fields: {plant: {required: true, selector: {text: {}}}, product: {required: true, selector: {text: {}}}, n: {selector: {number: {min: 0, max: 100, step: 0.1, mode: box}}}, p: {selector: {number: {min: 0, max: 100, step: 0.1, mode: box}}}, k: {selector: {number: {min: 0, max: 100, step: 0.1, mode: box}}}, date: {selector: {date: {}}}, notes: {selector: {text: {}}}}
+log_spray:
+  fields: {plant: {required: true, selector: {text: {}}}, product: {required: true, selector: {text: {}}}, date: {selector: {date: {}}}, target: {selector: {text: {}}}, phi_days: {description: Pre-harvest interval from the label, selector: {number: {min: 0, max: 365, mode: box}}}, reapply_days: {description: Reapply interval from the label, selector: {number: {min: 0, max: 365, mode: box}}}}
+set_biofix:
+  fields: {plant: {required: true, selector: {text: {}}}, pest: {required: true, example: codling_moth, selector: {text: {}}}, date: {selector: {date: {}}}}
+add_review:
+  fields: {plant: {required: true, selector: {text: {}}}, notes: {required: true, selector: {text: {multiline: true}}}, year: {selector: {number: {min: 2000, max: 2100, mode: box}}}}
+log_harvest:
+  fields: {plant: {required: true, selector: {text: {}}}, lbs: {required: true, selector: {number: {min: 0, step: 0.1, mode: box}}}, date: {selector: {date: {}}}, notes: {selector: {text: {}}}}
+set_plant_status:
+  fields: {plant: {required: true, selector: {text: {}}}, individual: {required: true, example: Plant 1, selector: {text: {}}}, status: {required: true, selector: {select: {options: [alive, dead, pulled]}}}, reason: {selector: {select: {options: [disease, pests, frost, heat, water, animal_damage, other]}}}, note: {selector: {text: {}}}, date: {selector: {date: {}}}}
+archive_plant:
+  fields: {plant: {required: true, selector: {text: {}}}, reason: {selector: {select: {options: [season_over, pulled_early, died]}}}, date: {selector: {date: {}}}, notes: {selector: {text: {multiline: true}}}, final_lbs: {selector: {number: {min: 0, step: 0.1, mode: box}}}}
+plant_again:
+  fields: {plant: {required: true, selector: {text: {}}}, planted_date: {selector: {date: {}}}, plants: {selector: {number: {min: 1, max: 1000, mode: box}}}, garden: {selector: {text: {}}}}
+restore_plant:
+  fields: {plant: {required: true, selector: {text: {}}}}
+remove_plant:
+  fields: {plant: {required: true, selector: {text: {}}}}
+delete_entry:
+  fields: {kind: {required: true, selector: {select: {options: [harvest, fertilizer, spray, review, upotted, adjunct, ph]}}}, parent: {required: true, selector: {text: {}}}, entry_id: {required: true, selector: {text: {}}}}
+undo_delete:
+  fields: {}
+edit_entry:
+  fields: {kind: {required: true, selector: {select: {options: [harvest, fertilizer, spray, review, upotted, adjunct, ph]}}}, parent: {required: true, selector: {text: {}}}, entry_id: {required: true, selector: {text: {}}}, date: {selector: {date: {}}}, lbs: {selector: {number: {min: 0, step: 0.1, mode: box}}}, product: {selector: {text: {}}}, n: {selector: {number: {mode: box}}}, p: {selector: {number: {mode: box}}}, k: {selector: {number: {mode: box}}}, target: {selector: {text: {}}}, phi_days: {selector: {number: {mode: box}}}, reapply_days: {selector: {number: {mode: box}}}, amount: {selector: {text: {}}}, value: {selector: {number: {step: 0.1, mode: box}}}, notes: {selector: {text: {}}}, year: {selector: {number: {mode: box}}}, type: {selector: {text: {}}}}
+add_species:
+  fields: {key: {required: true, selector: {text: {}}}, name: {required: true, selector: {text: {}}}, kind: {selector: {select: {options: [tree, plant]}}}, pests: {description: "List of pests: key, name, lower_f, upper_f, default_biofix (MM-DD or omit), milestones [{dd, note}]", selector: {object: {}}}}

@@ -1,0 +1,218 @@
+"""Sensors: one device per garden and per active plant variety."""
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
+
+from homeassistant.components.sensor import (
+    SensorDeviceClass, SensorEntity, SensorEntityDescription, SensorStateClass)
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import UnitOfMass, UnitOfTime
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+from .const import DOMAIN, SIGNAL_STRUCTURE, SIGNAL_UPDATE
+from .manager import GardenManager
+
+
+@dataclass(frozen=True, kw_only=True)
+class Desc(SensorEntityDescription):
+    value_fn: Callable[[dict], Any]
+    attr_fn: Callable[[dict], dict] | None = None
+
+
+def _days(**kw) -> dict:
+    return dict(device_class=SensorDeviceClass.DURATION, native_unit_of_measurement=UnitOfTime.DAYS, **kw)
+
+
+COMMON = [
+    Desc(key="total_lbs", name="Harvest total", device_class=SensorDeviceClass.WEIGHT,
+         native_unit_of_measurement=UnitOfMass.POUNDS, state_class=SensorStateClass.TOTAL,
+         value_fn=lambda v: v["total_lbs"],
+         attr_fn=lambda v: {"per_plant": {p["label"]: p["total"] for p in v["plants"]}, "alive": v["alive"]}),
+    Desc(key="plants_alive", name="Plants alive", icon="mdi:sprout", value_fn=lambda v: v["alive"],
+         attr_fn=lambda v: {"plants": v["plants"]}),
+    Desc(key="to_harvest", name="Days to expected harvest", **_days(),
+         value_fn=lambda v: v["days_to_expected"],
+         attr_fn=lambda v: {"expected_harvest": v["expected_harvest"], "projection": v["projection"]}),
+]
+ANNUAL = [
+    Desc(key="since_planted", name="Days since planted", **_days(), value_fn=lambda v: v["days"]["planted"]),
+    Desc(key="since_in_ground", name="Days since in ground", **_days(), value_fn=lambda v: v["days"]["in_ground"]),
+    Desc(key="since_fertilized", name="Days since fertilized", **_days(),
+         value_fn=lambda v: v["days"]["fertilized"],
+         attr_fn=lambda v: {"last": v["last_fert"], "feeding": v["feeding"]}),
+]
+TREE = [
+    Desc(key="age", name="Age", icon="mdi:tree", native_unit_of_measurement="yr",
+         value_fn=lambda v: v["age_years"]),
+    Desc(key="since_spray", name="Days since last spray", **_days(), value_fn=lambda v: v["spray"]["days_since"],
+         attr_fn=lambda v: {"history": v["sprays"][:10]}),
+    Desc(key="to_next_spray", name="Days until next spray", **_days(), value_fn=lambda v: v["spray"]["next_in"],
+         attr_fn=lambda v: {"next_spray": v["spray"]["next_date"]}),
+    Desc(key="to_safe_harvest", name="Days until safe to harvest", **_days(), value_fn=lambda v: v["spray"]["safe_in"],
+         attr_fn=lambda v: {"safe_harvest_date": v["spray"]["safe_date"]}),
+    Desc(key="to_spray_cutoff", name="Days until spray cutoff", **_days(), value_fn=lambda v: v["spray"]["cutoff_in"],
+         attr_fn=lambda v: {"cutoff_date": v["spray"]["cutoff_date"]}),
+]
+
+
+class _Base(SensorEntity):
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+
+    def __init__(self, mgr: GardenManager, known: set, uid: str, ident: str, name: str, model: str) -> None:
+        self._mgr, self._known, self._ident = mgr, known, ident
+        self._attr_unique_id = uid
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, ident)}, name=name, model=model,
+                                            manufacturer="Garden Tracker")
+        known.add(uid)
+
+    async def async_added_to_hass(self) -> None:
+        @callback
+        def _upd() -> None:
+            self.async_write_ha_state()
+        self.async_on_remove(async_dispatcher_connect(self.hass, SIGNAL_UPDATE, _upd))
+
+    async def async_will_remove_from_hass(self) -> None:
+        self._known.discard(self._attr_unique_id)
+
+
+class VarietySensor(_Base):
+    def __init__(self, mgr, known, vid: str, v: dict, desc: Desc) -> None:
+        super().__init__(mgr, known, f"{vid}_{desc.key}", f"variety:{vid}", v["name"], v["species_name"])
+        self.entity_description, self._vid = desc, vid
+
+    def _view(self) -> dict | None:
+        return self._mgr.index()["v"].get(self._vid)
+
+    @property
+    def available(self) -> bool:
+        return self._view() is not None
+
+    @property
+    def native_value(self):
+        v = self._view()
+        return self.entity_description.value_fn(v) if v else None
+
+    @property
+    def extra_state_attributes(self):
+        v, fn = self._view(), self.entity_description.attr_fn
+        return fn(v) if v and fn else None
+
+
+class PestSensor(VarietySensor):
+    _attr_native_unit_of_measurement = "DD"
+    _attr_icon = "mdi:bug"
+
+    def __init__(self, mgr, known, vid: str, v: dict, pest: dict) -> None:
+        d = Desc(key=f"dd_{pest['key']}", name=f"{pest['name']} degree days", value_fn=lambda _v: None)
+        super().__init__(mgr, known, vid, v, d)
+        self._pest = pest["key"]
+
+    def _p(self):
+        v = self._view()
+        return next((p for p in v["pests"] if p["key"] == self._pest), None) if v else None
+
+    @property
+    def native_value(self):
+        p = self._p()
+        return p["status"]["dd"] if p and p["status"] else None
+
+    @property
+    def extra_state_attributes(self):
+        p = self._p()
+        if not p:
+            return None
+        return p["status"] or {"note": "Biofix not set; call garden_tracker.set_biofix"}
+
+
+class GardenPhSensor(_Base):
+    _attr_device_class = SensorDeviceClass.PH
+    _attr_name = "Soil pH"
+
+    def __init__(self, mgr, known, gid: str, g: dict) -> None:
+        super().__init__(mgr, known, f"{gid}_ph", f"garden:{gid}", g["name"], "Garden")
+        self._gid = gid
+
+    def _view(self):
+        return self._mgr.index()["g"].get(self._gid)
+
+    @property
+    def available(self) -> bool:
+        return self._view() is not None
+
+    @property
+    def native_value(self):
+        g = self._view()
+        return g["ph"]["current"] if g else None
+
+    @property
+    def extra_state_attributes(self):
+        g = self._view()
+        return {"target": g["ph"]["target"], "level": g["ph"]["level"], "date": g["ph"]["date"]} if g else None
+
+
+class AdjunctSensor(_Base):
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_native_unit_of_measurement = UnitOfTime.DAYS
+
+    def __init__(self, mgr, known, gid: str, g: dict, atype: dict) -> None:
+        super().__init__(mgr, known, f"{gid}_adj_{atype['key']}", f"garden:{gid}", g["name"], "Garden")
+        self._gid, self._key = gid, atype["key"]
+        self._attr_name = f"Days since {atype['name'].lower()}"
+
+    def _a(self):
+        g = self._mgr.index()["g"].get(self._gid)
+        return next((a for a in g["adjuncts"] if a["key"] == self._key), None) if g else None
+
+    @property
+    def available(self) -> bool:
+        return self._a() is not None
+
+    @property
+    def native_value(self):
+        a = self._a()
+        return a["days_since"] if a else None
+
+    @property
+    def extra_state_attributes(self):
+        a = self._a()
+        return {"last": a["last"], "applications_this_year": a["count"], "status": a["label"]} if a else None
+
+
+def _build(mgr: GardenManager, known: set) -> list:
+    ents: list = []
+    snap = mgr.snapshot()
+    for g in snap["gardens"]:
+        if f"{g['id']}_ph" not in known:
+            ents.append(GardenPhSensor(mgr, known, g["id"], g))
+        for a in g["adjuncts"]:
+            if f"{g['id']}_adj_{a['key']}" not in known:
+                ents.append(AdjunctSensor(mgr, known, g["id"], g, a))
+    for v in snap["varieties"]:
+        if v["archived"]:
+            continue
+        for d in COMMON + (TREE if v["kind"] == "tree" else ANNUAL):
+            if f"{v['id']}_{d.key}" not in known:
+                ents.append(VarietySensor(mgr, known, v["id"], v, d))
+        sp = mgr.get_species(v["species"]) or {}
+        for pest in sp.get("pests", []):
+            if f"{v['id']}_dd_{pest['key']}" not in known:
+                ents.append(PestSensor(mgr, known, v["id"], v, pest))
+    return ents
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
+    mgr: GardenManager = hass.data[DOMAIN]
+    known: set[str] = set()
+    async_add_entities(_build(mgr, known))
+
+    @callback
+    def _structure() -> None:
+        async_add_entities(_build(mgr, known))
+
+    entry.async_on_unload(async_dispatcher_connect(hass, SIGNAL_STRUCTURE, _structure))

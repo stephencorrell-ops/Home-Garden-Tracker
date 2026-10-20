@@ -1,0 +1,17 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Garden Tracker",
+        "description": "Pick your outdoor temperature sensor (or weather entity). Daily highs and lows are recorded from it for degree-day tracking.",
+        "data": {"temperature_entity": "Outdoor temperature source"}
+      }
+    },
+    "abort": {"already_configured": "Garden Tracker is already set up."}
+  },
+  "options": {
+    "step": {
+      "init": {"data": {"temperature_entity": "Outdoor temperature source"}}
+    }
+  }
+}

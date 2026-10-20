@@ -1,0 +1,211 @@
+"""Pure calculation helpers (no Home Assistant imports)."""
+from __future__ import annotations
+
+import math
+from datetime import date, timedelta
+from typing import Any
+
+
+def d(iso: str | None) -> date | None:
+    return date.fromisoformat(iso) if iso else None
+
+
+def days_since(iso: str | None, today: date) -> int | None:
+    return (today - date.fromisoformat(iso)).days if iso else None
+
+
+def days_until(target: date | None, today: date) -> int | None:
+    return (target - today).days if target else None
+
+
+def latest(items: list[dict], key: str = "date") -> dict | None:
+    return max(items, key=lambda i: i[key]) if items else None
+
+
+def mean(xs: list[float]) -> float:
+    return sum(xs) / len(xs)
+
+
+# ---- sprays ----------------------------------------------------------------
+def next_spray_date(v: dict) -> date | None:
+    s = latest(v["sprays"])
+    if s and s.get("reapply_days"):
+        return date.fromisoformat(s["date"]) + timedelta(days=s["reapply_days"])
+    return None
+
+
+def safe_harvest_date(v: dict) -> date | None:
+    dates = [date.fromisoformat(s["date"]) + timedelta(days=s["phi_days"])
+             for s in v["sprays"] if s.get("phi_days") is not None]
+    return max(dates) if dates else None
+
+
+def spray_cutoff_date(v: dict) -> date | None:
+    """Last day the most recently used product could go on and still allow the expected harvest."""
+    s = latest(v["sprays"])
+    harvest = d(v.get("expected_harvest"))
+    if s and s.get("phi_days") is not None and harvest:
+        return harvest - timedelta(days=s["phi_days"])
+    return None
+
+
+# ---- degree days -----------------------------------------------------------
+def degree_days(daily: dict[str, list[float]], start: date, end: date,
+                lower: float, upper: float) -> float:
+    """Average method with horizontal cutoffs, degrees F."""
+    total, day = 0.0, start
+    while day <= end:
+        v = daily.get(day.isoformat())
+        if v:
+            tmin = min(max(v[0], lower), upper)
+            tmax = min(max(v[1], lower), upper)
+            total += max(0.0, (tmin + tmax) / 2 - lower)
+        day += timedelta(days=1)
+    return total
+
+
+def recent_dd_rate(daily: dict, today: date, n: int, lower: float, upper: float) -> float:
+    """Average degree days per day over the last n complete days that have data."""
+    total, days = 0.0, 0
+    for i in range(1, n + 1):
+        day = today - timedelta(days=i)
+        if daily.get(day.isoformat()):
+            total += degree_days(daily, day, day, lower, upper)
+            days += 1
+    return total / days if days else 0.0
+
+
+def pest_status(v: dict, pest: dict, daily: dict, today: date) -> dict[str, Any] | None:
+    biofix = None
+    stored = v.get("biofix", {}).get(pest["key"])
+    if stored and date.fromisoformat(stored).year == today.year:
+        biofix = date.fromisoformat(stored)
+    elif pest.get("default_biofix"):
+        m, dd = pest["default_biofix"].split("-")
+        biofix = date(today.year, int(m), int(dd))
+    if biofix is None or biofix > today:
+        return None
+    total = degree_days(daily, biofix, today, pest["lower_f"], pest["upper_f"])
+    ms = sorted(pest.get("milestones", []), key=lambda m: m["dd"])
+    nxt = next((m for m in ms if m["dd"] > total), None)
+    return {
+        "dd": round(total, 1), "biofix": biofix.isoformat(),
+        "next_dd": nxt["dd"] if nxt else None,
+        "next_action": nxt["note"] if nxt else None,
+        "dd_to_next": round(nxt["dd"] - total, 1) if nxt else None,
+        "reached": [m for m in ms if m["dd"] <= total],
+    }
+
+
+# ---- harvest ---------------------------------------------------------------
+def plant_totals(v: dict) -> dict[str, float]:
+    t = {p["id"]: 0.0 for p in v["plants"]}
+    for h in v["harvests"]:
+        for pid, val in h["shares"].items():
+            t[pid] = t.get(pid, 0.0) + val
+    return t
+
+
+def split_even(lbs: float, plant_ids: list[str]) -> dict[str, float]:
+    share = round(lbs / len(plant_ids), 4)
+    return {pid: share for pid in plant_ids}
+
+
+def _full_year_data(daily: dict, year: int) -> bool:
+    keys = [k for k in daily if k.startswith(f"{year}-")]
+    return bool(keys) and min(keys) <= f"{year}-02-01"
+
+
+def _season(year: int, first: date, lbs: float, plants: int, daily: dict,
+            planted: date | None, tree: bool) -> dict:
+    s = {"year": year, "first_harvest": first.isoformat(), "doy": first.timetuple().tm_yday,
+         "total": round(lbs, 2), "yield_per_plant": round(lbs / max(1, plants), 2),
+         "days_to_first": (first - planted).days if planted else None, "dd_first": None}
+    if tree and _full_year_data(daily, year):
+        s["dd_first"] = round(degree_days(daily, date(year, 1, 1), first, 50, 86), 1)
+    return s
+
+
+def seasons_for(v: dict, varieties: dict, daily: dict, today: date) -> list[dict]:
+    """Past seasons for this variety. Trees use their own earlier years; annuals use earlier records of the same variety."""
+    out: list[dict] = []
+    if v["kind"] == "tree":
+        by_year: dict[int, list] = {}
+        for h in v["harvests"]:
+            by_year.setdefault(int(h["date"][:4]), []).append(h)
+        for y, hs in sorted(by_year.items()):
+            if y >= today.year:
+                continue
+            first = date.fromisoformat(min(h["date"] for h in hs))
+            out.append(_season(y, first, sum(h["lbs"] for h in hs), len(v["plants"]), daily, None, True))
+    else:
+        key = (v["species"], v["name"].strip().lower())
+        for o in varieties.values():
+            if o["id"] == v["id"] or (o["species"], o["name"].strip().lower()) != key or not o["harvests"]:
+                continue
+            planted = date.fromisoformat(o["planted"])
+            if not o.get("archived") and planted.year >= today.year:
+                continue
+            first = date.fromisoformat(min(h["date"] for h in o["harvests"]))
+            out.append(_season(planted.year, first, sum(h["lbs"] for h in o["harvests"]),
+                               len(o["plants"]), daily, planted, False))
+        out.sort(key=lambda s: (s["year"], s["first_harvest"]))
+    return out
+
+
+def project(v: dict, seasons: list[dict], daily: dict, today: date, alive: int) -> dict | None:
+    if not seasons:
+        return None
+    ypp = mean([s["yield_per_plant"] for s in seasons])
+    method, proj = "", None
+    if v["kind"] != "tree":
+        days = [s["days_to_first"] for s in seasons if s["days_to_first"] is not None]
+        if days:
+            proj = date.fromisoformat(v["planted"]) + timedelta(days=round(mean(days)))
+            method = "days from planting"
+    else:
+        dds = [s["dd_first"] for s in seasons if s["dd_first"]]
+        if dds and _full_year_data(daily, today.year):
+            target = mean(dds)
+            now = degree_days(daily, date(today.year, 1, 1), today - timedelta(days=1), 50, 86)
+            rate = recent_dd_rate(daily, today, 14, 50, 86)
+            if now >= target:
+                proj, method = today, "degree days"
+            elif rate > 0.5:
+                proj, method = today + timedelta(days=math.ceil((target - now) / rate)), "degree days"
+    if proj is None:
+        doy = round(mean([s["doy"] for s in seasons]))
+        proj, method = date(today.year, 1, 1) + timedelta(days=doy - 1), "calendar date"
+    vs_last = proj.timetuple().tm_yday - seasons[-1]["doy"]
+    return {"date": proj.isoformat(), "days_until": (proj - today).days,
+            "basis_seasons": len(seasons), "method": method, "vs_last_days": vs_last,
+            "yield_per_plant": round(ypp, 1), "yield_total": round(ypp * max(1, alive), 1)}
+
+
+# ---- adjuncts and pH -------------------------------------------------------
+def adjunct_status(atype: dict, entries: list[dict], today: date) -> dict:
+    mine = [e for e in entries if e["type"] == atype["key"]]
+    last = latest(mine)
+    count = len([e for e in mine if e["date"][:4] == str(today.year)])
+    out = {"key": atype["key"], "name": atype["name"], "per_year": atype.get("per_year"),
+           "interval_days": atype.get("interval_days"), "count": count, "last": last,
+           "days_since": days_since(last["date"], today) if last else None, "due_in": None}
+    if atype.get("interval_days"):
+        if not last:
+            out.update(level="none", label="Not applied yet")
+        else:
+            due = atype["interval_days"] - out["days_since"]
+            out["due_in"] = due
+            if due > 14:
+                out.update(level="ok", label=f"Next in {due} d")
+            elif due > 0:
+                out.update(level="warn", label=f"Due in {due} d")
+            elif due == 0:
+                out.update(level="warn", label="Due today")
+            else:
+                out.update(level="warn", label=f"Overdue {-due} d")
+    else:
+        n = atype.get("per_year") or 1
+        out["label"] = f"{count} of {n}"
+        out["level"] = "ok" if count >= n else ("warn" if count > 0 else "none")
+    return out

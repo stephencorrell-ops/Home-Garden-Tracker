@@ -1,0 +1,12 @@
+{
+  "domain": "garden_tracker",
+  "name": "Garden Tracker",
+  "codeowners": ["@stephencorrell-ops"],
+  "config_flow": true,
+  "dependencies": ["frontend", "http", "websocket_api"],
+  "documentation": "https://github.com/stephencorrell-ops/Home-Garden-Tracker",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/stephencorrell-ops/Home-Garden-Tracker/issues",
+  "requirements": [],
+  "version": "0.2.0"
+}

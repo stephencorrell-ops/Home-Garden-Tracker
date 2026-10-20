@@ -1,0 +1,576 @@
+"""Pure data model and business logic. No Home Assistant imports, so it can be unit tested."""
+from __future__ import annotations
+
+import re
+import uuid
+from datetime import date, timedelta
+from typing import Any, Callable
+
+from . import calc
+
+
+class GardenError(ValueError):
+    """Raised for invalid requests."""
+
+
+REASONS = ["disease", "pests", "frost", "heat", "water", "animal_damage", "other"]
+ARCHIVE_REASONS = ["season_over", "pulled_early", "died"]
+STATUSES = ["alive", "dead", "pulled"]
+DEFAULT_ADJUNCTS = [
+    {"key": "sulfur", "name": "Sulfur", "per_year": 2},
+    {"key": "humic_acid", "name": "Humic acid", "per_year": 2},
+    {"key": "compost", "name": "Compost", "per_year": 1},
+    {"key": "gypsum", "name": "Gypsum", "per_year": 1},
+    {"key": "micros", "name": "Micros", "interval_days": 42},
+]
+KINDS = {  # entry kind -> (parent type, list key)
+    "harvest": ("v", "harvests"), "fertilizer": ("v", "fertilizations"), "spray": ("v", "sprays"),
+    "review": ("v", "reviews"), "upotted": ("v", "upotted"),
+    "adjunct": ("g", "adjuncts"), "ph": ("g", "ph_readings"),
+}
+EDITABLE = {
+    "harvest": ("lbs", "date", "notes"),
+    "fertilizer": ("product", "n", "p", "k", "date", "notes"),
+    "spray": ("product", "target", "phi_days", "reapply_days", "date"),
+    "review": ("notes", "year"), "upotted": ("date",),
+    "adjunct": ("type", "product", "amount", "date", "notes"), "ph": ("value", "date"),
+}
+
+
+def slug(text: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", str(text).lower()).strip("_") or "item"
+
+
+def new_id() -> str:
+    return uuid.uuid4().hex[:8]
+
+
+def iso(v: Any) -> str | None:
+    if v is None or v == "":
+        return None
+    if isinstance(v, date):
+        return v.isoformat()
+    try:
+        return date.fromisoformat(str(v)).isoformat()
+    except ValueError as err:
+        raise GardenError(f"'{v}' is not a valid date") from err
+
+
+class GardenModel:
+    def __init__(self, presets: dict, today_fn: Callable[[], date],
+                 notify: Callable[[], None] | None = None,
+                 structure: Callable[[], None] | None = None) -> None:
+        self.data: dict[str, Any] = {"gardens": {}, "varieties": {}, "species": {}, "daily": {}}
+        self.presets = presets
+        self._today_fn = today_fn
+        self._notify = notify or (lambda: None)
+        self._structure = structure or (lambda: None)
+        self._rev = 0
+        self._cache: tuple | None = None
+        self._trash: dict | None = None
+
+    # ---- plumbing -------------------------------------------------------
+    def load(self, stored: dict | None) -> None:
+        if stored:
+            for k in self.data:
+                if k in stored:
+                    self.data[k] = stored[k]
+
+    def today(self) -> date:
+        return self._today_fn()
+
+    def _touch(self, structure: bool = False) -> None:
+        self._rev += 1
+        if structure:
+            self._structure()
+        self._notify()
+
+    def record_temp_f(self, temp_f: float) -> None:
+        key = self.today().isoformat()
+        cur = self.data["daily"].get(key)
+        new = [temp_f, temp_f] if cur is None else [min(cur[0], temp_f), max(cur[1], temp_f)]
+        if new != cur:
+            self.data["daily"][key] = new
+            self._touch()
+
+    # ---- lookups ----------------------------------------------------------
+    def find_garden(self, ref: str) -> dict:
+        gs = self.data["gardens"]
+        if ref in gs:
+            return gs[ref]
+        for g in gs.values():
+            if g["name"].lower() == str(ref).lower():
+                return g
+        raise GardenError(f"No garden found matching '{ref}'")
+
+    def find_variety(self, ref: str, archived_ok: bool = False) -> dict:
+        vs = self.data["varieties"]
+        v = vs.get(ref)
+        if v is None:
+            cands = [x for x in vs.values() if x["name"].lower() == str(ref).lower()]
+            active = [x for x in cands if not x.get("archived")]
+            v = (active or (cands if archived_ok else []) or [None])[0]
+        if v is None:
+            raise GardenError(f"No plant found matching '{ref}'")
+        if v.get("archived") and not archived_ok:
+            raise GardenError(f"'{v['name']}' is archived")
+        return v
+
+    @staticmethod
+    def _entry(items: list[dict], entry_id: str) -> tuple[int, dict]:
+        for i, e in enumerate(items):
+            if e["id"] == entry_id:
+                return i, e
+        raise GardenError("That log entry no longer exists")
+
+    def get_species(self, key: str) -> dict | None:
+        return self.data["species"].get(key) or self.presets.get(key)
+
+    def _unique(self, base: str, existing: dict) -> str:
+        pid, n = base, 2
+        while pid in existing:
+            pid, n = f"{base}_{n}", n + 1
+        return pid
+
+    # ---- species ----------------------------------------------------------
+    def add_species(self, key: str, name: str, kind: str, pests: list[dict]) -> None:
+        self.data["species"][slug(key)] = {"name": name, "kind": kind, "pests": pests}
+        self._touch(True)
+
+    # ---- gardens ----------------------------------------------------------
+    def add_garden(self, name: str, ph_entity: str | None = None,
+                   ph_min: float = 6.0, ph_max: float = 6.8) -> str:
+        gid = self._unique(slug(name), self.data["gardens"])
+        self.data["gardens"][gid] = {
+            "id": gid, "name": name, "ph_entity": ph_entity or None, "ph_target": [ph_min, ph_max],
+            "adjunct_types": {a["key"]: dict(a) for a in DEFAULT_ADJUNCTS},
+            "adjuncts": [], "ph_readings": []}
+        self._touch(True)
+        return gid
+
+    def update_garden(self, ref: str, name: str | None = None, ph_entity: str | None = None,
+                      ph_min: float | None = None, ph_max: float | None = None) -> None:
+        g = self.find_garden(ref)
+        if name:
+            g["name"] = name
+        if ph_entity is not None:
+            g["ph_entity"] = ph_entity.strip() or None
+        lo, hi = g["ph_target"]
+        g["ph_target"] = [ph_min if ph_min is not None else lo, ph_max if ph_max is not None else hi]
+        self._touch(True)
+
+    def remove_garden(self, ref: str) -> None:
+        g = self.find_garden(ref)
+        if any(v["garden"] == g["id"] and not v.get("archived") for v in self.data["varieties"].values()):
+            raise GardenError("Archive or remove this garden's plants first")
+        for v in self.data["varieties"].values():
+            if v["garden"] == g["id"]:
+                v["garden_name"] = g["name"]
+        del self.data["gardens"][g["id"]]
+        self._touch(True)
+
+    def add_adjunct_type(self, garden: str, name: str, per_year: int | None = None,
+                         interval_days: int | None = None) -> None:
+        g = self.find_garden(garden)
+        key = self._unique(slug(name), g["adjunct_types"])
+        t: dict[str, Any] = {"key": key, "name": name}
+        if interval_days:
+            t["interval_days"] = interval_days
+        else:
+            t["per_year"] = per_year or 1
+        g["adjunct_types"][key] = t
+        self._touch(True)
+
+    def remove_adjunct_type(self, garden: str, adjunct: str) -> None:
+        g = self.find_garden(garden)
+        key = self._adjunct_key(g, adjunct)
+        del g["adjunct_types"][key]
+        self._touch(True)
+
+    @staticmethod
+    def _adjunct_key(g: dict, ref: str) -> str:
+        if ref in g["adjunct_types"]:
+            return ref
+        for k, t in g["adjunct_types"].items():
+            if t["name"].lower() == str(ref).lower():
+                return k
+        raise GardenError(f"'{ref}' is not an adjunct in {g['name']}")
+
+    def log_adjunct(self, garden: str, adjunct: str, when: Any = None, product: str | None = None,
+                    amount: str | None = None, notes: str | None = None) -> None:
+        g = self.find_garden(garden)
+        g["adjuncts"].append({"id": new_id(), "type": self._adjunct_key(g, adjunct),
+                              "date": iso(when) or self.today().isoformat(),
+                              "product": product, "amount": amount, "notes": notes})
+        self._touch()
+
+    def log_ph(self, garden: str, value: float, when: Any = None) -> None:
+        g = self.find_garden(garden)
+        if not 0 < value < 14:
+            raise GardenError("pH must be between 0 and 14")
+        g["ph_readings"].append({"id": new_id(), "date": iso(when) or self.today().isoformat(),
+                                 "value": round(value, 2), "source": "manual"})
+        self._touch()
+
+    def record_sensor_ph(self, gid: str, value: float) -> None:
+        g = self.data["gardens"].get(gid)
+        if not g or not 0 < value < 14:
+            return
+        today = self.today().isoformat()
+        for r in g["ph_readings"]:
+            if r["date"] == today and r["source"] == "sensor":
+                if r["value"] == round(value, 2):
+                    return
+                r["value"] = round(value, 2)
+                break
+        else:
+            g["ph_readings"].append({"id": new_id(), "date": today, "value": round(value, 2), "source": "sensor"})
+        self._touch()
+
+    # ---- varieties and plants -----------------------------------------------
+    def add_variety(self, garden: str, species: str, variety: str, plants: int = 1,
+                    origin: str = "seed", planted: Any = None, in_ground: Any = None,
+                    days_to_harvest: int | None = None, expected_harvest: Any = None,
+                    expected_yield: float | None = None, notes: str = "",
+                    kind: str | None = None) -> str:
+        g = self.find_garden(garden)
+        skey = slug(species)
+        sp = self.get_species(skey)
+        planted_d = iso(planted) or self.today().isoformat()
+        harvest = iso(expected_harvest)
+        auto = False
+        if not harvest and days_to_harvest:
+            harvest = (date.fromisoformat(planted_d) + timedelta(days=days_to_harvest)).isoformat()
+            auto = True
+        vid = self._unique(slug(variety or species), self.data["varieties"])
+        count = max(1, int(plants))
+        vkind = sp["kind"] if sp else (kind or "plant")
+        self.data["varieties"][vid] = {
+            "id": vid, "name": variety or species, "species": skey,
+            "species_name": sp["name"] if sp else species, "kind": vkind, "garden": g["id"],
+            "origin": origin, "planted": planted_d, "in_ground": iso(in_ground), "upotted": [],
+            "days_to_harvest": days_to_harvest, "expected_harvest": harvest, "expected_auto": auto,
+            "expected_yield": expected_yield, "notes": notes or "",
+            "plants": [{"id": new_id(), "label": f"Plant {i + 1}" if count > 1 or vkind != "tree" else variety or species,
+                        "status": "alive", "reason": "", "note": "", "status_date": None}
+                       for i in range(count)],
+            "harvests": [], "fertilizations": [], "sprays": [], "biofix": {}, "reviews": [],
+            "archived": None}
+        self._touch(True)
+        return vid
+
+    def update_variety(self, ref: str, name: str | None = None, garden: str | None = None,
+                       planted: Any = None, in_ground: Any = None, days_to_harvest: int | None = None,
+                       expected_harvest: Any = None, expected_yield: float | None = None,
+                       notes: str | None = None, add_plants: int | None = None) -> None:
+        v = self.find_variety(ref)
+        if name:
+            v["name"] = name
+        if garden:
+            v["garden"] = self.find_garden(garden)["id"]
+        if iso(planted):
+            v["planted"] = iso(planted)
+        if iso(in_ground):
+            v["in_ground"] = iso(in_ground)
+        if days_to_harvest:
+            v["days_to_harvest"] = days_to_harvest
+        if iso(expected_harvest):
+            v["expected_harvest"], v["expected_auto"] = iso(expected_harvest), False
+        else:
+            redo = (v.get("expected_auto") and (days_to_harvest or iso(planted))) or \
+                   (days_to_harvest and not v.get("expected_harvest"))
+            if redo and v.get("days_to_harvest"):
+                v["expected_harvest"] = (date.fromisoformat(v["planted"]) +
+                                         timedelta(days=v["days_to_harvest"])).isoformat()
+                v["expected_auto"] = True
+        if expected_yield is not None:
+            v["expected_yield"] = expected_yield
+        if notes is not None:
+            v["notes"] = notes
+        for _ in range(int(add_plants or 0)):
+            v["plants"].append({"id": new_id(), "label": f"Plant {len(v['plants']) + 1}", "status": "alive",
+                                "reason": "", "note": "", "status_date": None})
+        self._touch(True)
+
+    def set_harvest(self, ref: str, expected: Any = None, expected_yield: float | None = None) -> None:
+        v = self.find_variety(ref)
+        if iso(expected):
+            v["expected_harvest"], v["expected_auto"] = iso(expected), False
+        if expected_yield is not None:
+            v["expected_yield"] = expected_yield
+        self._touch()
+
+    def log_stage(self, ref: str, stage: str, when: Any = None) -> None:
+        v = self.find_variety(ref)
+        day = iso(when) or self.today().isoformat()
+        if stage == "upotted":
+            v["upotted"].append({"id": new_id(), "date": day})
+        elif stage in ("planted", "in_ground"):
+            v[stage] = day
+        else:
+            raise GardenError("Stage must be planted, upotted, or in_ground")
+        self._touch()
+
+    def log_fertilizer(self, ref: str, product: str, n: float | None = None, p: float | None = None,
+                       k: float | None = None, when: Any = None, notes: str | None = None) -> None:
+        v = self.find_variety(ref)
+        v["fertilizations"].append({"id": new_id(), "date": iso(when) or self.today().isoformat(),
+                                    "product": product, "n": n, "p": p, "k": k, "notes": notes})
+        self._touch()
+
+    def log_spray(self, ref: str, product: str, when: Any = None, target: str | None = None,
+                  phi_days: int | None = None, reapply_days: int | None = None) -> None:
+        v = self.find_variety(ref)
+        v["sprays"].append({"id": new_id(), "date": iso(when) or self.today().isoformat(),
+                            "product": product, "target": target,
+                            "phi_days": phi_days, "reapply_days": reapply_days})
+        self._touch()
+
+    def set_biofix(self, ref: str, pest: str, when: Any = None) -> None:
+        self.find_variety(ref)["biofix"][pest] = iso(when) or self.today().isoformat()
+        self._touch()
+
+    def add_review(self, ref: str, notes: str, year: int | None = None) -> None:
+        self.find_variety(ref)["reviews"].append(
+            {"id": new_id(), "year": year or self.today().year, "notes": notes})
+        self._touch()
+
+    def set_plant_status(self, ref: str, plant: str, status: str, reason: str | None = None,
+                         note: str | None = None, when: Any = None) -> None:
+        v = self.find_variety(ref)
+        p = next((x for x in v["plants"] if x["id"] == plant or x["label"].lower() == str(plant).lower()), None)
+        if p is None:
+            raise GardenError(f"No plant '{plant}' in {v['name']}")
+        if status not in STATUSES:
+            raise GardenError("Status must be alive, dead, or pulled")
+        if status == "alive":
+            p.update(status="alive", reason="", note="", status_date=None)
+        else:
+            if reason not in REASONS:
+                raise GardenError("Pick a reason: " + ", ".join(REASONS))
+            p.update(status=status, reason=reason, note=note or "",
+                     status_date=iso(when) or self.today().isoformat())
+        self._touch()
+
+    def log_harvest(self, ref: str, lbs: float, when: Any = None, notes: str | None = None) -> None:
+        v = self.find_variety(ref)
+        if lbs <= 0:
+            raise GardenError("Enter the pounds picked")
+        alive = [p["id"] for p in v["plants"] if p["status"] == "alive"]
+        if not alive:
+            raise GardenError("No living plants to receive this harvest")
+        v["harvests"].append({"id": new_id(), "date": iso(when) or self.today().isoformat(),
+                              "lbs": round(lbs, 3), "shares": calc.split_even(lbs, alive), "notes": notes})
+        self._touch()
+
+    # ---- editing and removing log entries -------------------------------------
+    def _parent(self, kind: str, parent: str) -> dict:
+        if kind not in KINDS:
+            raise GardenError(f"Unknown log type '{kind}'")
+        return self.find_garden(parent) if KINDS[kind][0] == "g" else self.find_variety(parent, True)
+
+    def delete_entry(self, kind: str, parent: str, entry_id: str) -> None:
+        owner = self._parent(kind, parent)
+        items = owner[KINDS[kind][1]]
+        idx, entry = self._entry(items, entry_id)
+        items.pop(idx)
+        self._trash = {"kind": kind, "owner": owner, "idx": idx, "entry": entry}
+        self._touch()
+
+    def undo_delete(self) -> None:
+        t = self._trash
+        if not t:
+            raise GardenError("Nothing to undo")
+        t["owner"][KINDS[t["kind"]][1]].insert(t["idx"], t["entry"])
+        self._trash = None
+        self._touch()
+
+    def edit_entry(self, kind: str, parent: str, entry_id: str, fields: dict) -> None:
+        owner = self._parent(kind, parent)
+        _, e = self._entry(owner[KINDS[kind][1]], entry_id)
+        for key, val in fields.items():
+            if key not in EDITABLE[kind] or val is None:
+                continue
+            if key == "date":
+                e["date"] = iso(val)
+            elif key == "lbs":
+                if val <= 0:
+                    raise GardenError("Pounds must be above zero")
+                ids = list(e["shares"])
+                e["lbs"], e["shares"] = round(val, 3), calc.split_even(val, ids)
+            elif key == "value":
+                if not 0 < val < 14:
+                    raise GardenError("pH must be between 0 and 14")
+                e["value"], e["source"] = round(val, 2), "manual"
+            elif key == "type":
+                e["type"] = self._adjunct_key(owner, val)
+            else:
+                e[key] = val
+        self._touch()
+
+    # ---- archive / next year ----------------------------------------------------
+    def archive_variety(self, ref: str, reason: str = "season_over", when: Any = None,
+                        notes: str | None = None, final_lbs: float | None = None) -> None:
+        v = self.find_variety(ref)
+        if reason not in ARCHIVE_REASONS:
+            raise GardenError("Reason must be season_over, pulled_early, or died")
+        day = iso(when) or self.today().isoformat()
+        if final_lbs and final_lbs > 0:
+            self.log_harvest(v["id"], final_lbs, day)
+        g = self.data["gardens"].get(v["garden"])
+        v["archived"] = {"date": day, "reason": reason, "notes": notes or "",
+                         "year": int(day[:4]), "garden_name": g["name"] if g else v.get("garden_name", "")}
+        self._touch(True)
+
+    def restore_variety(self, ref: str) -> None:
+        v = self.find_variety(ref, True)
+        v["archived"] = None
+        self._touch(True)
+
+    def plant_again(self, ref: str, planted: Any = None, plants: int | None = None,
+                    garden: str | None = None) -> str:
+        old = self.find_variety(ref, True)
+        gref = garden or old["garden"]
+        if gref not in self.data["gardens"]:
+            raise GardenError("Pick a garden for the new plants")
+        ypp = None
+        seasons = calc.seasons_for(
+            {**old, "id": "_new"}, self.data["varieties"], self.data["daily"], self.today())
+        if seasons:
+            ypp = round(calc.mean([s["yield_per_plant"] for s in seasons]), 1)
+        return self.add_variety(gref, old["species"], old["name"], plants or len(old["plants"]),
+                                old["origin"], planted, None, old.get("days_to_harvest"), None,
+                                ypp or old.get("expected_yield"), "", old["kind"])
+
+    def remove_variety(self, ref: str) -> None:
+        v = self.find_variety(ref, True)
+        del self.data["varieties"][v["id"]]
+        self._touch(True)
+
+    # ---- snapshot for the card and sensors --------------------------------------
+    def snapshot(self) -> dict:
+        key = (self._rev, self.today())
+        if self._cache and self._cache[0] == key:
+            return self._cache[1]
+        snap = self._build()
+        self._cache = (key, snap)
+        return snap
+
+    def index(self) -> dict:
+        s = self.snapshot()
+        return {"g": {g["id"]: g for g in s["gardens"]}, "v": {v["id"]: v for v in s["varieties"]}}
+
+    def _build(self) -> dict:
+        today, daily = self.today(), self.data["daily"]
+        species = {}
+        for k, sp in {**self.presets, **self.data["species"]}.items():
+            species[k] = {"key": k, "name": sp["name"], "kind": sp["kind"],
+                          "pests": [{"key": p["key"], "name": p["name"]} for p in sp.get("pests", [])],
+                          "feeding_plan": sp.get("feeding_plan", [])}
+        gardens = [self._garden_view(g, today) for g in self.data["gardens"].values()]
+        varieties = [self._variety_view(v, today, daily) for v in self.data["varieties"].values()]
+        varieties.sort(key=lambda x: (x["archived"] is not None, x["garden"], x["kind"], x["name"].lower()))
+        return {"today": today.isoformat(), "species": species, "gardens": gardens,
+                "varieties": varieties, "can_undo": self._trash is not None,
+                "reasons": REASONS}
+
+    def _garden_view(self, g: dict, today: date) -> dict:
+        hist = sorted(g["ph_readings"], key=lambda r: (r["date"], r["id"]))
+        cur, first = (hist[-1] if hist else None), (hist[0] if hist else None)
+        lo, hi = g["ph_target"]
+        level = None
+        if cur:
+            level = "ok" if lo <= cur["value"] <= hi else ("low" if cur["value"] < lo else "high")
+        names = {k: t["name"] for k, t in g["adjunct_types"].items()}
+        log = sorted(g["adjuncts"], key=lambda e: (e["date"], e["id"]), reverse=True)
+        return {
+            "id": g["id"], "name": g["name"],
+            "ph": {"entity": g.get("ph_entity"), "current": cur and cur["value"], "date": cur and cur["date"],
+                   "source": cur and cur["source"], "target": [lo, hi], "level": level,
+                   "first": first and {"date": first["date"], "value": first["value"]}, "history": hist},
+            "adjuncts": [calc.adjunct_status(t, g["adjuncts"], today) for t in g["adjunct_types"].values()],
+            "adjunct_log": [{**e, "type_name": names.get(e["type"], e["type"])} for e in log],
+        }
+
+    def _variety_view(self, v: dict, today: date, daily: dict) -> dict:
+        sp = self.get_species(v["species"]) or {}
+        kind = v["kind"]
+        totals = calc.plant_totals(v)
+        plants = [{"id": p["id"], "label": p["label"], "status": p["status"], "reason": p["reason"],
+                   "note": p["note"], "status_date": p["status_date"],
+                   "total": round(totals.get(p["id"], 0.0), 2)} for p in v["plants"]]
+        alive = [p for p in plants if p["status"] == "alive"]
+        labels = {p["id"]: p["label"] for p in v["plants"]}
+        harvests = [{**h, "to": [labels.get(pid, "removed plant") for pid in h["shares"]],
+                     "each": round(h["lbs"] / max(1, len(h["shares"])), 2)}
+                    for h in sorted(v["harvests"], key=lambda h: (h["date"], h["id"]), reverse=True)]
+        last_f, last_s = calc.latest(v["fertilizations"]), calc.latest(v["sprays"])
+        last_up = calc.latest(v["upotted"])
+        planted_d = date.fromisoformat(v["planted"])
+        days = {"planted": (today - planted_d).days, "upotted": calc.days_since(last_up and last_up["date"], today),
+                "in_ground": calc.days_since(v.get("in_ground"), today),
+                "fertilized": calc.days_since(last_f and last_f["date"], today)}
+        dh = calc.days_until(calc.d(v.get("expected_harvest")), today)
+        nxt, safe, cut = calc.next_spray_date(v), calc.safe_harvest_date(v), calc.spray_cutoff_date(v)
+        spray = {"days_since": calc.days_since(last_s and last_s["date"], today),
+                 "next_in": calc.days_until(nxt, today), "next_date": nxt and nxt.isoformat(),
+                 "safe_in": None if safe is None else max(0, (safe - today).days),
+                 "safe_date": safe and safe.isoformat(),
+                 "cutoff_in": calc.days_until(cut, today), "cutoff_date": cut and cut.isoformat()}
+        pests = []
+        for pest in sp.get("pests", []):
+            st = calc.pest_status(v, pest, daily, today)
+            rate = calc.recent_dd_rate(daily, today, 7, pest["lower_f"], pest["upper_f"])
+            est = None
+            if st and st["dd_to_next"] and rate > 0.5:
+                est = int(-(-st["dd_to_next"] // rate))
+            pests.append({"key": pest["key"], "name": pest["name"], "status": st, "est_days": est,
+                          "needs_biofix": st is None and not pest.get("default_biofix")})
+        feeding = None
+        plan = sp.get("feeding_plan")
+        if plan and kind != "tree":
+            ref_day = date.fromisoformat(v["in_ground"]) if v.get("in_ground") else planted_d
+            age = (today - ref_day).days
+            cur = max((i for i, ph in enumerate(plan) if ph["from_day"] <= age), default=0)
+            feeding = {"phases": plan, "current": cur}
+        seasons = calc.seasons_for(v, self.data["varieties"], daily, today)
+        proj = None if v.get("archived") else calc.project(v, seasons, daily, today, len(alive) or len(plants))
+        status = self._status(kind, dh, spray, pests, proj)
+        g = self.data["gardens"].get(v["garden"])
+        return {
+            "id": v["id"], "name": v["name"], "species": v["species"], "species_name": v["species_name"],
+            "kind": kind, "garden": v["garden"],
+            "garden_name": g["name"] if g else (v.get("archived") or {}).get("garden_name", v.get("garden_name", "")),
+            "origin": v["origin"], "planted": v["planted"], "in_ground": v.get("in_ground"),
+            "upotted": sorted(v["upotted"], key=lambda u: u["date"], reverse=True),
+            "days_to_harvest": v.get("days_to_harvest"), "expected_harvest": v.get("expected_harvest"),
+            "expected_yield": v.get("expected_yield"), "notes": v["notes"],
+            "age_years": round((today - planted_d).days / 365.25, 1), "days": days, "days_to_expected": dh,
+            "plants": plants, "alive": len(alive), "count": len(plants),
+            "total_lbs": round(sum(totals.values()), 2), "harvests": harvests,
+            "fertilizations": sorted(v["fertilizations"], key=lambda e: (e["date"], e["id"]), reverse=True),
+            "last_fert": last_f, "feeding": feeding,
+            "sprays": sorted(v["sprays"], key=lambda e: (e["date"], e["id"]), reverse=True),
+            "spray": spray, "pests": pests,
+            "reviews": sorted(v["reviews"], key=lambda e: (e["year"], e["id"]), reverse=True),
+            "projection": proj, "seasons": seasons, "status": status, "archived": v.get("archived"),
+        }
+
+    @staticmethod
+    def _status(kind: str, dh: int | None, spray: dict, pests: list, proj: dict | None) -> dict:
+        if kind == "tree":
+            if spray["safe_in"] and dh is not None and dh <= 21:
+                return {"level": "hold", "text": f"Hold: safe to pick in {spray['safe_in']} days"}
+            near = [(p["status"]["dd_to_next"], p) for p in pests
+                    if p["status"] and p["status"]["dd_to_next"] is not None and p["status"]["dd_to_next"] <= 40]
+            if near:
+                dd, p = min(near, key=lambda x: x[0])
+                est = p["est_days"]
+                return {"level": "spray", "text": f"Spray window in about {est} days" if est else "Spray window near"}
+            if spray["next_in"] is not None and spray["next_in"] <= 3:
+                n = spray["next_in"]
+                return {"level": "spray", "text": "Reapply spray due" if n <= 0 else f"Reapply spray in {n} days"}
+            return {"level": "ok", "text": "On track"}
+        if dh is not None and dh <= 0:
+            return {"level": "info", "text": "Harvest time"}
+        return {"level": "ok", "text": "On track"}
