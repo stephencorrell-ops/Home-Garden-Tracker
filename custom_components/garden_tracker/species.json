@@ -32,5 +32,6 @@
     {"from_day": 21, "name": "Flowering", "focus": "Moderate N, steady P and K"},
     {"from_day": 50, "name": "Fruiting", "focus": "Low N, higher K"},
     {"from_day": 100, "name": "Late season", "focus": "Ease off feeding"}]},
-  "cucumber": {"name": "Cucumber", "kind": "plant", "pests": []}
+  "cucumber": {"name": "Cucumber", "kind": "plant", "pests": []},
+  "garlic": {"name": "Garlic", "kind": "plant", "pests": []}
 }

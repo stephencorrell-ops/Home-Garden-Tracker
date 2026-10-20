@@ -309,7 +309,13 @@ class GardenTrackerCard extends HTMLElement {
     const id = v.id;
     let h = `<div class="card"><div class="row"><div class="grow"><div class="sec" style="margin:0">Harvest</div><div class="big">${num(v.total_lbs, 1)} lb</div></div>${!arch && v.alive ? this._btn("form-harvest", "basket", "Log harvest", `data-v="${id}"`, "primary") : ""}</div>`;
     if (!arch && !v.alive) h += `<div class="small mut">No living plants to receive a harvest.</div>`;
-    for (const p of v.plants) {
+    if (v.grouped) {
+      h += `<div class="plant"><div class="row"><div class="grow"><b style="font-weight:500">${v.alive} of ${v.count} plants alive</b><div class="small mut">Average ${num(v.per_plant_avg, 2)} lb per plant. Each pick is split evenly across the living plants.</div></div>${!arch && v.alive ? this._btn("form-lost", "alert", "Mark lost", `data-v="${id}"`) : ""}</div>`;
+      for (const g of v.lost) {
+        h += `<div class="row" style="margin-top:8px"><div class="pill bad grow" style="margin:0">${g.count} ${g.status === "pulled" ? "pulled early" : "died"}, ${esc(REASON_TEXT[g.reason] || g.reason)}${g.date ? ` · ${fmtDate(g.date)}` : ""}${g.note ? `: ${esc(g.note)}` : ""}</div>${arch ? "" : `<button data-act="restore-lost" data-v="${id}" data-n="${g.count}" data-s="${g.status}" data-r="${esc(g.reason)}" data-d="${g.date || ""}">Restore</button>`}</div>`;
+      }
+      h += `</div>`;
+    } else for (const p of v.plants) {
       h += `<div class="plant"><div class="row"><b style="font-weight:500" class="grow">${esc(p.label)}</b><span style="font-size:18px;font-weight:500">${num(p.total, 1)} lb</span></div>`;
       if (p.status !== "alive") h += `<div class="pill bad" style="margin:6px 0 0">${esc(STATUS_TEXT[p.status])}, ${esc(REASON_TEXT[p.reason] || p.reason)}${p.note ? `: ${esc(p.note)}` : ""}</div>`;
       if (!arch) h += `<div class="seg" style="margin-top:8px">${["alive", "dead", "pulled"].map((s) => `<button class="${p.status === s ? (s === "alive" ? "on" : "bad") : ""}" data-act="${s === "alive" ? "plant-alive" : "form-status"}" data-v="${id}" data-p="${p.id}" data-s="${s}">${STATUS_TEXT[s]}</button>`).join("")}</div>`;
@@ -318,7 +324,7 @@ class GardenTrackerCard extends HTMLElement {
     if (v.harvests.length) h += `<div class="sec" style="margin:12px 0 0">Pick history</div>`;
     for (const x of v.harvests) {
       h += this._logRow("harvest", id, x.id, `${fmtDate(x.date)}, ${num(x.lbs)} lb`,
-        `${num(x.each)} lb each to ${esc(x.to.join(", "))}${x.notes ? ` · ${esc(x.notes)}` : ""}`, `This takes ${num(x.each)} lb off each plant that received it.`);
+        `${num(x.each)} lb each to ${esc(x.to_text)}${x.notes ? ` · ${esc(x.notes)}` : ""}`, `This takes ${num(x.each)} lb off each plant that received it.`);
     }
     return h + `</div>`;
   }
@@ -442,6 +448,8 @@ class GardenTrackerCard extends HTMLElement {
       case "form-harvest": return this._open(this._fHarvest(this._variety(d.v)));
       case "form-fert": return this._open(this._fFert(this._variety(d.v)));
       case "form-spray": return this._open(this._fSpray(this._variety(d.v)));
+      case "form-lost": return this._open(this._fLost(this._variety(d.v)));
+      case "restore-lost": return this._act("restore_plants", { plant: d.v, count: Number(d.n), status: d.s, reason: d.r, ...(d.d ? { date: d.d } : {}) });
       case "form-status": return this._open(this._fStatus(this._variety(d.v), d.p, d.s));
       case "form-pull": return this._open(this._fPull(this._variety(d.v)));
       case "form-again": return this._open(this._fAgain(this._variety(d.v)));
@@ -642,6 +650,20 @@ class GardenTrackerCard extends HTMLElement {
       ],
       note: "Its harvest so far stays on this plant. Later picks are split across the plants still alive.",
       submit: (x) => this._call("set_plant_status", { plant: v.id, individual: pid, status, ...x }),
+    };
+  }
+  _fLost(v) {
+    return {
+      title: `Plants lost: ${v.name}`, submitLabel: "Confirm",
+      fields: [
+        { name: "count", label: `How many (of ${v.alive} alive)`, type: "number", step: "1", req: true, span: 3 },
+        { name: "status", label: "What happened", type: "seg", options: [["dead", "Died"], ["pulled", "Pulled early"]], value: "dead", span: 3 },
+        { name: "reason", label: "Reason", type: "chips", options: Object.entries(REASON_TEXT), req: true },
+        { name: "date", label: "Date", type: "date", value: this._snap.today, span: 3 },
+        { name: "note", label: "Note (optional)", type: "text", span: 3 },
+      ],
+      note: "Harvest so far stays with the lost plants. Later picks are split across the plants still alive.",
+      submit: (x) => this._call("mark_plants_lost", { plant: v.id, ...x }),
     };
   }
   _fPull(v) {

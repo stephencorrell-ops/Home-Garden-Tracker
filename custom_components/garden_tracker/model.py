@@ -9,6 +9,9 @@ from typing import Any, Callable
 from . import calc
 
 
+GROUP_MIN = 6  # plantings above this many plants are shown as one summary
+
+
 class GardenError(ValueError):
     """Raised for invalid requests."""
 
@@ -352,6 +355,40 @@ class GardenModel:
                      status_date=iso(when) or self.today().isoformat())
         self._touch()
 
+    def mark_plants_lost(self, ref: str, count: int, status: str = "dead", reason: str | None = None,
+                         note: str | None = None, when: Any = None) -> None:
+        """Mark `count` living plants dead/pulled in one go (for big plantings)."""
+        v = self.find_variety(ref)
+        if status not in ("dead", "pulled"):
+            raise GardenError("Status must be dead or pulled")
+        if reason not in REASONS:
+            raise GardenError("Pick a reason: " + ", ".join(REASONS))
+        alive = [p for p in v["plants"] if p["status"] == "alive"]
+        count = int(count)
+        if count < 1:
+            raise GardenError("Enter how many plants")
+        if count > len(alive):
+            raise GardenError(f"Only {len(alive)} living plants in {v['name']}")
+        stamp = iso(when) or self.today().isoformat()
+        for p in alive[-count:]:
+            p.update(status=status, reason=reason, note=note or "", status_date=stamp)
+        self._touch()
+
+    def restore_plants(self, ref: str, count: int, status: str | None = None,
+                       reason: str | None = None, when: Any = None) -> None:
+        """Bring `count` lost plants back to alive (most recently lost first)."""
+        v = self.find_variety(ref)
+        lost = [p for p in v["plants"] if p["status"] != "alive"
+                and (not status or p["status"] == status) and (not reason or p["reason"] == reason)
+                and (not when or p["status_date"] == iso(when))]
+        count = int(count)
+        if count < 1 or count > len(lost):
+            raise GardenError(f"{len(lost)} lost plants match")
+        lost.sort(key=lambda p: p["status_date"] or "")
+        for p in lost[-count:]:
+            p.update(status="alive", reason="", note="", status_date=None)
+        self._touch()
+
     def log_harvest(self, ref: str, lbs: float, when: Any = None, notes: str | None = None) -> None:
         v = self.find_variety(ref)
         if lbs <= 0:
@@ -496,14 +533,43 @@ class GardenModel:
         sp = self.get_species(v["species"]) or {}
         kind = v["kind"]
         totals = calc.plant_totals(v)
-        plants = [{"id": p["id"], "label": p["label"], "status": p["status"], "reason": p["reason"],
-                   "note": p["note"], "status_date": p["status_date"],
-                   "total": round(totals.get(p["id"], 0.0), 2)} for p in v["plants"]]
-        alive = [p for p in plants if p["status"] == "alive"]
+        allp = [{"id": p["id"], "label": p["label"], "status": p["status"], "reason": p["reason"],
+                 "note": p["note"], "status_date": p["status_date"],
+                 "total": round(totals.get(p["id"], 0.0), 2)} for p in v["plants"]]
+        alive = [p for p in allp if p["status"] == "alive"]
+        grouped = len(allp) > GROUP_MIN
+        lost: list[dict] = []
+        if grouped:
+            groups: dict[tuple, dict] = {}
+            for p in allp:
+                if p["status"] == "alive":
+                    continue
+                k = (p["status"], p["reason"], p["status_date"], p["note"])
+                gp = groups.setdefault(k, {"status": k[0], "reason": k[1], "date": k[2], "note": k[3],
+                                           "count": 0, "lbs": 0.0})
+                gp["count"] += 1
+                gp["lbs"] = round(gp["lbs"] + p["total"], 2)
+            lost = sorted(groups.values(), key=lambda x: x["date"] or "", reverse=True)
+            plants = []
+        else:
+            plants = allp
         labels = {p["id"]: p["label"] for p in v["plants"]}
-        harvests = [{**h, "to": [labels.get(pid, "removed plant") for pid in h["shares"]],
-                     "each": round(h["lbs"] / max(1, len(h["shares"])), 2)}
-                    for h in sorted(v["harvests"], key=lambda h: (h["date"], h["id"]), reverse=True)]
+
+        def to_text(shares: dict) -> str:
+            n = len(shares)
+            if grouped:
+                return "all plants" if n == len(allp) else f"{n} plants"
+            return ", ".join(labels.get(pid, "removed plant") for pid in shares)
+
+        harvests = []
+        for h in sorted(v["harvests"], key=lambda h: (h["date"], h["id"]), reverse=True):
+            hh = {k: val for k, val in h.items() if k != "shares"}
+            hh["to"] = [] if grouped else [labels.get(pid, "removed plant") for pid in h["shares"]]
+            hh["to_text"] = to_text(h["shares"])
+            hh["n"] = len(h["shares"])
+            hh["each"] = round(h["lbs"] / max(1, len(h["shares"])), 2)
+            harvests.append(hh)
+        per_avg = round(sum(p["total"] for p in allp) / max(1, len(allp)), 2)
         last_f, last_s = calc.latest(v["fertilizations"]), calc.latest(v["sprays"])
         last_up = calc.latest(v["upotted"])
         planted_d = date.fromisoformat(v["planted"])
@@ -534,7 +600,7 @@ class GardenModel:
             cur = max((i for i, ph in enumerate(plan) if ph["from_day"] <= age), default=0)
             feeding = {"phases": plan, "current": cur}
         seasons = calc.seasons_for(v, self.data["varieties"], daily, today)
-        proj = None if v.get("archived") else calc.project(v, seasons, daily, today, len(alive) or len(plants))
+        proj = None if v.get("archived") else calc.project(v, seasons, daily, today, len(alive) or len(allp))
         status = self._status(kind, dh, spray, pests, proj)
         g = self.data["gardens"].get(v["garden"])
         return {
@@ -546,7 +612,8 @@ class GardenModel:
             "days_to_harvest": v.get("days_to_harvest"), "expected_harvest": v.get("expected_harvest"),
             "expected_yield": v.get("expected_yield"), "notes": v["notes"],
             "age_years": round((today - planted_d).days / 365.25, 1), "days": days, "days_to_expected": dh,
-            "plants": plants, "alive": len(alive), "count": len(plants),
+            "plants": plants, "grouped": grouped, "lost": lost, "per_plant_avg": per_avg,
+            "alive": len(alive), "count": len(allp),
             "total_lbs": round(sum(totals.values()), 2), "harvests": harvests,
             "fertilizations": sorted(v["fertilizations"], key=lambda e: (e["date"], e["id"]), reverse=True),
             "last_fert": last_f, "feeding": feeding,

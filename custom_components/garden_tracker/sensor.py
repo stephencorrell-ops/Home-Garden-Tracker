@@ -32,9 +32,10 @@ COMMON = [
     Desc(key="total_lbs", name="Harvest total", device_class=SensorDeviceClass.WEIGHT,
          native_unit_of_measurement=UnitOfMass.POUNDS, state_class=SensorStateClass.TOTAL,
          value_fn=lambda v: v["total_lbs"],
-         attr_fn=lambda v: {"per_plant": {p["label"]: p["total"] for p in v["plants"]}, "alive": v["alive"]}),
+         attr_fn=lambda v: {"per_plant": {p["label"]: p["total"] for p in v["plants"]} if not v["grouped"]
+                            else {"average": v["per_plant_avg"]}, "alive": v["alive"]}),
     Desc(key="plants_alive", name="Plants alive", icon="mdi:sprout", value_fn=lambda v: v["alive"],
-         attr_fn=lambda v: {"plants": v["plants"]}),
+         attr_fn=lambda v: {"plants": v["plants"], "total": v["count"], "lost": v["lost"]}),
     Desc(key="to_harvest", name="Days to expected harvest", **_days(),
          value_fn=lambda v: v["days_to_expected"],
          attr_fn=lambda v: {"expected_harvest": v["expected_harvest"], "projection": v["projection"]}),
