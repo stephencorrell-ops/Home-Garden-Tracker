@@ -187,10 +187,12 @@ def adjunct_status(atype: dict, entries: list[dict], today: date) -> dict:
     mine = [e for e in entries if e["type"] == atype["key"]]
     last = latest(mine)
     count = len([e for e in mine if e["date"][:4] == str(today.year)])
-    out = {"key": atype["key"], "name": atype["name"], "per_year": atype.get("per_year"),
+    out = {"key": atype["key"], "name": atype["name"], "per_year": atype.get("per_year"), "as_needed": bool(atype.get("as_needed")),
            "interval_days": atype.get("interval_days"), "count": count, "last": last,
            "days_since": days_since(last["date"], today) if last else None, "due_in": None}
-    if atype.get("interval_days"):
+    if atype.get("as_needed"):
+        out.update(level="ok" if count else "none", label=f"{count} this year" if count else "As needed")
+    elif atype.get("interval_days"):
         if not last:
             out.update(level="none", label="Not applied yet")
         else:

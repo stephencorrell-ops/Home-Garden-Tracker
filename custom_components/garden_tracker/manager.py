@@ -4,12 +4,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
+from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
+from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .const import SIGNAL_STRUCTURE, SIGNAL_UPDATE, STORAGE_KEY, STORAGE_VERSION
 from .model import GardenModel
@@ -50,32 +52,66 @@ class GardenManager(GardenModel):
         self.refresh_ph_listeners()
         async_dispatcher_send(self.hass, SIGNAL_STRUCTURE)
 
-    # ---- soil pH sensors -------------------------------------------------------
+    # ---- soil sensors (pH, moisture, EC, temperature) ---------------------------
     def refresh_ph_listeners(self) -> None:
         if self._ph_unsub:
             self._ph_unsub()
             self._ph_unsub = None
-        by_entity: dict[str, list[str]] = {}
+        by_entity: dict[str, set[tuple[str, str]]] = {}
         for g in self.data["gardens"].values():
             if g.get("ph_entity"):
-                by_entity.setdefault(g["ph_entity"], []).append(g["id"])
+                by_entity.setdefault(g["ph_entity"], set()).add((g["id"], "ph"))
+            for metric, ents in g.get("sensors", {}).items():
+                for ent in ents:
+                    by_entity.setdefault(ent, set()).add((g["id"], metric))
         if not by_entity:
             return
 
         @callback
         def _changed(event) -> None:
-            for gid in by_entity.get(event.data["entity_id"], []):
-                self._ingest_ph(gid, event.data.get("new_state"))
+            for gid, metric in by_entity.get(event.data["entity_id"], ()):
+                self._ingest(gid, metric)
 
         self._ph_unsub = async_track_state_change_event(self.hass, list(by_entity), _changed)
-        for ent, gids in by_entity.items():
-            for gid in gids:
-                self._ingest_ph(gid, self.hass.states.get(ent))
+        for pairs in by_entity.values():
+            for gid, metric in pairs:
+                self._ingest(gid, metric)
 
-    def _ingest_ph(self, gid: str, state) -> None:
+    def _convert(self, metric: str, state) -> float | None:
         if state is None or state.state in (STATE_UNKNOWN, STATE_UNAVAILABLE):
-            return
+            return None
         try:
-            self.record_sensor_ph(gid, float(state.state))
+            val = float(state.state)
         except ValueError:
+            return None
+        unit = (state.attributes.get("unit_of_measurement") or "").replace("μ", "µ").lower()
+        if metric == "soil_temp":
+            try:
+                return TemperatureConverter.convert(
+                    val, state.attributes.get("unit_of_measurement") or self.hass.config.units.temperature_unit,
+                    UnitOfTemperature.FAHRENHEIT)
+            except HomeAssistantError:
+                return None
+        if metric == "ec":
+            if unit in ("µs/cm", "us/cm"):
+                return val / 1000
+            if unit == "s/m":
+                return val * 10
+        return val
+
+    def _ingest(self, gid: str, metric: str) -> None:
+        g = self.data["gardens"].get(gid)
+        if not g:
             return
+        if metric == "ph":
+            state = self.hass.states.get(g.get("ph_entity") or "")
+            if state is not None and state.state not in (STATE_UNKNOWN, STATE_UNAVAILABLE):
+                try:
+                    self.record_sensor_ph(gid, float(state.state))
+                except ValueError:
+                    pass
+            return
+        vals = [v for v in (self._convert(metric, self.hass.states.get(e))
+                            for e in g.get("sensors", {}).get(metric, [])) if v is not None]
+        if vals:
+            self.record_sensor_metric(gid, metric, sum(vals) / len(vals))

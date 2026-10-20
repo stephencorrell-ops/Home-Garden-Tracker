@@ -26,10 +26,21 @@ DEFAULT_ADJUNCTS = [
     {"key": "gypsum", "name": "Gypsum", "per_year": 1},
     {"key": "micros", "name": "Micros", "interval_days": 42},
 ]
+METRICS = {
+    "moisture": {"name": "Soil moisture", "unit": "%", "lo": 0, "hi": 100},
+    "ec": {"name": "Soil EC", "unit": "mS/cm", "lo": 0, "hi": 30},
+    "soil_temp": {"name": "Soil temperature", "unit": "°F", "lo": -40, "hi": 160},
+}
+# Rule-of-thumb minimum soil temperatures (°F) for sowing or transplanting.
+PLANTING_TEMPS = [
+    ("Peas, spinach, lettuce", 40), ("Carrots, beets, onions", 45), ("Potatoes", 45),
+    ("Corn, beans", 60), ("Tomatoes", 60), ("Peppers, squash, cucumbers", 65), ("Melons", 70),
+]
 KINDS = {  # entry kind -> (parent type, list key)
     "harvest": ("v", "harvests"), "fertilizer": ("v", "fertilizations"), "spray": ("v", "sprays"),
     "review": ("v", "reviews"), "upotted": ("v", "upotted"),
     "adjunct": ("g", "adjuncts"), "ph": ("g", "ph_readings"),
+    "moisture": ("g", "moisture"), "ec": ("g", "ec"), "soil_temp": ("g", "soil_temp"),
 }
 EDITABLE = {
     "harvest": ("lbs", "date", "notes"),
@@ -37,6 +48,7 @@ EDITABLE = {
     "spray": ("product", "target", "phi_days", "reapply_days", "date"),
     "review": ("notes", "year"), "upotted": ("date",),
     "adjunct": ("type", "product", "amount", "date", "notes"), "ph": ("value", "date"),
+    "moisture": ("value", "date"), "ec": ("value", "date"), "soil_temp": ("value", "date"),
 }
 
 
@@ -78,6 +90,14 @@ class GardenModel:
             for k in self.data:
                 if k in stored:
                     self.data[k] = stored[k]
+        for g in self.data["gardens"].values():
+            self._ensure_garden(g)
+
+    @staticmethod
+    def _ensure_garden(g: dict) -> None:
+        for k in METRICS:
+            g.setdefault(k, [])
+        g.setdefault("sensors", {})
 
     def today(self) -> date:
         return self._today_fn()
@@ -148,6 +168,7 @@ class GardenModel:
             "id": gid, "name": name, "ph_entity": ph_entity or None, "ph_target": [ph_min, ph_max],
             "adjunct_types": {a["key"]: dict(a) for a in DEFAULT_ADJUNCTS},
             "adjuncts": [], "ph_readings": []}
+        self._ensure_garden(self.data["gardens"][gid])
         self._touch(True)
         return gid
 
@@ -202,7 +223,16 @@ class GardenModel:
     def log_adjunct(self, garden: str, adjunct: str, when: Any = None, product: str | None = None,
                     amount: str | None = None, notes: str | None = None) -> None:
         g = self.find_garden(garden)
-        g["adjuncts"].append({"id": new_id(), "type": self._adjunct_key(g, adjunct),
+        try:
+            key = self._adjunct_key(g, adjunct)
+        except GardenError:
+            name = str(adjunct).strip()
+            if not name:
+                raise
+            key = self._unique(slug(name), g["adjunct_types"])
+            g["adjunct_types"][key] = {"key": key, "name": name, "as_needed": True}
+            self._touch(True)
+        g["adjuncts"].append({"id": new_id(), "type": key,
                               "date": iso(when) or self.today().isoformat(),
                               "product": product, "amount": amount, "notes": notes})
         self._touch()
@@ -228,6 +258,54 @@ class GardenModel:
                 break
         else:
             g["ph_readings"].append({"id": new_id(), "date": today, "value": round(value, 2), "source": "sensor"})
+        self._touch()
+
+    # ---- soil moisture, EC and temperature --------------------------------------
+    def _metric(self, metric: str) -> dict:
+        if metric not in METRICS:
+            raise GardenError("Metric must be one of: " + ", ".join(METRICS))
+        return METRICS[metric]
+
+    def set_sensors(self, garden: str, metric: str, entities: list[str]) -> None:
+        g = self.find_garden(garden)
+        self._metric(metric)
+        clean: list[str] = []
+        for e in entities:
+            e = str(e).strip()
+            if e and e not in clean:
+                clean.append(e)
+        g["sensors"][metric] = clean
+        self._touch(True)
+
+    def log_metric(self, garden: str, metric: str, value: float, when: Any = None) -> None:
+        g = self.find_garden(garden)
+        spec = self._metric(metric)
+        if not spec["lo"] <= value <= spec["hi"]:
+            raise GardenError(f"{spec['name']} must be between {spec['lo']} and {spec['hi']} {spec['unit']}")
+        g[metric].append({"id": new_id(), "date": iso(when) or self.today().isoformat(),
+                          "value": round(value, 2), "source": "manual"})
+        self._touch()
+
+    def record_sensor_metric(self, gid: str, metric: str, value: float) -> None:
+        """Fold one averaged sensor reading into today's entry (mean, last, min, max)."""
+        g = self.data["gardens"].get(gid)
+        spec = METRICS.get(metric)
+        if not g or not spec or not spec["lo"] <= value <= spec["hi"]:
+            return
+        today = self.today().isoformat()
+        value = round(value, 2)
+        for r in g[metric]:
+            if r["date"] == today and r["source"] == "sensor":
+                if r.get("last") == value:
+                    return
+                r["n"] = r.get("n", 1) + 1
+                r["sum"] = round(r.get("sum", r["value"]) + value, 3)
+                r["min"], r["max"] = min(r.get("min", value), value), max(r.get("max", value), value)
+                r["last"], r["value"] = value, round(r["sum"] / r["n"], 2)
+                break
+        else:
+            g[metric].append({"id": new_id(), "date": today, "value": value, "last": value, "min": value,
+                              "max": value, "n": 1, "sum": value, "source": "sensor"})
         self._touch()
 
     # ---- varieties and plants -----------------------------------------------
@@ -435,6 +513,12 @@ class GardenModel:
                     raise GardenError("Pounds must be above zero")
                 ids = list(e["shares"])
                 e["lbs"], e["shares"] = round(val, 3), calc.split_even(val, ids)
+            elif key == "value" and kind in METRICS:
+                spec = METRICS[kind]
+                if not spec["lo"] <= val <= spec["hi"]:
+                    raise GardenError(f"{spec['name']} must be between {spec['lo']} and {spec['hi']} {spec['unit']}")
+                e["value"], e["source"] = round(val, 2), "manual"
+                e.pop("min", None), e.pop("max", None), e.pop("last", None)
             elif key == "value":
                 if not 0 < val < 14:
                     raise GardenError("pH must be between 0 and 14")
@@ -520,14 +604,39 @@ class GardenModel:
             level = "ok" if lo <= cur["value"] <= hi else ("low" if cur["value"] < lo else "high")
         names = {k: t["name"] for k, t in g["adjunct_types"].items()}
         log = sorted(g["adjuncts"], key=lambda e: (e["date"], e["id"]), reverse=True)
+        metrics = {k: self._metric_view(g, k) for k in METRICS}
         return {
-            "id": g["id"], "name": g["name"],
+            "id": g["id"], "name": g["name"], "metrics": metrics,
+            "planting": self._planting_view(metrics["soil_temp"]),
             "ph": {"entity": g.get("ph_entity"), "current": cur and cur["value"], "date": cur and cur["date"],
                    "source": cur and cur["source"], "target": [lo, hi], "level": level,
                    "first": first and {"date": first["date"], "value": first["value"]}, "history": hist},
             "adjuncts": [calc.adjunct_status(t, g["adjuncts"], today) for t in g["adjunct_types"].values()],
             "adjunct_log": [{**e, "type_name": names.get(e["type"], e["type"])} for e in log],
         }
+
+    @staticmethod
+    def _metric_view(g: dict, key: str) -> dict:
+        spec = METRICS[key]
+        hist = sorted(g.get(key, []), key=lambda r: (r["date"], r["id"]))
+        cur = hist[-1] if hist else None
+        keep = ("id", "date", "value", "min", "max", "source")
+        return {"key": key, "name": spec["name"], "unit": spec["unit"],
+                "entities": list(g.get("sensors", {}).get(key, [])),
+                "current": cur and (cur.get("last", cur["value"]) if cur["source"] == "sensor" else cur["value"]),
+                "date": cur and cur["date"], "source": cur and cur["source"],
+                "min": cur and cur.get("min"), "max": cur and cur.get("max"),
+                "history": [{k: r[k] for k in keep if k in r} for r in hist[-180:]]}
+
+    @staticmethod
+    def _planting_view(temp: dict) -> dict | None:
+        """Is the soil warm enough? Uses the average of the last 3 daily lows (or readings)."""
+        hist = temp["history"][-3:]
+        if not hist:
+            return None
+        basis = round(sum(r.get("min", r["value"]) for r in hist) / len(hist), 1)
+        return {"basis": basis, "days": len(hist),
+                "crops": [{"name": n, "min_f": t, "ready": basis >= t} for n, t in PLANTING_TEMPS]}
 
     def _variety_view(self, v: dict, today: date, daily: dict) -> dict:
         sp = self.get_species(v["species"]) or {}

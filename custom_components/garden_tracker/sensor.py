@@ -8,7 +8,7 @@ from typing import Any
 from homeassistant.components.sensor import (
     SensorDeviceClass, SensorEntity, SensorEntityDescription, SensorStateClass)
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfMass, UnitOfTime
+from homeassistant.const import PERCENTAGE, UnitOfMass, UnitOfTemperature, UnitOfTime
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
@@ -157,6 +157,44 @@ class GardenPhSensor(_Base):
         return {"target": g["ph"]["target"], "level": g["ph"]["level"], "date": g["ph"]["date"]} if g else None
 
 
+class GardenMetricSensor(_Base):
+    """Soil moisture, EC or temperature for a garden (averaged across its sensors)."""
+
+    _UNITS = {"moisture": PERCENTAGE, "ec": "mS/cm", "soil_temp": UnitOfTemperature.FAHRENHEIT}
+    _CLASS = {"moisture": SensorDeviceClass.MOISTURE, "ec": None, "soil_temp": SensorDeviceClass.TEMPERATURE}
+    _ICON = {"moisture": "mdi:water-percent", "ec": "mdi:flash", "soil_temp": "mdi:thermometer"}
+
+    def __init__(self, mgr, known, gid: str, g: dict, metric: str) -> None:
+        super().__init__(mgr, known, f"{gid}_{metric}", f"garden:{gid}", g["name"], "Garden")
+        self._gid, self._metric = gid, metric
+        self._attr_name = g["metrics"][metric]["name"]
+        self._attr_native_unit_of_measurement = self._UNITS[metric]
+        self._attr_device_class = self._CLASS[metric]
+        self._attr_icon = self._ICON[metric]
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+
+    def _m(self):
+        g = self._mgr.index()["g"].get(self._gid)
+        return g["metrics"][self._metric] if g else None
+
+    @property
+    def available(self) -> bool:
+        return self._m() is not None
+
+    @property
+    def native_value(self):
+        m = self._m()
+        return m["current"] if m else None
+
+    @property
+    def extra_state_attributes(self):
+        m = self._m()
+        if not m:
+            return None
+        return {"today_min": m["min"], "today_max": m["max"], "date": m["date"],
+                "source": m["source"], "sensors": m["entities"]}
+
+
 class AdjunctSensor(_Base):
     _attr_device_class = SensorDeviceClass.DURATION
     _attr_native_unit_of_measurement = UnitOfTime.DAYS
@@ -191,6 +229,9 @@ def _build(mgr: GardenManager, known: set) -> list:
     for g in snap["gardens"]:
         if f"{g['id']}_ph" not in known:
             ents.append(GardenPhSensor(mgr, known, g["id"], g))
+        for metric in g["metrics"]:
+            if f"{g['id']}_{metric}" not in known:
+                ents.append(GardenMetricSensor(mgr, known, g["id"], g, metric))
         for a in g["adjuncts"]:
             if f"{g['id']}_adj_{a['key']}" not in known:
                 ents.append(AdjunctSensor(mgr, known, g["id"], g, a))

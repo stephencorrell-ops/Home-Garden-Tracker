@@ -102,6 +102,31 @@ function phChart(ph, adjLog) {
     <text class="ax" x="${L}" y="${H - 6}">${fmtDate(hs[0].date)}</text><text class="ax" text-anchor="end" x="${W - R}" y="${H - 6}">${fmtDate(hs[hs.length - 1].date)}</text></svg>`;
 }
 
+function metricChart(m) {
+  const hs = m.history;
+  if (hs.length < 2) return `<div class="mut small">Two days of readings will draw a trend.</div>`;
+  const W = 340, H = 110, L = 34, R = 8, T = 10, B = 20;
+  const ds = hs.map((r) => Date.parse(r.date));
+  const t0 = Math.min(...ds), t1 = Math.max(Math.max(...ds), t0 + 864e5 * 7);
+  const all = hs.flatMap((r) => [r.value, r.min ?? r.value, r.max ?? r.value]);
+  let lo = Math.min(...all), hi = Math.max(...all);
+  if (hi - lo < 1e-6) { lo -= 1; hi += 1; }
+  const pad = (hi - lo) * 0.1; lo -= pad; hi += pad;
+  const x = (t) => L + ((t - t0) / (t1 - t0)) * (W - L - R);
+  const y = (v) => T + ((hi - v) / (hi - lo)) * (H - T - B);
+  const band = hs.filter((r) => r.max !== undefined);
+  const area = band.length > 1 ? `<polygon points="${band.map((r) => `${x(Date.parse(r.date)).toFixed(1)},${y(r.max).toFixed(1)}`).join(" ")} ${band.slice().reverse().map((r) => `${x(Date.parse(r.date)).toFixed(1)},${y(r.min).toFixed(1)}`).join(" ")}" fill="var(--primary-color)" opacity="0.18"/>` : "";
+  const pts = hs.map((r) => `${x(Date.parse(r.date)).toFixed(1)},${y(r.value).toFixed(1)}`).join(" ");
+  const f = (v) => (Math.abs(hi - lo) < 10 ? v.toFixed(1) : Math.round(v));
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${esc(m.name)} over time">
+    <line x1="${L}" y1="${H - B}" x2="${W - R}" y2="${H - B}" stroke="var(--divider-color)"/>
+    <text class="ax" x="2" y="${T + 8}">${f(hi)}</text><text class="ax" x="2" y="${H - B - 2}">${f(lo)}</text>
+    ${area}<polyline points="${pts}" fill="none" stroke="var(--primary-color)" stroke-width="2"/>
+    <text class="ax" x="${L}" y="${H - 5}">${fmtDate(hs[0].date)}</text><text class="ax" text-anchor="end" x="${W - R}" y="${H - 5}">${fmtDate(hs[hs.length - 1].date)}</text></svg>`;
+}
+const METRIC_ICON = { moisture: "water-percent", ec: "flash", soil_temp: "thermometer" };
+const METRIC_DEC = { moisture: 0, ec: 2, soil_temp: 0 };
+
 class GardenTrackerCard extends HTMLElement {
   setConfig(config) {
     this._config = config || {};
@@ -382,10 +407,10 @@ class GardenTrackerCard extends HTMLElement {
     h += `<div class="row" style="margin-top:8px">${this._btn("form-ph", "plus", "Log reading", `data-g="${gid}"`)}</div>`;
     const recent = ph.history.slice().reverse().slice(0, 5);
     for (const r of recent) h += this._logRow("ph", gid, r.id, `pH ${num(r.value, 1)}`, `${fmtDate(r.date)}, ${r.source}`);
-    h += `</div><div class="card"><div class="row"><div class="sec grow" style="margin:0">Soil adjuncts this season</div>${this._btn("form-atype", "plus", "Add", `data-g="${gid}"`)}</div>`;
+    h += `</div>${this._soilCards(g)}<div class="card"><div class="row"><div class="sec grow" style="margin:0">Soil adjuncts this season</div>${this._btn("form-adj", "plus", "Log something else", `data-g="${gid}" data-s="__new__"`)}${this._btn("form-atype", "calendar-plus", "Schedule", `data-g="${gid}"`)}</div>`;
     for (const a of g.adjuncts) {
       const per = a.per_year || 0;
-      const pips = per ? `<div class="pips" style="--c:var(--${a.level === "ok" ? "ok" : "spray"})">${Array.from({ length: per }, (_, i) => `<i class="${i < a.count ? "f" : ""}"></i>`).join("")}</div>` : "";
+      const pips = per && !a.as_needed ? `<div class="pips" style="--c:var(--${a.level === "ok" ? "ok" : "spray"})">${Array.from({ length: per }, (_, i) => `<i class="${i < a.count ? "f" : ""}"></i>`).join("")}</div>` : "";
       const sub = a.last ? `Last ${fmtDate(a.last.date)}${a.last.amount ? ", " + esc(a.last.amount) : ""}` : "Not applied yet";
       h += `<div class="adj ${a.level}"><div class="dot">${this._icon("flask-outline")}</div><div class="grow"><b style="font-weight:500;font-size:14px">${esc(a.name)}</b><div class="small mut">${sub}</div>${pips}</div><div style="text-align:right"><span class="pill ${a.level}" style="margin:0">${esc(a.label)}</span><div style="margin-top:4px"><button data-act="form-adj" data-g="${gid}" data-s="${a.key}">Log</button></div></div></div>`;
     }
@@ -396,6 +421,28 @@ class GardenTrackerCard extends HTMLElement {
     const mine = this._vars().filter((v) => v.garden === gid);
     h += `<div class="card"><div class="sec">Plants in this garden</div>${mine.map((v) => `<div class="lg" style="cursor:pointer" data-act="open-v" data-v="${v.id}"><div class="t">${esc(v.name)}<span>${esc(v.species_name)}${v.kind === "tree" ? "" : `, ${v.alive} of ${v.count} plants`}</span></div>${this._icon("chevron-right")}</div>`).join("") || `<div class="small mut">None yet.</div>`}<div class="row" style="margin-top:8px">${this._btn("form-variety", "plus", "Add plant", `data-g="${gid}"`)}</div></div>`;
     if (!mine.length) h += `<div class="card">${this._confirm === "rmg" ? `<div class="conf">Remove ${esc(g.name)}? Its adjunct and pH history will be lost.<div class="row"><button data-act="cancel-del">Keep</button><button class="danger" data-act="do-rmg" data-g="${gid}">Remove garden</button></div></div>` : `<button class="danger" data-act="ask-rmg">Remove garden</button>`}</div>`;
+    return h;
+  }
+
+  _soilCards(g) {
+    const gid = g.id;
+    let h = "";
+    for (const m of Object.values(g.metrics)) {
+      const d = METRIC_DEC[m.key], u = m.unit === "%" ? "%" : ` ${m.unit}`;
+      const src = m.entities.length ? `${m.entities.length} sensor${m.entities.length === 1 ? "" : "s"}, averaged` : "Manual";
+      h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon(METRIC_ICON[m.key])} ${esc(m.name)}</div><span class="small mut">${src}</span></div>`;
+      if (m.current !== null) {
+        h += `<div class="row" style="align-items:baseline;margin:6px 0"><span class="ph">${num(m.current, d)}${m.unit === "%" ? "%" : ""}</span><span class="small mut">${m.unit === "%" ? "" : esc(m.unit) + " "}${m.min !== null && m.min !== undefined ? `today ${num(m.min, d)} to ${num(m.max, d)}${m.unit === "%" ? "%" : ""}` : ""}</span></div>`;
+        h += `<div class="small mut" style="margin-bottom:8px">${m.source === "sensor" ? "Sensor" : "Manual reading"}, ${fmtDate(m.date)}</div>`;
+      } else h += `<div class="small mut" style="margin:6px 0">No readings yet. Pick sensors or log one by hand.</div>`;
+      h += metricChart(m);
+      if (m.key === "soil_temp" && g.planting) {
+        h += `<div class="small mut" style="margin:8px 0 4px">Planting guide, using the average of the last ${g.planting.days} night low${g.planting.days === 1 ? "" : "s"} (${num(g.planting.basis, 0)}°F)</div><div>${g.planting.crops.map((c) => `<span class="pill ${c.ready ? "ok" : "none"}" style="margin:2px 4px 2px 0">${esc(c.name)} ${c.min_f}°${c.ready ? "" : ", not yet"}</span>`).join("")}</div>`;
+      }
+      h += `<div class="row" style="margin-top:8px">${this._btn("form-metric", "plus", "Log reading", `data-g="${gid}" data-s="${m.key}"`)}${this._btn("form-sensors", "access-point", "Sensors", `data-g="${gid}" data-s="${m.key}"`)}</div>`;
+      for (const r of m.history.slice().reverse().filter((x) => x.source === "manual").slice(0, 3)) h += this._logRow(m.key, gid, r.id, `${esc(m.name)} ${num(r.value, d)}${u}`, `${fmtDate(r.date)}, manual`);
+      h += `</div>`;
+    }
     return h;
   }
 
@@ -458,6 +505,15 @@ class GardenTrackerCard extends HTMLElement {
       case "form-biofix": return this._open(this._fBiofix(this._variety(d.v), d.s));
       case "form-adj": return this._open(this._fAdjunct(this._garden(d.g), d.s));
       case "form-ph": return this._open(this._fPh(this._garden(d.g)));
+      case "form-metric": return this._open(this._fMetric(this._garden(d.g), d.s));
+      case "form-sensors": return this._open(this._fSensors(this._garden(d.g), d.s));
+      case "toggle": {
+        const cur = (this._form.values[d.f] || "").split(",").filter(Boolean);
+        const i = cur.indexOf(d.val);
+        if (i >= 0) cur.splice(i, 1); else cur.push(d.val);
+        this._form.values[d.f] = cur.join(",");
+        return this._render();
+      }
       case "form-atype": return this._open(this._fAType(this._garden(d.g)));
       case "edit-entry": return this._open(this._fEntry(d.k, d.p, d.e));
       case "pick": this._form.values[d.f] = d.val; return this._render();
@@ -514,6 +570,7 @@ class GardenTrackerCard extends HTMLElement {
       const label = x.labelFn ? x.labelFn(vals) : x.label, val = vals[x.name] ?? "";
       let ctl;
       if (x.type === "select") ctl = `<select data-f="${x.name}">${x.options.map(([v, t]) => `<option value="${esc(v)}" ${String(val) === String(v) ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>`;
+      else if (x.type === "multi") { const on = new Set(String(val).split(",").filter(Boolean)); ctl = `<div class="seg" style="flex-wrap:wrap">${x.options.map(([v, t]) => `<button data-act="toggle" data-f="${x.name}" data-val="${esc(v)}" class="${on.has(v) ? "on" : ""}">${esc(t)}</button>`).join("") || `<span class="small mut">No matching sensors found. Type entity ids below.</span>`}</div>`; }
       else if (x.type === "seg" || x.type === "chips") ctl = `<div class="seg">${x.options.map(([v, t]) => `<button data-act="pick" data-f="${x.name}" data-val="${esc(v)}" class="${val === v ? "on" : ""}">${esc(t)}</button>`).join("")}</div>`;
       else if (x.type === "textarea") ctl = `<textarea data-f="${x.name}" rows="3">${esc(val)}</textarea>`;
       else ctl = `<input data-f="${x.name}" type="${x.type || "text"}" value="${esc(val)}" ${x.step ? `step="${x.step}"` : ""} ${x.placeholder ? `placeholder="${esc(x.placeholder)}"` : ""} ${x.type === "number" ? 'inputmode="decimal"' : ""}>`;
@@ -729,13 +786,15 @@ class GardenTrackerCard extends HTMLElement {
     return {
       title: `Log adjunct: ${g.name}`, submitLabel: "Log",
       fields: [
-        { name: "adjunct", label: "Adjunct", type: "select", options: g.adjuncts.map((a) => [a.key, a.name]), value: key },
+        { name: "adjunct", label: "Adjunct", type: "select", options: [...g.adjuncts.map((a) => [a.key, a.name]), ["__new__", "Something else..."]], value: key },
+        { name: "custom", label: "What did you add?", type: "text", req: true, placeholder: "Lime, kelp meal, bone meal", show: (v) => v.adjunct === "__new__" },
         { name: "date", label: "Date", type: "date", value: this._snap.today, span: 3 },
         { name: "amount", label: "Amount", type: "text", placeholder: "2 lb per bed", span: 3 },
         { name: "product", label: "Product", type: "text" },
         { name: "notes", label: "Notes", type: "text" },
       ],
-      submit: (x) => this._call("log_adjunct", { garden: g.id, ...x }),
+      note: "Pick Something else for anything your soil needs. It is added to the list so you can log it again next time.",
+      submit: (x) => { const { custom, ...rest } = x; return this._call("log_adjunct", { garden: g.id, ...rest, adjunct: x.adjunct === "__new__" ? custom : x.adjunct }); },
     };
   }
   _fAType(g) {
@@ -760,9 +819,46 @@ class GardenTrackerCard extends HTMLElement {
       submit: (x) => this._call("log_ph", { garden: g.id, ...x }),
     };
   }
+  _fMetric(g, key) {
+    const m = g.metrics[key], u = m.unit;
+    return {
+      title: `Log ${m.name.toLowerCase()}: ${g.name}`, submitLabel: "Log",
+      fields: [
+        { name: "value", label: `${m.name} (${u})`, type: "number", step: key === "ec" ? "0.01" : "0.1", req: true, span: 3 },
+        { name: "date", label: "Date", type: "date", value: this._snap.today, span: 3 },
+      ],
+      note: key === "ec" ? "EC in mS/cm (same as dS/m)." : key === "soil_temp" ? "Soil temperature in °F." : "",
+      submit: (x) => this._call("log_garden_reading", { garden: g.id, metric: key, ...x }),
+    };
+  }
+  _sensorCandidates(key, selected) {
+    const st = (this._hass && this._hass.states) || {};
+    const out = [];
+    for (const [id, s] of Object.entries(st)) {
+      if (!id.startsWith("sensor.")) continue;
+      const a = s.attributes || {}, dc = a.device_class, unit = String(a.unit_of_measurement || "").toLowerCase();
+      const ok = key === "soil_temp" ? dc === "temperature" || /^°?[cf]$/.test(unit) || /soil.*temp|temp.*soil/.test(id)
+        : key === "ec" ? dc === "conductivity" || /s\/cm|ds\/m|s\/m/.test(unit) || /(^|_)ec(_|$)|conductiv/.test(id)
+        : dc === "moisture" || /moisture/.test(id);
+      if (ok || selected.includes(id)) out.push([id, `${a.friendly_name || id}${s.state && s.state !== "unknown" ? ` (${s.state}${a.unit_of_measurement ? " " + a.unit_of_measurement : ""})` : ""}`]);
+    }
+    return out.sort((p, q) => p[1].localeCompare(q[1]));
+  }
+  _fSensors(g, key) {
+    const m = g.metrics[key];
+    return {
+      title: `${m.name} sensors: ${g.name}`, submitLabel: "Save",
+      fields: [
+        { name: "pick", label: "Tap every sensor to include", type: "multi", options: this._sensorCandidates(key, m.entities), value: m.entities.join(",") },
+        { name: "extra", label: "Other entity ids (comma separated)", type: "text", placeholder: "sensor.bed_3_moisture" },
+      ],
+      note: "With several sensors, the garden uses their average. Leave all empty to log by hand. Today's low and high are tracked as readings come in.",
+      submit: (x) => this._call("set_garden_sensors", { garden: g.id, metric: key, entities: [...String(x.pick || "").split(","), ...String(x.extra || "").split(",")].map((e) => e.trim()).filter(Boolean) }),
+    };
+  }
   _findEntry(kind, parent, id) {
     const v = this._variety(parent), g = this._garden(parent);
-    const list = { harvest: v && v.harvests, fertilizer: v && v.fertilizations, spray: v && v.sprays, review: v && v.reviews, upotted: v && v.upotted, adjunct: g && g.adjunct_log, ph: g && g.ph.history }[kind];
+    const list = { harvest: v && v.harvests, fertilizer: v && v.fertilizations, spray: v && v.sprays, review: v && v.reviews, upotted: v && v.upotted, adjunct: g && g.adjunct_log, ph: g && g.ph.history, moisture: g && g.metrics.moisture.history, ec: g && g.metrics.ec.history, soil_temp: g && g.metrics.soil_temp.history }[kind];
     return (list || []).find((e) => e.id === id) || {};
   }
   _fEntry(kind, parent, id) {
@@ -775,6 +871,7 @@ class GardenTrackerCard extends HTMLElement {
       upotted: [{ name: "date", label: "Date", type: "date", value: e.date }],
       adjunct: [{ name: "type", label: "Adjunct", type: "select", options: g ? g.adjuncts.map((a) => [a.key, a.name]) : [], value: e.type }, { name: "date", label: "Date", type: "date", value: e.date, span: 3 }, { name: "amount", label: "Amount", type: "text", value: e.amount, span: 3 }, { name: "product", label: "Product", type: "text", value: e.product }, { name: "notes", label: "Notes", type: "text", value: e.notes }],
       ph: [{ name: "value", label: "pH", type: "number", step: "0.1", value: e.value, req: true, span: 3 }, { name: "date", label: "Date", type: "date", value: e.date, span: 3 }],
+      ...Object.fromEntries(["moisture", "ec", "soil_temp"].map((k) => [k, [{ name: "value", label: g && g.metrics[k] ? `${g.metrics[k].name} (${g.metrics[k].unit})` : "Value", type: "number", step: "0.01", value: e.value, req: true, span: 3 }, { name: "date", label: "Date", type: "date", value: e.date, span: 3 }]])),
     }[kind];
     return {
       title: "Edit entry", fields: F,
