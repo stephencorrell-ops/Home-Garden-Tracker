@@ -417,10 +417,15 @@ class GardenModel:
         sp = self.get_species(skey)
         planted_d = iso(planted) or self.today().isoformat()
         harvest = iso(expected_harvest)
-        if not days_to_harvest and sp and sp.get("default_days"):
+        rule = sp.get("harvest_rule") if sp else None
+        use_rule = bool(rule and not days_to_harvest and not harvest)
+        if not days_to_harvest and not use_rule and sp and sp.get("default_days"):
             days_to_harvest = int(sp["default_days"])
         auto = False
-        if not harvest and days_to_harvest:
+        if use_rule:
+            harvest = calc.rule_harvest_date(rule, date.fromisoformat(planted_d), self._first_frost(g)).isoformat()
+            auto = True
+        elif not harvest and days_to_harvest:
             harvest = (date.fromisoformat(planted_d) + timedelta(days=days_to_harvest)).isoformat()
             auto = True
         vid = self._unique(slug(variety or species), self.data["varieties"])
@@ -431,7 +436,7 @@ class GardenModel:
             "species_name": sp["name"] if sp else species, "kind": vkind, "garden": g["id"],
             "origin": origin, "planted": planted_d, "in_ground": iso(in_ground), "upotted": [],
             "days_to_harvest": days_to_harvest, "expected_harvest": harvest, "expected_auto": auto,
-            "expected_yield": expected_yield, "notes": notes or "",
+            "expected_yield": expected_yield, "notes": notes or "", "expected_rule": use_rule,
             "multi_year": ((bool(sp.get("multi_year")) if sp else False) or bool(multi_year)) if vkind != "tree" else False,
             "single_harvest": (bool(sp.get("single_harvest")) if sp else False) or bool(single_harvest) if vkind != "tree" else False,
             "plants": [{"id": new_id(), "label": f"Plant {i + 1}" if count > 1 or vkind != "tree" else variety or species,
@@ -462,6 +467,7 @@ class GardenModel:
             v["in_ground"] = iso(in_ground)
         if days_to_harvest:
             v["days_to_harvest"] = days_to_harvest
+            v["expected_rule"] = False
         if iso(expected_harvest):
             v["expected_harvest"], v["expected_auto"] = iso(expected_harvest), False
         else:
@@ -583,6 +589,22 @@ class GardenModel:
             sp = self.get_species(v["species"]) or {}
             flag = bool(sp.get("single_harvest"))
         return bool(flag)
+
+    def _first_frost(self, g: dict | None) -> str:
+        return ((g or {}).get("frost") or {}).get("first") or self.data["settings"]["frost_first"]
+
+    def _refresh_rule(self, v: dict) -> None:
+        """Keep a frost-based expected harvest date (horseradish) in step with the garden's frost date."""
+        sp = self.get_species(v["species"]) or {}
+        rule = sp.get("harvest_rule")
+        if not rule:
+            return
+        if v.get("expected_rule") is None and v.get("expected_auto") and v.get("days_to_harvest") == 730:
+            v["expected_rule"], v["days_to_harvest"] = True, None  # was the 0.6.0 blanket 730 days
+        if v.get("expected_rule") and v.get("expected_auto"):
+            g = self.data["gardens"].get(v["garden"])
+            v["expected_harvest"] = calc.rule_harvest_date(
+                rule, date.fromisoformat(v["planted"]), self._first_frost(g)).isoformat()
 
     def _multi(self, v: dict) -> bool:
         """True for slow crops (horseradish) whose countdown reads in years, months and days."""
@@ -775,7 +797,7 @@ class GardenModel:
                           "pests": [{"key": p["key"], "name": p["name"]} for p in sp.get("pests", [])],
                           "feeding_plan": sp.get("feeding_plan", []),
                           "single_harvest": bool(sp.get("single_harvest")),
-                          "multi_year": bool(sp.get("multi_year")), "default_days": sp.get("default_days")}
+                          "multi_year": bool(sp.get("multi_year")), "default_days": sp.get("default_days"), "harvest_rule": sp.get("harvest_rule")}
         gardens = [self._garden_view(g, today) for g in self.data["gardens"].values()]
         varieties = [self._variety_view(v, today, daily) for v in self.data["varieties"].values()]
         varieties.sort(key=lambda x: (x["archived"] is not None, x["garden"], x["kind"], x["name"].lower()))
@@ -858,6 +880,7 @@ class GardenModel:
                 "crops": [{"name": n, "min_f": t, "ready": basis >= t} for n, t in PLANTING_TEMPS]}
 
     def _variety_view(self, v: dict, today: date, daily: dict) -> dict:
+        self._refresh_rule(v)
         sp = self.get_species(v["species"]) or {}
         kind = v["kind"]
         totals = calc.plant_totals(v)

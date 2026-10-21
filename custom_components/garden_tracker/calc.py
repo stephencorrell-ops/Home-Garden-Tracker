@@ -263,3 +263,9 @@ def frost_status(last_md: str, first_md: str, today: date) -> dict | None:
     if today < first:
         return {"event": "first", "date": first.isoformat(), "days": (first - today).days}
     return None
+
+
+def rule_harvest_date(rule: dict, planted: date, first_frost_md: str) -> date:
+    """Harvest set by the first fall frost: N days after it, in the `year_offset`-th year after planting."""
+    frost = md_date(first_frost_md, planted.year + int(rule.get("year_offset", 1)))
+    return frost + timedelta(days=int(rule.get("after_first_frost_days", 21)))

@@ -654,7 +654,13 @@ class GardenTrackerCard extends HTMLElement {
         let h = "";
         const cg = this._snap.gardens.find((x) => x.id === v.garden), cb = cg && cg.cover && cg.cover.blocked;
         if (cb && kind(v) !== "tree") h += `<div class="pill warn">${cb.reason === "growing" ? "A cover crop is still growing here." : `Cover crop wait: ${cb.days_left} more day${cb.days_left === 1 ? "" : "s"} (ready ${fmtDate(cb.date, true)}).`}</div>`;
-        const dth = Number(v.days_to_harvest) || ((this._snap.species[v.species] || {}).default_days) || 0;
+        const spc = this._snap.species[v.species] || {}, rule = spc.harvest_rule;
+        if (rule && !v.days_to_harvest && !v.expected_harvest_date && v.planted_date) {
+          const gd = this._snap.gardens.find((x) => x.id === v.garden), md = gd ? gd.frost.first : "10-15";
+          const when = this._isoAdd(`${Number(String(v.planted_date).slice(0, 4)) + (rule.year_offset || 1)}-${md}`, rule.after_first_frost_days || 21);
+          h += `<div class="pill ok">Expected harvest ${fmtDate(when, true)}: ${Math.round((rule.after_first_frost_days || 21) / 7)} weeks after the first fall frost, ${rule.year_offset === 1 ? "second" : "later"} year</div>`;
+        }
+        const dth = Number(v.days_to_harvest) || (rule ? 0 : spc.default_days) || 0;
         if (kind(v) !== "tree" && dth && v.planted_date) h += `<div class="pill ok">Expected first harvest ${fmtDate(this._isoAdd(v.planted_date, dth), true)}${v.days_to_harvest ? "" : ` (${dth} days, the usual for this crop)`}</div>`;
         const past = this._snap.varieties.filter((x) => x.species === key(v) && v.variety && x.name.toLowerCase() === v.variety.toLowerCase());
         const s = past.map((x) => x.seasons).sort((a, b) => b.length - a.length)[0];

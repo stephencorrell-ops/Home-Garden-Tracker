@@ -37,5 +37,6 @@
   "onion": {"name": "Onion", "kind": "plant", "pests": [], "single_harvest": true},
   "carrot": {"name": "Carrot", "kind": "plant", "pests": [], "single_harvest": true},
   "potato": {"name": "Potato", "kind": "plant", "pests": [], "single_harvest": true},
-  "horseradish": {"name": "Horseradish", "kind": "plant", "pests": [], "single_harvest": true, "multi_year": true, "default_days": 730}
+  "horseradish": {"name": "Horseradish", "kind": "plant", "pests": [], "single_harvest": true, "multi_year": true,
+    "harvest_rule": {"after_first_frost_days": 21, "year_offset": 1}}
 }
