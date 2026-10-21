@@ -1,42 +1,323 @@
 {
-  "_comment": "STARTER VALUES ONLY. Verify thresholds and feeding focus with your extension service and product labels. Add or override species with the garden_tracker.add_species service.",
-  "apple": {"name": "Apple", "kind": "tree", "pests": [
-    {"key": "codling_moth", "name": "Codling moth", "lower_f": 50, "upper_f": 88, "default_biofix": null,
-     "milestones": [
-       {"dd": 250, "note": "Egg hatch begins: first cover spray window"},
-       {"dd": 1050, "note": "Second generation begins: check traps, reapply per label"}]}]},
-  "pear": {"name": "Pear", "kind": "tree", "pests": [
-    {"key": "codling_moth", "name": "Codling moth", "lower_f": 50, "upper_f": 88, "default_biofix": null,
-     "milestones": [
-       {"dd": 250, "note": "Egg hatch begins: first cover spray window"},
-       {"dd": 1050, "note": "Second generation begins: check traps, reapply per label"}]}]},
-  "asian_pear": {"name": "Asian pear", "kind": "tree", "pests": [
-    {"key": "codling_moth", "name": "Codling moth", "lower_f": 50, "upper_f": 88, "default_biofix": null,
-     "milestones": [
-       {"dd": 250, "note": "Egg hatch begins: first cover spray window"},
-       {"dd": 1050, "note": "Second generation begins: check traps, reapply per label"}]}]},
-  "cherry": {"name": "Cherry", "kind": "tree", "pests": [
-    {"key": "cherry_fruit_fly", "name": "Western cherry fruit fly", "lower_f": 41, "upper_f": 95, "default_biofix": "01-01",
-     "milestones": [
-       {"dd": 900, "note": "Hang traps, start scouting"},
-       {"dd": 1000, "note": "Adults emerging: protective spray window"}]}]},
-  "nectarine": {"name": "Nectarine", "kind": "tree", "pests": []},
-  "pawpaw": {"name": "Pawpaw", "kind": "tree", "pests": []},
-  "tomato": {"name": "Tomato", "kind": "plant", "pests": [], "feeding_plan": [
-    {"from_day": 0, "name": "Establish", "focus": "Balanced, a little extra P"},
-    {"from_day": 21, "name": "Flowering", "focus": "Moderate N, steady P and K"},
-    {"from_day": 50, "name": "Fruiting", "focus": "Low N, higher K"},
-    {"from_day": 100, "name": "Late season", "focus": "Ease off feeding"}]},
-  "pepper": {"name": "Pepper", "kind": "plant", "pests": [], "feeding_plan": [
-    {"from_day": 0, "name": "Establish", "focus": "Balanced, a little extra P"},
-    {"from_day": 21, "name": "Flowering", "focus": "Moderate N, steady P and K"},
-    {"from_day": 50, "name": "Fruiting", "focus": "Low N, higher K"},
-    {"from_day": 100, "name": "Late season", "focus": "Ease off feeding"}]},
-  "cucumber": {"name": "Cucumber", "kind": "plant", "pests": []},
-  "garlic": {"name": "Garlic", "kind": "plant", "pests": [], "single_harvest": true},
-  "onion": {"name": "Onion", "kind": "plant", "pests": [], "single_harvest": true},
-  "carrot": {"name": "Carrot", "kind": "plant", "pests": [], "single_harvest": true},
-  "potato": {"name": "Potato", "kind": "plant", "pests": [], "single_harvest": true},
-  "horseradish": {"name": "Horseradish", "kind": "plant", "pests": [], "single_harvest": true, "multi_year": true,
-    "harvest_rule": {"after_first_frost_days": 21, "year_offset": 1}}
+ "_comment": "STARTER VALUES ONLY. Verify thresholds and feeding focus with your extension service and product labels. Add or override species with the garden_tracker.add_species service.",
+ "apple": {
+  "name": "Apple",
+  "kind": "tree",
+  "pests": [
+   {
+    "key": "codling_moth",
+    "name": "Codling moth",
+    "lower_f": 50,
+    "upper_f": 88,
+    "default_biofix": null,
+    "milestones": [
+     {
+      "dd": 250,
+      "note": "Egg hatch begins: first cover spray window"
+     },
+     {
+      "dd": 1050,
+      "note": "Second generation begins: check traps, reapply per label"
+     }
+    ]
+   }
+  ]
+ },
+ "pear": {
+  "name": "Pear",
+  "kind": "tree",
+  "pests": [
+   {
+    "key": "codling_moth",
+    "name": "Codling moth",
+    "lower_f": 50,
+    "upper_f": 88,
+    "default_biofix": null,
+    "milestones": [
+     {
+      "dd": 250,
+      "note": "Egg hatch begins: first cover spray window"
+     },
+     {
+      "dd": 1050,
+      "note": "Second generation begins: check traps, reapply per label"
+     }
+    ]
+   }
+  ]
+ },
+ "asian_pear": {
+  "name": "Asian pear",
+  "kind": "tree",
+  "pests": [
+   {
+    "key": "codling_moth",
+    "name": "Codling moth",
+    "lower_f": 50,
+    "upper_f": 88,
+    "default_biofix": null,
+    "milestones": [
+     {
+      "dd": 250,
+      "note": "Egg hatch begins: first cover spray window"
+     },
+     {
+      "dd": 1050,
+      "note": "Second generation begins: check traps, reapply per label"
+     }
+    ]
+   }
+  ]
+ },
+ "cherry": {
+  "name": "Cherry",
+  "kind": "tree",
+  "pests": [
+   {
+    "key": "cherry_fruit_fly",
+    "name": "Western cherry fruit fly",
+    "lower_f": 41,
+    "upper_f": 95,
+    "default_biofix": "01-01",
+    "milestones": [
+     {
+      "dd": 900,
+      "note": "Hang traps, start scouting"
+     },
+     {
+      "dd": 1000,
+      "note": "Adults emerging: protective spray window"
+     }
+    ]
+   }
+  ]
+ },
+ "nectarine": {
+  "name": "Nectarine",
+  "kind": "tree",
+  "pests": []
+ },
+ "pawpaw": {
+  "name": "Pawpaw",
+  "kind": "tree",
+  "pests": []
+ },
+ "tomato": {
+  "name": "Tomato",
+  "kind": "plant",
+  "pests": [],
+  "feeding_plan": [
+   {
+    "from_day": 0,
+    "name": "Establish",
+    "focus": "Balanced, a little extra P"
+   },
+   {
+    "from_day": 21,
+    "name": "Flowering",
+    "focus": "Moderate N, steady P and K"
+   },
+   {
+    "from_day": 50,
+    "name": "Fruiting",
+    "focus": "Low N, higher K"
+   },
+   {
+    "from_day": 100,
+    "name": "Late season",
+    "focus": "Ease off feeding"
+   }
+  ]
+ },
+ "pepper": {
+  "name": "Pepper",
+  "kind": "plant",
+  "pests": [],
+  "feeding_plan": [
+   {
+    "from_day": 0,
+    "name": "Establish",
+    "focus": "Balanced, a little extra P"
+   },
+   {
+    "from_day": 21,
+    "name": "Flowering",
+    "focus": "Moderate N, steady P and K"
+   },
+   {
+    "from_day": 50,
+    "name": "Fruiting",
+    "focus": "Low N, higher K"
+   },
+   {
+    "from_day": 100,
+    "name": "Late season",
+    "focus": "Ease off feeding"
+   }
+  ]
+ },
+ "cucumber": {
+  "name": "Cucumber",
+  "kind": "plant",
+  "pests": []
+ },
+ "garlic": {
+  "name": "Garlic",
+  "kind": "plant",
+  "pests": [],
+  "single_harvest": true
+ },
+ "onion": {
+  "name": "Onion (yellow)",
+  "kind": "plant",
+  "pests": [],
+  "single_harvest": true
+ },
+ "carrot": {
+  "name": "Carrot",
+  "kind": "plant",
+  "pests": [],
+  "single_harvest": true
+ },
+ "potato": {
+  "name": "Potato",
+  "kind": "plant",
+  "pests": [],
+  "single_harvest": true
+ },
+ "horseradish": {
+  "name": "Horseradish",
+  "kind": "plant",
+  "pests": [],
+  "single_harvest": true,
+  "multi_year": true,
+  "harvest_rule": {
+   "after_first_frost_days": 21,
+   "year_offset": 1
+  }
+ },
+ "onion_red": {
+  "name": "Red onion",
+  "kind": "plant",
+  "pests": [],
+  "single_harvest": true
+ },
+ "onion_white": {
+  "name": "White onion",
+  "kind": "plant",
+  "pests": [],
+  "single_harvest": true
+ },
+ "onion_sweet": {
+  "name": "Sweet onion",
+  "kind": "plant",
+  "pests": [],
+  "single_harvest": true
+ },
+ "peach": {
+  "name": "Peach",
+  "kind": "tree",
+  "pests": []
+ },
+ "jujube": {
+  "name": "Jujube",
+  "kind": "tree",
+  "pests": []
+ },
+ "jalapeno": {
+  "name": "Jalapeño",
+  "kind": "plant",
+  "pests": [],
+  "feeding_plan": [
+   {
+    "from_day": 0,
+    "name": "Establish",
+    "focus": "Balanced, a little extra P"
+   },
+   {
+    "from_day": 21,
+    "name": "Flowering",
+    "focus": "Moderate N, steady P and K"
+   },
+   {
+    "from_day": 50,
+    "name": "Fruiting",
+    "focus": "Low N, higher K"
+   },
+   {
+    "from_day": 100,
+    "name": "Late season",
+    "focus": "Ease off feeding"
+   }
+  ]
+ },
+ "habanero": {
+  "name": "Habanero",
+  "kind": "plant",
+  "pests": [],
+  "feeding_plan": [
+   {
+    "from_day": 0,
+    "name": "Establish",
+    "focus": "Balanced, a little extra P"
+   },
+   {
+    "from_day": 21,
+    "name": "Flowering",
+    "focus": "Moderate N, steady P and K"
+   },
+   {
+    "from_day": 50,
+    "name": "Fruiting",
+    "focus": "Low N, higher K"
+   },
+   {
+    "from_day": 100,
+    "name": "Late season",
+    "focus": "Ease off feeding"
+   }
+  ]
+ },
+ "bean": {
+  "name": "Beans",
+  "kind": "plant",
+  "pests": []
+ },
+ "pea": {
+  "name": "Peas",
+  "kind": "plant",
+  "pests": []
+ },
+ "watermelon": {
+  "name": "Watermelon",
+  "kind": "plant",
+  "pests": []
+ },
+ "cantaloupe": {
+  "name": "Cantaloupe",
+  "kind": "plant",
+  "pests": []
+ },
+ "pumpkin": {
+  "name": "Pumpkin",
+  "kind": "plant",
+  "pests": []
+ },
+ "cabbage": {
+  "name": "Cabbage",
+  "kind": "plant",
+  "pests": [],
+  "single_harvest": true
+ },
+ "lettuce": {
+  "name": "Lettuce",
+  "kind": "plant",
+  "pests": []
+ },
+ "cauliflower": {
+  "name": "Cauliflower",
+  "kind": "plant",
+  "pests": [],
+  "single_harvest": true
+ }
 }
