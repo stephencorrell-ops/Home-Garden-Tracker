@@ -195,6 +195,44 @@ class GardenMetricSensor(_Base):
                 "source": m["source"], "sensors": m["entities"]}
 
 
+class CoverWaitSensor(_Base):
+    """Days until the garden can be planted after a cover crop is terminated."""
+
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_native_unit_of_measurement = UnitOfTime.DAYS
+    _attr_name = "Days until planting after cover crop"
+    _attr_icon = "mdi:grass"
+
+    def __init__(self, mgr, known, gid: str, g: dict) -> None:
+        super().__init__(mgr, known, f"{gid}_cover_wait", f"garden:{gid}", g["name"], "Garden")
+        self._gid = gid
+
+    def _c(self):
+        g = self._mgr.index()["g"].get(self._gid)
+        return g["cover"] if g else None
+
+    @property
+    def available(self) -> bool:
+        return self._c() is not None
+
+    @property
+    def native_value(self):
+        c = self._c()
+        if not c or not c["blocked"]:
+            return 0
+        return c["blocked"]["days_left"]
+
+    @property
+    def extra_state_attributes(self):
+        c = self._c()
+        if not c:
+            return None
+        b = c["blocked"]
+        return {"status": "ready" if not b else b["reason"], "ready_date": b and b["date"],
+                "cover_crops": [{"crop": i["crop"], "state": i["state"], "days_in_ground": i["days_in_ground"]}
+                                for i in c["items"] if i["state"] != "done"]}
+
+
 class AdjunctSensor(_Base):
     _attr_device_class = SensorDeviceClass.DURATION
     _attr_native_unit_of_measurement = UnitOfTime.DAYS
@@ -229,6 +267,8 @@ def _build(mgr: GardenManager, known: set) -> list:
     for g in snap["gardens"]:
         if f"{g['id']}_ph" not in known:
             ents.append(GardenPhSensor(mgr, known, g["id"], g))
+        if f"{g['id']}_cover_wait" not in known:
+            ents.append(CoverWaitSensor(mgr, known, g["id"], g))
         for metric in g["metrics"]:
             if f"{g['id']}_{metric}" not in known:
                 ents.append(GardenMetricSensor(mgr, known, g["id"], g, metric))

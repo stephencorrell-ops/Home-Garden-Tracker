@@ -31,6 +31,10 @@ METRICS = {
     "ec": {"name": "Soil EC", "unit": "mS/cm", "lo": 0, "hi": 30},
     "soil_temp": {"name": "Soil temperature", "unit": "°F", "lo": -40, "hi": 160},
 }
+COVER_CROPS = ["Winter rye", "Cereal rye", "Hairy vetch", "Winter wheat", "Austrian winter peas",
+               "Crimson clover", "Snow peas"]
+COVER_METHODS = ["mowed", "roll_crimped", "tarped", "tilled", "winterkill", "other"]
+COVER_WAIT_DAYS = 21
 # Rule-of-thumb minimum soil temperatures (°F) for sowing or transplanting.
 PLANTING_TEMPS = [
     ("Peas, spinach, lettuce", 40), ("Carrots, beets, onions", 45), ("Potatoes", 45),
@@ -41,6 +45,7 @@ KINDS = {  # entry kind -> (parent type, list key)
     "review": ("v", "reviews"), "upotted": ("v", "upotted"),
     "adjunct": ("g", "adjuncts"), "ph": ("g", "ph_readings"),
     "moisture": ("g", "moisture"), "ec": ("g", "ec"), "soil_temp": ("g", "soil_temp"),
+    "cover": ("g", "cover_crops"),
 }
 EDITABLE = {
     "harvest": ("lbs", "date", "notes"),
@@ -49,6 +54,7 @@ EDITABLE = {
     "review": ("notes", "year"), "upotted": ("date",),
     "adjunct": ("type", "product", "amount", "date", "notes"), "ph": ("value", "date"),
     "moisture": ("value", "date"), "ec": ("value", "date"), "soil_temp": ("value", "date"),
+    "cover": ("crop", "sown", "terminated", "method", "notes", "wait_days"),
 }
 
 
@@ -98,6 +104,7 @@ class GardenModel:
         for k in METRICS:
             g.setdefault(k, [])
         g.setdefault("sensors", {})
+        g.setdefault("cover_crops", [])
 
     def today(self) -> date:
         return self._today_fn()
@@ -258,6 +265,40 @@ class GardenModel:
                 break
         else:
             g["ph_readings"].append({"id": new_id(), "date": today, "value": round(value, 2), "source": "sensor"})
+        self._touch()
+
+    # ---- winter cover crops -----------------------------------------------------
+    def add_cover_crop(self, garden: str, crop: str, sown: Any = None, notes: str | None = None,
+                       wait_days: int | None = None) -> str:
+        g = self.find_garden(garden)
+        crop = (crop or "").strip()
+        if not crop:
+            raise GardenError("Enter the cover crop")
+        cid = new_id()
+        g["cover_crops"].append({"id": cid, "crop": crop, "sown": iso(sown) or self.today().isoformat(),
+                                 "terminated": None, "method": None, "notes": notes or "",
+                                 "wait_days": int(wait_days) if wait_days is not None else COVER_WAIT_DAYS})
+        self._touch()
+        return cid
+
+    def terminate_cover_crop(self, garden: str, cover: str, when: Any = None, method: str | None = None,
+                             notes: str | None = None) -> None:
+        g = self.find_garden(garden)
+        _, e = self._entry(g["cover_crops"], cover)
+        if method is not None and method not in COVER_METHODS:
+            raise GardenError("Method must be one of: " + ", ".join(COVER_METHODS))
+        stamp = iso(when) or self.today().isoformat()
+        if stamp < e["sown"]:
+            raise GardenError("Termination can't be before it was sown")
+        e["terminated"], e["method"] = stamp, method
+        if notes:
+            e["notes"] = (e["notes"] + " " + notes).strip()
+        self._touch()
+
+    def reopen_cover_crop(self, garden: str, cover: str) -> None:
+        g = self.find_garden(garden)
+        _, e = self._entry(g["cover_crops"], cover)
+        e["terminated"], e["method"] = None, None
         self._touch()
 
     # ---- soil moisture, EC and temperature --------------------------------------
@@ -503,6 +544,7 @@ class GardenModel:
     def edit_entry(self, kind: str, parent: str, entry_id: str, fields: dict) -> None:
         owner = self._parent(kind, parent)
         _, e = self._entry(owner[KINDS[kind][1]], entry_id)
+        backup = dict(e)
         for key, val in fields.items():
             if key not in EDITABLE[kind] or val is None:
                 continue
@@ -513,6 +555,10 @@ class GardenModel:
                     raise GardenError("Pounds must be above zero")
                 ids = list(e["shares"])
                 e["lbs"], e["shares"] = round(val, 3), calc.split_even(val, ids)
+            elif kind == "cover" and key in ("sown", "terminated"):
+                e[key] = iso(val)
+            elif kind == "cover" and key == "wait_days":
+                e[key] = int(val)
             elif key == "value" and kind in METRICS:
                 spec = METRICS[kind]
                 if not spec["lo"] <= val <= spec["hi"]:
@@ -527,6 +573,10 @@ class GardenModel:
                 e["type"] = self._adjunct_key(owner, val)
             else:
                 e[key] = val
+        if kind == "cover" and e.get("terminated") and e["terminated"] < e["sown"]:
+            e.clear()
+            e.update(backup)
+            raise GardenError("Termination can't be before it was sown")
         self._touch()
 
     # ---- archive / next year ----------------------------------------------------
@@ -608,6 +658,7 @@ class GardenModel:
         return {
             "id": g["id"], "name": g["name"], "metrics": metrics,
             "planting": self._planting_view(metrics["soil_temp"]),
+            "cover": self._cover_view(g, today),
             "ph": {"entity": g.get("ph_entity"), "current": cur and cur["value"], "date": cur and cur["date"],
                    "source": cur and cur["source"], "target": [lo, hi], "level": level,
                    "first": first and {"date": first["date"], "value": first["value"]}, "history": hist},
@@ -627,6 +678,35 @@ class GardenModel:
                 "date": cur and cur["date"], "source": cur and cur["source"],
                 "min": cur and cur.get("min"), "max": cur and cur.get("max"),
                 "history": [{k: r[k] for k in keep if k in r} for r in hist[-180:]]}
+
+    @staticmethod
+    def _cover_view(g: dict, today: date) -> dict:
+        items = []
+        for e in g.get("cover_crops", []):
+            sown = date.fromisoformat(e["sown"])
+            end = date.fromisoformat(e["terminated"]) if e.get("terminated") else None
+            wait = e.get("wait_days", COVER_WAIT_DAYS)
+            ready = end + timedelta(days=wait) if end else None
+            left = (ready - today).days if ready else None
+            state = "growing" if not end else ("waiting" if left > 0 else "done")
+            items.append({**e, "wait_days": wait, "days_in_ground": ((end or today) - sown).days,
+                          "state": state, "ready_date": ready and ready.isoformat(),
+                          "days_left": left if left is None else max(0, left),
+                          "days_since_term": (today - end).days if end else None})
+        items.sort(key=lambda x: (x["state"] == "done", x["sown"]), reverse=False)
+        done = [i for i in items if i["state"] == "done"]
+        live = [i for i in items if i["state"] != "done"]
+        live.sort(key=lambda x: x["sown"], reverse=True)
+        done.sort(key=lambda x: x["sown"], reverse=True)
+        growing = [i for i in live if i["state"] == "growing"]
+        waiting = [i for i in live if i["state"] == "waiting"]
+        blocked = None
+        if growing:
+            blocked = {"reason": "growing", "days_left": None, "date": None}
+        elif waiting:
+            w = max(waiting, key=lambda x: x["days_left"])
+            blocked = {"reason": "waiting", "days_left": w["days_left"], "date": w["ready_date"]}
+        return {"items": live + done, "blocked": blocked, "presets": COVER_CROPS, "methods": COVER_METHODS}
 
     @staticmethod
     def _planting_view(temp: dict) -> dict | None:

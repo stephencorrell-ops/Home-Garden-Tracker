@@ -10,7 +10,7 @@ from homeassistant.helpers import config_validation as cv
 
 from .const import DOMAIN
 from .manager import GardenManager
-from .model import ARCHIVE_REASONS, EDITABLE, KINDS, REASONS, GardenError
+from .model import ARCHIVE_REASONS, COVER_METHODS, EDITABLE, KINDS, REASONS, GardenError
 
 R, O = vol.Required, vol.Optional
 NUM = vol.Coerce(float)
@@ -92,6 +92,16 @@ SERVICES: dict[str, tuple[dict, Handler]] = {
     "log_garden_reading": ({R("garden"): cv.string, R("metric"): vol.In(["moisture", "ec", "soil_temp"]),
                             R("value"): NUM, O("date"): cv.date},
                            lambda m, c: m.log_metric(c["garden"], c["metric"], c["value"], c.get("date"))),
+    "add_cover_crop": ({R("garden"): cv.string, R("crop"): cv.string, O("sown_date"): cv.date,
+                        O("notes"): cv.string, O("wait_days"): vol.All(vol.Coerce(int), vol.Range(min=0, max=120))},
+                       lambda m, c: m.add_cover_crop(c["garden"], c["crop"], c.get("sown_date"), c.get("notes"),
+                                                     c.get("wait_days"))),
+    "terminate_cover_crop": ({R("garden"): cv.string, R("cover"): cv.string, O("date"): cv.date,
+                              O("method"): vol.In(COVER_METHODS), O("notes"): cv.string},
+                             lambda m, c: m.terminate_cover_crop(c["garden"], c["cover"], c.get("date"),
+                                                                 c.get("method"), c.get("notes"))),
+    "reopen_cover_crop": ({R("garden"): cv.string, R("cover"): cv.string},
+                          lambda m, c: m.reopen_cover_crop(c["garden"], c["cover"])),
     "archive_plant": ({R("plant"): cv.string, O("reason"): vol.In(ARCHIVE_REASONS), O("date"): cv.date,
                        O("notes"): cv.string, O("final_lbs"): NUM},
                       lambda m, c: m.archive_variety(c["plant"], c.get("reason", "season_over"), c.get("date"),
@@ -107,7 +117,9 @@ SERVICES: dict[str, tuple[dict, Handler]] = {
                     O("date"): cv.date, O("lbs"): NUM, O("notes"): cv.string, O("product"): cv.string,
                     O("n"): NUM, O("p"): NUM, O("k"): NUM, O("target"): cv.string, O("phi_days"): DAYS,
                     O("reapply_days"): DAYS, O("year"): cv.positive_int, O("type"): cv.string,
-                    O("amount"): cv.string, O("value"): NUM},
+                    O("amount"): cv.string, O("value"): NUM, O("sown"): cv.date, O("terminated"): cv.date,
+                    O("method"): vol.In(COVER_METHODS), O("crop"): cv.string,
+                    O("wait_days"): vol.All(vol.Coerce(int), vol.Range(min=0, max=120))},
                    lambda m, c: m.edit_entry(c["kind"], c["parent"], c["entry_id"],
                                              {k: v for k, v in c.items() if k in EDITABLE[c["kind"]]})),
     "add_species": ({R("key"): cv.string, R("name"): cv.string, O("kind"): vol.In(["tree", "plant"]),
