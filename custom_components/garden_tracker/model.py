@@ -9,6 +9,7 @@ from typing import Any, Callable
 from . import calc
 
 
+DEFAULT_SETTINGS = {"frost_last": "04-25", "frost_first": "10-15"}  # Ephrata, WA averages
 GROUP_MIN = 6  # plantings above this many plants are shown as one summary
 
 
@@ -81,7 +82,8 @@ class GardenModel:
     def __init__(self, presets: dict, today_fn: Callable[[], date],
                  notify: Callable[[], None] | None = None,
                  structure: Callable[[], None] | None = None) -> None:
-        self.data: dict[str, Any] = {"gardens": {}, "varieties": {}, "species": {}, "daily": {}}
+        self.data: dict[str, Any] = {"gardens": {}, "varieties": {}, "species": {}, "daily": {},
+                                    "settings": dict(DEFAULT_SETTINGS)}
         self.presets = presets
         self._today_fn = today_fn
         self._notify = notify or (lambda: None)
@@ -96,6 +98,7 @@ class GardenModel:
             for k in self.data:
                 if k in stored:
                     self.data[k] = stored[k]
+        self.data["settings"] = {**DEFAULT_SETTINGS, **(self.data.get("settings") or {})}
         for g in self.data["gardens"].values():
             self._ensure_garden(g)
 
@@ -105,6 +108,7 @@ class GardenModel:
             g.setdefault(k, [])
         g.setdefault("sensors", {})
         g.setdefault("cover_crops", [])
+        g.setdefault("frost", {})
 
     def today(self) -> date:
         return self._today_fn()
@@ -267,6 +271,58 @@ class GardenModel:
             g["ph_readings"].append({"id": new_id(), "date": today, "value": round(value, 2), "source": "sensor"})
         self._touch()
 
+    # ---- frost dates ------------------------------------------------------------
+    @staticmethod
+    def _md(v: Any) -> str | None:
+        if v is None or v == "":
+            return None
+        if isinstance(v, date):
+            return v.strftime("%m-%d")
+        text = str(v).strip()
+        if len(text) == 10:
+            text = text[5:]
+        try:
+            date(2000, int(text[:2]), int(text[3:5]))
+            if len(text) != 5 or text[2] != "-":
+                raise ValueError
+        except ValueError as err:
+            raise GardenError(f"'{v}' is not a valid date (use MM-DD)") from err
+        return text
+
+    def set_frost_dates(self, garden: str | None = None, last: Any = None, first: Any = None,
+                        all_gardens: bool = False) -> None:
+        """Set expected last spring / first fall frost (month and day). Applies to one garden, or to all."""
+        last_md, first_md = self._md(last), self._md(first)
+        if not last_md and not first_md:
+            raise GardenError("Enter the last spring frost, the first fall frost, or both")
+        if garden and not all_gardens:
+            g = self.find_garden(garden)
+            if last_md:
+                g["frost"]["last"] = last_md
+            if first_md:
+                g["frost"]["first"] = first_md
+        else:
+            if last_md:
+                self.data["settings"]["frost_last"] = last_md
+            if first_md:
+                self.data["settings"]["frost_first"] = first_md
+            for g in self.data["gardens"].values():
+                g["frost"] = {}
+        self._touch(True)
+
+    def reset_frost_dates(self, garden: str) -> None:
+        self.find_garden(garden)["frost"] = {}
+        self._touch(True)
+
+    def _frost_view(self, g: dict, today: date) -> dict:
+        st = self.data["settings"]
+        last = g["frost"].get("last") or st["frost_last"]
+        first = g["frost"].get("first") or st["frost_first"]
+        return {"last": last, "first": first, "custom": bool(g["frost"]),
+                "last_date": calc.md_date(last, today.year).isoformat(),
+                "first_date": calc.md_date(first, today.year).isoformat(),
+                "next": calc.frost_status(last, first, today)}
+
     # ---- winter cover crops -----------------------------------------------------
     def add_cover_crop(self, garden: str, crop: str, sown: Any = None, notes: str | None = None,
                        wait_days: int | None = None) -> str:
@@ -354,12 +410,15 @@ class GardenModel:
                     origin: str = "seed", planted: Any = None, in_ground: Any = None,
                     days_to_harvest: int | None = None, expected_harvest: Any = None,
                     expected_yield: float | None = None, notes: str = "",
-                    kind: str | None = None, single_harvest: bool | None = None) -> str:
+                    kind: str | None = None, single_harvest: bool | None = None,
+                    multi_year: bool | None = None) -> str:
         g = self.find_garden(garden)
         skey = slug(species)
         sp = self.get_species(skey)
         planted_d = iso(planted) or self.today().isoformat()
         harvest = iso(expected_harvest)
+        if not days_to_harvest and sp and sp.get("default_days"):
+            days_to_harvest = int(sp["default_days"])
         auto = False
         if not harvest and days_to_harvest:
             harvest = (date.fromisoformat(planted_d) + timedelta(days=days_to_harvest)).isoformat()
@@ -373,6 +432,7 @@ class GardenModel:
             "origin": origin, "planted": planted_d, "in_ground": iso(in_ground), "upotted": [],
             "days_to_harvest": days_to_harvest, "expected_harvest": harvest, "expected_auto": auto,
             "expected_yield": expected_yield, "notes": notes or "",
+            "multi_year": ((bool(sp.get("multi_year")) if sp else False) or bool(multi_year)) if vkind != "tree" else False,
             "single_harvest": (bool(sp.get("single_harvest")) if sp else False) or bool(single_harvest) if vkind != "tree" else False,
             "plants": [{"id": new_id(), "label": f"Plant {i + 1}" if count > 1 or vkind != "tree" else variety or species,
                         "status": "alive", "reason": "", "note": "", "status_date": None}
@@ -386,8 +446,10 @@ class GardenModel:
                        planted: Any = None, in_ground: Any = None, days_to_harvest: int | None = None,
                        expected_harvest: Any = None, expected_yield: float | None = None,
                        notes: str | None = None, add_plants: int | None = None,
-                       single_harvest: bool | None = None) -> None:
+                       single_harvest: bool | None = None, multi_year: bool | None = None) -> None:
         v = self.find_variety(ref)
+        if multi_year is not None and v["kind"] != "tree":
+            v["multi_year"] = bool(multi_year)
         if single_harvest is not None and v["kind"] != "tree":
             v["single_harvest"] = bool(single_harvest)
         if name:
@@ -520,6 +582,15 @@ class GardenModel:
         if flag is None:
             sp = self.get_species(v["species"]) or {}
             flag = bool(sp.get("single_harvest"))
+        return bool(flag)
+
+    def _multi(self, v: dict) -> bool:
+        """True for slow crops (horseradish) whose countdown reads in years, months and days."""
+        if v["kind"] == "tree":
+            return False
+        flag = v.get("multi_year")
+        if flag is None:
+            flag = bool((self.get_species(v["species"]) or {}).get("multi_year"))
         return bool(flag)
 
     def log_harvest(self, ref: str, lbs: float, when: Any = None, notes: str | None = None,
@@ -675,7 +746,8 @@ class GardenModel:
             ypp = round(calc.mean([s["yield_per_plant"] for s in seasons]), 1)
         return self.add_variety(gref, old["species"], old["name"], plants or len(old["plants"]),
                                 old["origin"], planted, None, old.get("days_to_harvest"), None,
-                                ypp or old.get("expected_yield"), "", old["kind"], self._single(old))
+                                ypp or old.get("expected_yield"), "", old["kind"], self._single(old),
+                                self._multi(old))
 
     def remove_variety(self, ref: str) -> None:
         v = self.find_variety(ref, True)
@@ -702,7 +774,8 @@ class GardenModel:
             species[k] = {"key": k, "name": sp["name"], "kind": sp["kind"],
                           "pests": [{"key": p["key"], "name": p["name"]} for p in sp.get("pests", [])],
                           "feeding_plan": sp.get("feeding_plan", []),
-                          "single_harvest": bool(sp.get("single_harvest"))}
+                          "single_harvest": bool(sp.get("single_harvest")),
+                          "multi_year": bool(sp.get("multi_year")), "default_days": sp.get("default_days")}
         gardens = [self._garden_view(g, today) for g in self.data["gardens"].values()]
         varieties = [self._variety_view(v, today, daily) for v in self.data["varieties"].values()]
         varieties.sort(key=lambda x: (x["archived"] is not None, x["garden"], x["kind"], x["name"].lower()))
@@ -724,6 +797,7 @@ class GardenModel:
             "id": g["id"], "name": g["name"], "metrics": metrics,
             "planting": self._planting_view(metrics["soil_temp"]),
             "cover": self._cover_view(g, today),
+            "frost": self._frost_view(g, today),
             "ph": {"entity": g.get("ph_entity"), "current": cur and cur["value"], "date": cur and cur["date"],
                    "source": cur and cur["source"], "target": [lo, hi], "level": level,
                    "first": first and {"date": first["date"], "value": first["value"]}, "history": hist},
@@ -866,7 +940,8 @@ class GardenModel:
             "upotted": sorted(v["upotted"], key=lambda u: u["date"], reverse=True),
             "days_to_harvest": v.get("days_to_harvest"), "expected_harvest": v.get("expected_harvest"),
             "expected_yield": v.get("expected_yield"), "notes": v["notes"],
-            "age_years": round((today - planted_d).days / 365.25, 1), "days": days, "days_to_expected": dh,
+            "age_years": round((today - planted_d).days / 365.25, 1), "days": days, "days_to_expected": dh, "multi_year": self._multi(v),
+            "countdown": self._countdown(v, today, False), "countdown_short": self._countdown(v, today, True),
             "plants": plants, "grouped": grouped, "lost": lost, "per_plant_avg": per_avg,
             "alive": len(alive), "count": len(allp), "single_harvest": self._single(v),
             "harvested": sum(1 for p in allp if p["status"] == "harvested"),
@@ -878,6 +953,12 @@ class GardenModel:
             "reviews": sorted(v["reviews"], key=lambda e: (e["year"], e["id"]), reverse=True),
             "projection": proj, "seasons": seasons, "status": status, "archived": v.get("archived"),
         }
+
+    def _countdown(self, v: dict, today: date, short: bool) -> str | None:
+        exp = calc.d(v.get("expected_harvest"))
+        if not exp or not self._multi(v) or exp <= today:
+            return None
+        return calc.ymd_text(today, exp, short)
 
     @staticmethod
     def _status(kind: str, dh: int | None, spray: dict, pests: list, proj: dict | None) -> dict:

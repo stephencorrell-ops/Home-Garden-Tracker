@@ -211,3 +211,55 @@ def adjunct_status(atype: dict, entries: list[dict], today: date) -> dict:
         out["label"] = f"{count} of {n}"
         out["level"] = "ok" if count >= n else ("warn" if count > 0 else "none")
     return out
+
+
+# ---- long countdowns and frost ---------------------------------------------------
+def _add_months(d: date, n: int) -> date:
+    y, mo = divmod(d.month - 1 + n, 12)
+    y += d.year
+    mo += 1
+    day = d.day
+    while True:
+        try:
+            return date(y, mo, day)
+        except ValueError:
+            day -= 1
+
+
+def ymd_parts(frm: date, to: date) -> tuple[int, int, int]:
+    """Whole calendar years, months and days from `frm` up to `to` (to >= frm)."""
+    months = (to.year - frm.year) * 12 + (to.month - frm.month)
+    if _add_months(frm, months) > to:
+        months -= 1
+    rest = (to - _add_months(frm, months)).days
+    return months // 12, months % 12, rest
+
+
+def ymd_text(frm: date, to: date, short: bool = False) -> str | None:
+    if to < frm:
+        return None
+    y, mo, d = ymd_parts(frm, to)
+    if short:
+        bits = [f"{y} y" if y else "", f"{mo} mo" if mo else "", f"{d} d" if d or not (y or mo) else ""]
+    else:
+        bits = [f"{y} year{'s' if y != 1 else ''}" if y else "", f"{mo} month{'s' if mo != 1 else ''}" if mo else "",
+                f"{d} day{'s' if d != 1 else ''}" if d or not (y or mo) else ""]
+    return " ".join(b for b in bits if b)
+
+
+def md_date(md: str, year: int) -> date:
+    m, d = (int(x) for x in md.split("-"))
+    try:
+        return date(year, m, d)
+    except ValueError:
+        return date(year, m, 28)
+
+
+def frost_status(last_md: str, first_md: str, today: date) -> dict | None:
+    """One countdown at a time: last spring frost until it has passed, then first fall frost."""
+    last, first = md_date(last_md, today.year), md_date(first_md, today.year)
+    if today <= last:
+        return {"event": "last", "date": last.isoformat(), "days": (last - today).days}
+    if today < first:
+        return {"event": "first", "date": first.isoformat(), "days": (first - today).days}
+    return None

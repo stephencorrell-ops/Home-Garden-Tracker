@@ -38,7 +38,8 @@ COMMON = [
          attr_fn=lambda v: {"plants": v["plants"], "total": v["count"], "lost": v["lost"]}),
     Desc(key="to_harvest", name="Days to expected harvest", **_days(),
          value_fn=lambda v: v["days_to_expected"],
-         attr_fn=lambda v: {"expected_harvest": v["expected_harvest"], "projection": v["projection"]}),
+         attr_fn=lambda v: {"expected_harvest": v["expected_harvest"], "projection": v["projection"],
+                            "countdown": v["countdown"]}),
 ]
 ANNUAL = [
     Desc(key="since_planted", name="Days since planted", **_days(), value_fn=lambda v: v["days"]["planted"]),
@@ -233,6 +234,41 @@ class CoverWaitSensor(_Base):
                                 for i in c["items"] if i["state"] != "done"]}
 
 
+class FrostSensor(_Base):
+    """Days to the next expected frost: last spring frost first, then first fall frost."""
+
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_native_unit_of_measurement = UnitOfTime.DAYS
+    _attr_name = "Days until expected frost"
+    _attr_icon = "mdi:snowflake-alert"
+
+    def __init__(self, mgr, known, gid: str, g: dict) -> None:
+        super().__init__(mgr, known, f"{gid}_frost", f"garden:{gid}", g["name"], "Garden")
+        self._gid = gid
+
+    def _f(self):
+        g = self._mgr.index()["g"].get(self._gid)
+        return g["frost"] if g else None
+
+    @property
+    def available(self) -> bool:
+        return self._f() is not None
+
+    @property
+    def native_value(self):
+        f = self._f()
+        return f["next"]["days"] if f and f["next"] else None
+
+    @property
+    def extra_state_attributes(self):
+        f = self._f()
+        if not f:
+            return None
+        n = f["next"]
+        return {"event": n["event"] if n else None, "date": n["date"] if n else None,
+                "last_spring_frost": f["last"], "first_fall_frost": f["first"]}
+
+
 class AdjunctSensor(_Base):
     _attr_device_class = SensorDeviceClass.DURATION
     _attr_native_unit_of_measurement = UnitOfTime.DAYS
@@ -267,6 +303,8 @@ def _build(mgr: GardenManager, known: set) -> list:
     for g in snap["gardens"]:
         if f"{g['id']}_ph" not in known:
             ents.append(GardenPhSensor(mgr, known, g["id"], g))
+        if f"{g['id']}_frost" not in known:
+            ents.append(FrostSensor(mgr, known, g["id"], g))
         if f"{g['id']}_cover_wait" not in known:
             ents.append(CoverWaitSensor(mgr, known, g["id"], g))
         for metric in g["metrics"]:

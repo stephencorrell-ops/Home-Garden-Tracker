@@ -224,11 +224,12 @@ class GardenTrackerCard extends HTMLElement {
       if (v.days_to_expected !== null) out.push(["Harvest in", dIn(v.days_to_expected)]);
       else out.push(["Harvested", `${num(v.total_lbs, 1)} lb`]);
     } else {
+      if (v.countdown_short) out.push(["Harvest in", v.countdown_short]);
       if (d.upotted !== null) out.push(["Up-potted", dAgo(d.upotted)]);
       if (d.in_ground !== null) out.push(["In ground", dAgo(d.in_ground)]);
       if (d.fertilized !== null) out.push(["Last fed", dAgo(d.fertilized)]);
       if (out.length < 3) out.push(["Planted", dAgo(d.planted)]);
-      if (out.length < 3 && v.days_to_expected !== null) out.push(["Harvest in", dIn(v.days_to_expected)]);
+      if (out.length < 3 && v.days_to_expected !== null && !v.countdown_short) out.push(["Harvest in", dIn(v.days_to_expected)]);
     }
     return out;
   }
@@ -241,6 +242,13 @@ class GardenTrackerCard extends HTMLElement {
   }
 
   // ---- home ---------------------------------------------------------------------
+  _frostPill(g, named) {
+    const n = g.frost && g.frost.next;
+    if (!n) return "";
+    const nm = n.event === "last" ? "Last spring frost" : "First fall frost";
+    const soon = n.event === "first" && n.days <= 14;
+    return `<div class="pill ${soon ? "warn" : "info"}" style="margin:4px 6px 4px 0">${this._icon("snowflake-alert")} ${named ? esc(g.name) + ": " : ""}${nm} ${n.days === 0 ? "expected today" : `in ${n.days} day${n.days === 1 ? "" : "s"}`} (${fmtDate(n.date)})</div>`;
+  }
   _homeView() {
     const gs = this._gardens(), vs = this._vars();
     let h = `<div class="hd"><div class="ttl grow">Garden</div>${gs.length ? this._btn("form-variety", "plus", "Add plant", "", "primary") : ""}</div>`;
@@ -248,6 +256,8 @@ class GardenTrackerCard extends HTMLElement {
       return h + `<div class="msg">Create your first garden to start adding plants.<br><br>${this._btn("form-garden", "plus", "Add garden", "", "primary")}</div>`;
     }
     h += `<div class="chips">${gs.map((g) => `<button class="chip" data-act="open-g" data-g="${g.id}">${esc(g.name)}</button>`).join("")}${this._config.garden ? "" : `<button class="chip" data-act="form-garden">+ Garden</button>`}</div>`;
+    const frost = gs.map((g) => this._frostPill(g, gs.length > 1)).join("");
+    if (frost) h += `<div>${frost}</div>`;
     const cnt = (l) => vs.filter((v) => v.status.level === l).length;
     const filters = [["all", `All ${vs.length}`], ["spray", `Spray due ${cnt("spray")}`], ["hold", `Harvest hold ${cnt("hold")}`], ["ok", `On track ${cnt("ok")}`]];
     if (vs.length) h += `<div class="chips">${filters.map(([k, t]) => `<button class="chip ${this._filter === k ? "on" : ""}" data-act="filter" data-s="${k}">${t}</button>`).join("")}</div>`;
@@ -328,7 +338,7 @@ class GardenTrackerCard extends HTMLElement {
       h += `<div class="row" style="align-items:baseline"><span class="big">${fmtDate(p.date)}</span><span class="small mut">${cmp}</span></div><div class="small mut">${p.yield_total ? `About ${num(p.yield_total, 1)} lb total (${num(p.yield_per_plant, 1)} lb per plant). ` : ""}Based on ${p.basis_seasons} season${p.basis_seasons === 1 ? "" : "s"}, using ${esc(p.method)}.</div>`;
       if (v.expected_harvest) h += `<div class="small mut" style="margin-top:4px">Your entered date: ${fmtDate(v.expected_harvest)}</div>`;
     } else {
-      h += `<div class="row" style="align-items:baseline"><span class="big">${fmtDate(v.expected_harvest)}</span><span class="small mut">${dIn(v.days_to_expected)}${v.expected_yield ? `, about ${num(v.expected_yield * v.alive, 1)} lb expected` : ""}</span></div>`;
+      h += `<div class="row" style="align-items:baseline"><span class="big">${fmtDate(v.expected_harvest)}</span><span class="small mut">${v.countdown ? esc(v.countdown) : dIn(v.days_to_expected)}${v.expected_yield ? `, about ${num(v.expected_yield * v.alive, 1)} lb expected` : ""}</span></div>`;
     }
     return h + `</div>`;
   }
@@ -401,6 +411,7 @@ class GardenTrackerCard extends HTMLElement {
   _gardenView(g) {
     const ph = g.ph, gid = g.id;
     let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="grow"><div class="ttl">${esc(g.name)}</div><div class="sub">${this._vars().filter((v) => v.garden === gid).length} plants</div></div>${this._btn("edit-g", "cog", "", `data-g="${gid}"`, "ic")}</div>`;
+    h += this._frostPill(g, false);
     h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">Soil pH</div>${ph.level ? `<span class="pill ${ph.level === "ok" ? "ok" : "warn"}" style="margin:0">${ph.level === "ok" ? "In range" : ph.level === "low" ? "Below target" : "Above target"}</span>` : ""}</div>`;
     if (ph.current !== null) {
       const d = ph.first && ph.first.date !== ph.date ? ph.current - ph.first.value : null;
@@ -643,7 +654,8 @@ class GardenTrackerCard extends HTMLElement {
         let h = "";
         const cg = this._snap.gardens.find((x) => x.id === v.garden), cb = cg && cg.cover && cg.cover.blocked;
         if (cb && kind(v) !== "tree") h += `<div class="pill warn">${cb.reason === "growing" ? "A cover crop is still growing here." : `Cover crop wait: ${cb.days_left} more day${cb.days_left === 1 ? "" : "s"} (ready ${fmtDate(cb.date, true)}).`}</div>`;
-        if (kind(v) !== "tree" && v.days_to_harvest && v.planted_date) h += `<div class="pill ok">Expected first harvest ${fmtDate(this._isoAdd(v.planted_date, Number(v.days_to_harvest)), true)}</div>`;
+        const dth = Number(v.days_to_harvest) || ((this._snap.species[v.species] || {}).default_days) || 0;
+        if (kind(v) !== "tree" && dth && v.planted_date) h += `<div class="pill ok">Expected first harvest ${fmtDate(this._isoAdd(v.planted_date, dth), true)}${v.days_to_harvest ? "" : ` (${dth} days, the usual for this crop)`}</div>`;
         const past = this._snap.varieties.filter((x) => x.species === key(v) && v.variety && x.name.toLowerCase() === v.variety.toLowerCase());
         const s = past.map((x) => x.seasons).sort((a, b) => b.length - a.length)[0];
         const last = s && s.filter((z) => z.days_to_first !== null).pop();
@@ -664,6 +676,7 @@ class GardenTrackerCard extends HTMLElement {
         { name: "expected_harvest_date", label: "Expected harvest date", type: "date", value: v.expected_harvest, span: 3 },
         { name: "expected_yield", label: "Expected yield per plant (lb)", type: "number", step: "0.1", value: v.expected_yield, span: 3 },
         { name: "add_plants", label: "Add plants", type: "number", step: "1", span: 3 },
+        ...(v.kind === "tree" ? [] : [{ name: "multi_year", label: "Countdown in years, months, days", type: "seg", options: [["false", "No"], ["true", "Yes"]], value: String(!!v.multi_year), span: 3 }]),
         ...(v.kind === "tree" ? [] : [{ name: "single_harvest", label: "Pulled when harvested?", type: "seg", options: [["false", "No"], ["true", "Yes"]], value: String(!!v.single_harvest), span: 3 }]),
         { name: "notes", label: "Notes", type: "textarea", value: v.notes },
       ],
@@ -815,9 +828,20 @@ class GardenTrackerCard extends HTMLElement {
         { name: "ph_entity", label: "Soil pH sensor (optional)", type: "text", placeholder: "sensor.garden_soil_ph", value: g && g.ph.entity },
         { name: "ph_min", label: "Target pH from", type: "number", step: "0.1", value: g ? g.ph.target[0] : 6.0, span: 3 },
         { name: "ph_max", label: "Target pH to", type: "number", step: "0.1", value: g ? g.ph.target[1] : 6.8, span: 3 },
+        ...(g ? [
+          { name: "frost_last", label: "Expected last spring frost", type: "date", value: g.frost.last_date, span: 3 },
+          { name: "frost_first", label: "Expected first fall frost", type: "date", value: g.frost.first_date, span: 3 },
+          { name: "frost_scope", label: "Apply frost dates to", type: "seg", options: [["garden", "This garden"], ["all", "All gardens"]], value: "garden" },
+        ] : []),
       ],
-      note: "Leave the sensor empty to log pH by hand.",
-      submit: (x) => (g ? this._call("update_garden", { garden: g.id, ...x, ph_entity: x.ph_entity === undefined ? " " : x.ph_entity }) : this._call("add_garden", x)),
+      note: "Leave the sensor empty to log pH by hand. Frost dates repeat every year, so set the average for your area.",
+      submit: async (x) => {
+        const { frost_last, frost_first, frost_scope, ...rest } = x;
+        if (!g) return this._call("add_garden", rest);
+        await this._call("update_garden", { garden: g.id, ...rest, ph_entity: rest.ph_entity === undefined ? " " : rest.ph_entity });
+        const changed = (frost_last && frost_last !== g.frost.last_date) || (frost_first && frost_first !== g.frost.first_date);
+        if (frost_scope === "all" || changed) await this._call("set_frost_dates", { garden: g.id, last_frost: frost_last, first_frost: frost_first, all_gardens: frost_scope === "all" });
+      },
     };
   }
   _fAdjunct(g, key) {
