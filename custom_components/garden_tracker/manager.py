@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
@@ -14,7 +15,10 @@ from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .const import SIGNAL_STRUCTURE, SIGNAL_UPDATE, STORAGE_KEY, STORAGE_VERSION
-from .model import GardenModel
+from .model import METRICS, GardenModel
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class GardenManager(GardenModel):
@@ -97,6 +101,10 @@ class GardenManager(GardenModel):
                 return val / 1000
             if unit == "s/m":
                 return val * 10
+            if unit == "ms/m":
+                return val / 100
+            if unit in ("", "none") and val > 30:
+                return val / 1000  # unitless readings that large are almost always µS/cm
         return val
 
     def _ingest(self, gid: str, metric: str) -> None:
@@ -114,4 +122,13 @@ class GardenManager(GardenModel):
         vals = [v for v in (self._convert(metric, self.hass.states.get(e))
                             for e in g.get("sensors", {}).get(metric, [])) if v is not None]
         if vals:
-            self.record_sensor_metric(gid, metric, sum(vals) / len(vals))
+            avg = sum(vals) / len(vals)
+            spec = METRICS.get(metric)
+            if spec and not spec["lo"] <= avg <= spec["hi"]:
+                _LOGGER.warning("Garden Tracker: %s reading %s from %s is outside %s to %s %s and was ignored; "
+                                "check the sensor's unit", metric, round(avg, 2), g.get("sensors", {}).get(metric),
+                                spec["lo"], spec["hi"], spec["unit"])
+            self.record_sensor_metric(gid, metric, avg)
+        else:
+            _LOGGER.debug("Garden Tracker: no usable %s values for garden %s (sensors unavailable or non-numeric)",
+                          metric, gid)
