@@ -18,7 +18,7 @@ class GardenError(ValueError):
 
 REASONS = ["disease", "pests", "frost", "heat", "water", "animal_damage", "other"]
 ARCHIVE_REASONS = ["season_over", "pulled_early", "died"]
-STATUSES = ["alive", "dead", "pulled"]
+STATUSES = ["alive", "dead", "pulled"]  # "harvested" is set only by single-harvest crops
 DEFAULT_ADJUNCTS = [
     {"key": "sulfur", "name": "Sulfur", "per_year": 2},
     {"key": "humic_acid", "name": "Humic acid", "per_year": 2},
@@ -354,7 +354,7 @@ class GardenModel:
                     origin: str = "seed", planted: Any = None, in_ground: Any = None,
                     days_to_harvest: int | None = None, expected_harvest: Any = None,
                     expected_yield: float | None = None, notes: str = "",
-                    kind: str | None = None) -> str:
+                    kind: str | None = None, single_harvest: bool | None = None) -> str:
         g = self.find_garden(garden)
         skey = slug(species)
         sp = self.get_species(skey)
@@ -373,6 +373,7 @@ class GardenModel:
             "origin": origin, "planted": planted_d, "in_ground": iso(in_ground), "upotted": [],
             "days_to_harvest": days_to_harvest, "expected_harvest": harvest, "expected_auto": auto,
             "expected_yield": expected_yield, "notes": notes or "",
+            "single_harvest": (bool(sp.get("single_harvest")) if sp else False) or bool(single_harvest) if vkind != "tree" else False,
             "plants": [{"id": new_id(), "label": f"Plant {i + 1}" if count > 1 or vkind != "tree" else variety or species,
                         "status": "alive", "reason": "", "note": "", "status_date": None}
                        for i in range(count)],
@@ -384,8 +385,11 @@ class GardenModel:
     def update_variety(self, ref: str, name: str | None = None, garden: str | None = None,
                        planted: Any = None, in_ground: Any = None, days_to_harvest: int | None = None,
                        expected_harvest: Any = None, expected_yield: float | None = None,
-                       notes: str | None = None, add_plants: int | None = None) -> None:
+                       notes: str | None = None, add_plants: int | None = None,
+                       single_harvest: bool | None = None) -> None:
         v = self.find_variety(ref)
+        if single_harvest is not None and v["kind"] != "tree":
+            v["single_harvest"] = bool(single_harvest)
         if name:
             v["name"] = name
         if garden:
@@ -497,7 +501,7 @@ class GardenModel:
                        reason: str | None = None, when: Any = None) -> None:
         """Bring `count` lost plants back to alive (most recently lost first)."""
         v = self.find_variety(ref)
-        lost = [p for p in v["plants"] if p["status"] != "alive"
+        lost = [p for p in v["plants"] if p["status"] in ("dead", "pulled")
                 and (not status or p["status"] == status) and (not reason or p["reason"] == reason)
                 and (not when or p["status_date"] == iso(when))]
         count = int(count)
@@ -508,16 +512,47 @@ class GardenModel:
             p.update(status="alive", reason="", note="", status_date=None)
         self._touch()
 
-    def log_harvest(self, ref: str, lbs: float, when: Any = None, notes: str | None = None) -> None:
+    def _single(self, v: dict) -> bool:
+        """True for crops that are pulled when harvested (carrots, onions, garlic, potatoes)."""
+        if v["kind"] == "tree":
+            return False
+        flag = v.get("single_harvest")
+        if flag is None:
+            sp = self.get_species(v["species"]) or {}
+            flag = bool(sp.get("single_harvest"))
+        return bool(flag)
+
+    def log_harvest(self, ref: str, lbs: float, when: Any = None, notes: str | None = None,
+                    plants: int | None = None) -> None:
         v = self.find_variety(ref)
         if lbs <= 0:
             raise GardenError("Enter the pounds picked")
-        alive = [p["id"] for p in v["plants"] if p["status"] == "alive"]
+        alive = [p for p in v["plants"] if p["status"] == "alive"]
         if not alive:
             raise GardenError("No living plants to receive this harvest")
-        v["harvests"].append({"id": new_id(), "date": iso(when) or self.today().isoformat(),
-                              "lbs": round(lbs, 3), "shares": calc.split_even(lbs, alive), "notes": notes})
-        self._touch()
+        day = iso(when) or self.today().isoformat()
+        entry = {"id": new_id(), "date": day, "lbs": round(lbs, 3), "notes": notes}
+        if self._single(v):
+            n = int(plants) if plants else len(alive)
+            if n < 1 or n > len(alive):
+                raise GardenError(f"Pick between 1 and {len(alive)} plants")
+            chosen = alive[:n]
+            entry["shares"] = calc.split_even(lbs, [p["id"] for p in chosen])
+            entry["ended"] = [p["id"] for p in chosen]
+            for p in chosen:
+                p.update(status="harvested", reason="", note="", status_date=day)
+            if n == len(alive):
+                v["archived"] = self._archive_stamp(v, "season_over", day, "Harvested")
+                entry["auto_archived"] = True
+        else:
+            entry["shares"] = calc.split_even(lbs, [p["id"] for p in alive])
+        v["harvests"].append(entry)
+        self._touch(entry.get("auto_archived", False))
+
+    def _archive_stamp(self, v: dict, reason: str, day: str, notes: str) -> dict:
+        g = self.data["gardens"].get(v["garden"])
+        return {"date": day, "reason": reason, "notes": notes or "", "year": int(day[:4]),
+                "garden_name": g["name"] if g else v.get("garden_name", "")}
 
     # ---- editing and removing log entries -------------------------------------
     def _parent(self, kind: str, parent: str) -> dict:
@@ -530,16 +565,32 @@ class GardenModel:
         items = owner[KINDS[kind][1]]
         idx, entry = self._entry(items, entry_id)
         items.pop(idx)
-        self._trash = {"kind": kind, "owner": owner, "idx": idx, "entry": entry}
-        self._touch()
+        self._trash = {"kind": kind, "owner": owner, "idx": idx, "entry": entry, "archived": None, "dates": {}}
+        structure = False
+        if kind == "harvest" and entry.get("ended"):
+            for p in owner["plants"]:
+                if p["id"] in entry["ended"] and p["status"] == "harvested":
+                    self._trash["dates"][p["id"]] = p["status_date"]
+                    p.update(status="alive", reason="", note="", status_date=None)
+            if entry.get("auto_archived") and owner.get("archived"):
+                self._trash["archived"] = owner["archived"]
+                owner["archived"] = None
+                structure = True
+        self._touch(structure)
 
     def undo_delete(self) -> None:
         t = self._trash
         if not t:
             raise GardenError("Nothing to undo")
         t["owner"][KINDS[t["kind"]][1]].insert(t["idx"], t["entry"])
+        if t["kind"] == "harvest" and t["entry"].get("ended"):
+            for p in t["owner"]["plants"]:
+                if p["id"] in t["dates"]:
+                    p.update(status="harvested", reason="", note="", status_date=t["dates"][p["id"]])
+            if t["archived"]:
+                t["owner"]["archived"] = t["archived"]
         self._trash = None
-        self._touch()
+        self._touch(True)
 
     def edit_entry(self, kind: str, parent: str, entry_id: str, fields: dict) -> None:
         owner = self._parent(kind, parent)
@@ -588,9 +639,7 @@ class GardenModel:
         day = iso(when) or self.today().isoformat()
         if final_lbs and final_lbs > 0:
             self.log_harvest(v["id"], final_lbs, day)
-        g = self.data["gardens"].get(v["garden"])
-        v["archived"] = {"date": day, "reason": reason, "notes": notes or "",
-                         "year": int(day[:4]), "garden_name": g["name"] if g else v.get("garden_name", "")}
+        v["archived"] = self._archive_stamp(v, reason, day, notes or "")
         self._touch(True)
 
     def end_season(self, garden: str, when: Any = None, notes: str | None = None,
@@ -626,7 +675,7 @@ class GardenModel:
             ypp = round(calc.mean([s["yield_per_plant"] for s in seasons]), 1)
         return self.add_variety(gref, old["species"], old["name"], plants or len(old["plants"]),
                                 old["origin"], planted, None, old.get("days_to_harvest"), None,
-                                ypp or old.get("expected_yield"), "", old["kind"])
+                                ypp or old.get("expected_yield"), "", old["kind"], self._single(old))
 
     def remove_variety(self, ref: str) -> None:
         v = self.find_variety(ref, True)
@@ -652,7 +701,8 @@ class GardenModel:
         for k, sp in {**self.presets, **self.data["species"]}.items():
             species[k] = {"key": k, "name": sp["name"], "kind": sp["kind"],
                           "pests": [{"key": p["key"], "name": p["name"]} for p in sp.get("pests", [])],
-                          "feeding_plan": sp.get("feeding_plan", [])}
+                          "feeding_plan": sp.get("feeding_plan", []),
+                          "single_harvest": bool(sp.get("single_harvest"))}
         gardens = [self._garden_view(g, today) for g in self.data["gardens"].values()]
         varieties = [self._variety_view(v, today, daily) for v in self.data["varieties"].values()]
         varieties.sort(key=lambda x: (x["archived"] is not None, x["garden"], x["kind"], x["name"].lower()))
@@ -746,7 +796,7 @@ class GardenModel:
         if grouped:
             groups: dict[tuple, dict] = {}
             for p in allp:
-                if p["status"] == "alive":
+                if p["status"] in ("alive", "harvested"):
                     continue
                 k = (p["status"], p["reason"], p["status_date"], p["note"])
                 gp = groups.setdefault(k, {"status": k[0], "reason": k[1], "date": k[2], "note": k[3],
@@ -771,6 +821,7 @@ class GardenModel:
             hh["to"] = [] if grouped else [labels.get(pid, "removed plant") for pid in h["shares"]]
             hh["to_text"] = to_text(h["shares"])
             hh["n"] = len(h["shares"])
+            hh["ended"] = len(h.get("ended", []))
             hh["each"] = round(h["lbs"] / max(1, len(h["shares"])), 2)
             harvests.append(hh)
         per_avg = round(sum(p["total"] for p in allp) / max(1, len(allp)), 2)
@@ -817,7 +868,8 @@ class GardenModel:
             "expected_yield": v.get("expected_yield"), "notes": v["notes"],
             "age_years": round((today - planted_d).days / 365.25, 1), "days": days, "days_to_expected": dh,
             "plants": plants, "grouped": grouped, "lost": lost, "per_plant_avg": per_avg,
-            "alive": len(alive), "count": len(allp),
+            "alive": len(alive), "count": len(allp), "single_harvest": self._single(v),
+            "harvested": sum(1 for p in allp if p["status"] == "harvested"),
             "total_lbs": round(sum(totals.values()), 2), "harvests": harvests,
             "fertilizations": sorted(v["fertilizations"], key=lambda e: (e["date"], e["id"]), reverse=True),
             "last_fert": last_f, "feeding": feeding,

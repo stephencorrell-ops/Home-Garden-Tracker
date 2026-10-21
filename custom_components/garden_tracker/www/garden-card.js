@@ -3,7 +3,7 @@ const DOMAIN = "garden_tracker";
 const REASON_TEXT = { disease: "Disease", pests: "Pests", frost: "Frost", heat: "Heat", water: "Water",
   animal_damage: "Animal damage", other: "Other" };
 const ARCH_TEXT = { season_over: "Season over", pulled_early: "Pulled early", died: "Died" };
-const STATUS_TEXT = { alive: "Alive", dead: "Dead", pulled: "Pulled early" };
+const STATUS_TEXT = { alive: "Alive", dead: "Dead", pulled: "Pulled early", harvested: "Harvested" };
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const num = (n, d = 2) => (n === null || n === undefined || n === "" ? "" : String(Math.round(Number(n) * 10 ** d) / 10 ** d));
@@ -334,24 +334,26 @@ class GardenTrackerCard extends HTMLElement {
   }
   _harvestCard(v, arch) {
     const id = v.id;
-    let h = `<div class="card"><div class="row"><div class="grow"><div class="sec" style="margin:0">Harvest</div><div class="big">${num(v.total_lbs, 1)} lb</div></div>${!arch && v.alive ? this._btn("form-harvest", "basket", "Log harvest", `data-v="${id}"`, "primary") : ""}</div>`;
+    let h = `<div class="card"><div class="row"><div class="grow"><div class="sec" style="margin:0">Harvest</div><div class="big">${num(v.total_lbs, 1)} lb</div></div>${!arch && v.alive ? this._btn("form-harvest", "basket", v.single_harvest ? "Harvest" : "Log harvest", `data-v="${id}"`, "primary") : ""}</div>`;
+    if (v.single_harvest) h += `<div class="small mut" style="margin-top:4px">Pulled when harvested: each plant is finished once it is harvested.</div>`;
     if (!arch && !v.alive) h += `<div class="small mut">No living plants to receive a harvest.</div>`;
     if (v.grouped) {
-      h += `<div class="plant"><div class="row"><div class="grow"><b style="font-weight:500">${v.alive} of ${v.count} plants alive</b><div class="small mut">Average ${num(v.per_plant_avg, 2)} lb per plant. Each pick is split evenly across the living plants.</div></div>${!arch && v.alive ? this._btn("form-lost", "alert", "Mark lost", `data-v="${id}"`) : ""}</div>`;
+      h += `<div class="plant"><div class="row"><div class="grow"><b style="font-weight:500">${v.single_harvest ? `${v.alive} still growing${v.harvested ? `, ${v.harvested} harvested` : ""} of ${v.count} plants` : `${v.alive} of ${v.count} plants alive`}</b><div class="small mut">Average ${num(v.per_plant_avg, 2)} lb per plant. Each pick is split evenly across the living plants.</div></div>${!arch && v.alive ? this._btn("form-lost", "alert", "Mark lost", `data-v="${id}"`) : ""}</div>`;
       for (const g of v.lost) {
         h += `<div class="row" style="margin-top:8px"><div class="pill bad grow" style="margin:0">${g.count} ${g.status === "pulled" ? "pulled early" : "died"}, ${esc(REASON_TEXT[g.reason] || g.reason)}${g.date ? ` · ${fmtDate(g.date)}` : ""}${g.note ? `: ${esc(g.note)}` : ""}</div>${arch ? "" : `<button data-act="restore-lost" data-v="${id}" data-n="${g.count}" data-s="${g.status}" data-r="${esc(g.reason)}" data-d="${g.date || ""}">Restore</button>`}</div>`;
       }
       h += `</div>`;
     } else for (const p of v.plants) {
       h += `<div class="plant"><div class="row"><b style="font-weight:500" class="grow">${esc(p.label)}</b><span style="font-size:18px;font-weight:500">${num(p.total, 1)} lb</span></div>`;
-      if (p.status !== "alive") h += `<div class="pill bad" style="margin:6px 0 0">${esc(STATUS_TEXT[p.status])}, ${esc(REASON_TEXT[p.reason] || p.reason)}${p.note ? `: ${esc(p.note)}` : ""}</div>`;
-      if (!arch) h += `<div class="seg" style="margin-top:8px">${["alive", "dead", "pulled"].map((s) => `<button class="${p.status === s ? (s === "alive" ? "on" : "bad") : ""}" data-act="${s === "alive" ? "plant-alive" : "form-status"}" data-v="${id}" data-p="${p.id}" data-s="${s}">${STATUS_TEXT[s]}</button>`).join("")}</div>`;
+      if (p.status === "harvested") h += `<div class="pill ok" style="margin:6px 0 0">Harvested${p.status_date ? ", " + fmtDate(p.status_date) : ""}</div>`;
+      else if (p.status !== "alive") h += `<div class="pill bad" style="margin:6px 0 0">${esc(STATUS_TEXT[p.status])}, ${esc(REASON_TEXT[p.reason] || p.reason)}${p.note ? `: ${esc(p.note)}` : ""}</div>`;
+      if (!arch && p.status !== "harvested") h += `<div class="seg" style="margin-top:8px">${["alive", "dead", "pulled"].map((s) => `<button class="${p.status === s ? (s === "alive" ? "on" : "bad") : ""}" data-act="${s === "alive" ? "plant-alive" : "form-status"}" data-v="${id}" data-p="${p.id}" data-s="${s}">${STATUS_TEXT[s]}</button>`).join("")}</div>`;
       h += `</div>`;
     }
     if (v.harvests.length) h += `<div class="sec" style="margin:12px 0 0">Pick history</div>`;
     for (const x of v.harvests) {
       h += this._logRow("harvest", id, x.id, `${fmtDate(x.date)}, ${num(x.lbs)} lb`,
-        `${num(x.each)} lb each to ${esc(x.to_text)}${x.notes ? ` · ${esc(x.notes)}` : ""}`, `This takes ${num(x.each)} lb off each plant that received it.`);
+        `${x.ended ? `${x.ended} plant${x.ended === 1 ? "" : "s"} pulled, ` : ""}${num(x.each)} lb each to ${esc(x.to_text)}${x.notes ? ` · ${esc(x.notes)}` : ""}`, x.ended ? `The ${x.ended} plant${x.ended === 1 ? "" : "s"} it harvested go back to growing, and the planting returns from Past plants if this was the last of it.` : `This takes ${num(x.each)} lb off each plant that received it.`);
     }
     return h + `</div>`;
   }
@@ -626,6 +628,7 @@ class GardenTrackerCard extends HTMLElement {
         { name: "species", label: "Type", type: "select", options: [...sp.map((s) => [s.key, s.name]), ["other", "Other..."]], value: this._snap.species.tomato ? "tomato" : sp[0] ? sp[0].key : "other", span: 3 },
         { name: "species_other", label: "Type name", type: "text", req: true, show: (v) => v.species === "other", span: 3 },
         { name: "kind", label: "Kind", type: "seg", options: [["plant", "Plant"], ["tree", "Tree"]], value: "plant", show: (v) => v.species === "other", span: 3 },
+        { name: "single_harvest", label: "Pulled when harvested?", type: "seg", options: [["false", "No"], ["true", "Yes"]], value: "false", show: (v) => v.species === "other" && v.kind !== "tree", span: 3 },
         { name: "variety", label: "Variety", type: "text", req: true, placeholder: "Sungold" },
         { name: "plants", label: "Number of plants", type: "number", step: "1", value: 1, span: 3 },
         { name: "origin", label: "Started from", type: "seg", options: [["seed", "Seed"], ["start", "Start"]], value: "start", span: 3 },
@@ -647,7 +650,7 @@ class GardenTrackerCard extends HTMLElement {
         if (last && kind(v) !== "tree") h += `<div class="small" style="margin-top:8px">From your past seasons: ${esc(v.variety)} took ${last.days_to_first} days. <button data-act="use-days" data-n="${last.days_to_first}">Use ${last.days_to_first}</button></div>`;
         return h;
       },
-      submit: (v) => this._call("add_variety", { garden: v.garden, species: v.species === "other" ? v.species_other : v.species, variety: v.variety, plants: v.plants, origin: v.origin, planted_date: v.planted_date, days_to_harvest: v.days_to_harvest, expected_harvest_date: v.expected_harvest_date, expected_yield: v.expected_yield, notes: v.notes, kind: v.species === "other" ? v.kind : undefined }),
+      submit: (v) => this._call("add_variety", { garden: v.garden, species: v.species === "other" ? v.species_other : v.species, variety: v.variety, plants: v.plants, origin: v.origin, planted_date: v.planted_date, days_to_harvest: v.days_to_harvest, expected_harvest_date: v.expected_harvest_date, expected_yield: v.expected_yield, notes: v.notes, kind: v.species === "other" ? v.kind : undefined, single_harvest: v.species === "other" && v.kind !== "tree" ? v.single_harvest === "true" : undefined }),
     };
   }
   _fEditVariety(v) {
@@ -661,6 +664,7 @@ class GardenTrackerCard extends HTMLElement {
         { name: "expected_harvest_date", label: "Expected harvest date", type: "date", value: v.expected_harvest, span: 3 },
         { name: "expected_yield", label: "Expected yield per plant (lb)", type: "number", step: "0.1", value: v.expected_yield, span: 3 },
         { name: "add_plants", label: "Add plants", type: "number", step: "1", span: 3 },
+        ...(v.kind === "tree" ? [] : [{ name: "single_harvest", label: "Pulled when harvested?", type: "seg", options: [["false", "No"], ["true", "Yes"]], value: String(!!v.single_harvest), span: 3 }]),
         { name: "notes", label: "Notes", type: "textarea", value: v.notes },
       ],
       submit: (x) => this._call("update_variety", { plant: v.id, ...x }),
@@ -678,16 +682,22 @@ class GardenTrackerCard extends HTMLElement {
   }
   _fHarvest(v) {
     return {
-      title: `Log harvest: ${v.name}`, submitLabel: "Log harvest",
+      title: `${v.single_harvest ? "Harvest" : "Log harvest"}: ${v.name}`, submitLabel: v.single_harvest ? "Harvest" : "Log harvest",
       fields: [
         { name: "lbs", label: "Pounds picked", type: "number", step: "0.1", req: true, span: 3 },
         { name: "date", label: "Date", type: "date", value: this._snap.today, span: 3 },
+        ...(v.single_harvest ? [{ name: "plants", label: `Plants pulled (of ${v.alive})`, type: "number", step: "1", value: v.alive }] : []),
         { name: "notes", label: "Notes", type: "text" },
       ],
       preview: (x) => {
         const l = Number(x.lbs);
         if (!(l > 0)) return "";
         if (!v.alive) return `<div class="err">No living plants to receive this harvest</div>`;
+        if (v.single_harvest) {
+          const n = Number(x.plants) || v.alive;
+          if (n > v.alive || n < 1) return `<div class="err">Pick between 1 and ${v.alive} plants</div>`;
+          return `<div class="small mut">${num(l)} lb from ${n} plant${n === 1 ? "" : "s"}: ${num(l / n)} lb each. ${n === v.alive ? "That is the last of them, so the planting moves to Past plants." : `${v.alive - n} stay in the ground.`}</div>`;
+        }
         return `<div class="small mut">${num(l)} lb split across ${v.alive} living plant${v.alive === 1 ? "" : "s"}: ${num(l / v.alive)} lb each</div>`;
       },
       submit: (x) => this._call("log_harvest", { plant: v.id, ...x }),

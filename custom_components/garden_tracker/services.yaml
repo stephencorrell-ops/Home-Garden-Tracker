@@ -13,9 +13,9 @@ log_adjunct:
 log_ph:
   fields: {garden: {required: true, selector: {text: {}}}, value: {required: true, selector: {number: {min: 3, max: 10, step: 0.1, mode: box}}}, date: {selector: {date: {}}}}
 add_variety:
-  fields: {garden: {required: true, selector: {text: {}}}, species: {required: true, example: tomato, selector: {text: {}}}, variety: {required: true, example: Sungold, selector: {text: {}}}, plants: {selector: {number: {min: 1, max: 1000, mode: box}}}, origin: {selector: {select: {options: [seed, start]}}}, planted_date: {selector: {date: {}}}, in_ground_date: {selector: {date: {}}}, days_to_harvest: {selector: {number: {min: 0, max: 3650, mode: box}}}, expected_harvest_date: {selector: {date: {}}}, expected_yield: {description: Pounds per plant, selector: {number: {min: 0, mode: box}}}, notes: {selector: {text: {multiline: true}}}, kind: {selector: {select: {options: [plant, tree]}}}}
+  fields: {single_harvest: {description: "Pulled when harvested (root crops)", selector: {boolean: {}}}, garden: {required: true, selector: {text: {}}}, species: {required: true, example: tomato, selector: {text: {}}}, variety: {required: true, example: Sungold, selector: {text: {}}}, plants: {selector: {number: {min: 1, max: 1000, mode: box}}}, origin: {selector: {select: {options: [seed, start]}}}, planted_date: {selector: {date: {}}}, in_ground_date: {selector: {date: {}}}, days_to_harvest: {selector: {number: {min: 0, max: 3650, mode: box}}}, expected_harvest_date: {selector: {date: {}}}, expected_yield: {description: Pounds per plant, selector: {number: {min: 0, mode: box}}}, notes: {selector: {text: {multiline: true}}}, kind: {selector: {select: {options: [plant, tree]}}}}
 update_variety:
-  fields: {plant: {required: true, selector: {text: {}}}, name: {selector: {text: {}}}, garden: {selector: {text: {}}}, planted_date: {selector: {date: {}}}, in_ground_date: {selector: {date: {}}}, days_to_harvest: {selector: {number: {min: 0, max: 3650, mode: box}}}, expected_harvest_date: {selector: {date: {}}}, expected_yield: {selector: {number: {min: 0, mode: box}}}, notes: {selector: {text: {multiline: true}}}, add_plants: {selector: {number: {min: 1, max: 1000, mode: box}}}}
+  fields: {single_harvest: {description: "Pulled when harvested (root crops)", selector: {boolean: {}}}, plant: {required: true, selector: {text: {}}}, name: {selector: {text: {}}}, garden: {selector: {text: {}}}, planted_date: {selector: {date: {}}}, in_ground_date: {selector: {date: {}}}, days_to_harvest: {selector: {number: {min: 0, max: 3650, mode: box}}}, expected_harvest_date: {selector: {date: {}}}, expected_yield: {selector: {number: {min: 0, mode: box}}}, notes: {selector: {text: {multiline: true}}}, add_plants: {selector: {number: {min: 1, max: 1000, mode: box}}}}
 set_harvest:
   fields: {plant: {required: true, selector: {text: {}}}, expected_date: {selector: {date: {}}}, expected_yield: {selector: {number: {min: 0, mode: box}}}}
 log_stage:
@@ -29,7 +29,7 @@ set_biofix:
 add_review:
   fields: {plant: {required: true, selector: {text: {}}}, notes: {required: true, selector: {text: {multiline: true}}}, year: {selector: {number: {min: 2000, max: 2100, mode: box}}}}
 log_harvest:
-  fields: {plant: {required: true, selector: {text: {}}}, lbs: {required: true, selector: {number: {min: 0, step: 0.1, mode: box}}}, date: {selector: {date: {}}}, notes: {selector: {text: {}}}}
+  fields: {plants: {description: "Root crops only: how many plants were pulled (default all remaining)", selector: {number: {min: 1, max: 1000, mode: box}}}, plant: {required: true, selector: {text: {}}}, lbs: {required: true, selector: {number: {min: 0, step: 0.1, mode: box}}}, date: {selector: {date: {}}}, notes: {selector: {text: {}}}}
 set_plant_status:
   fields: {plant: {required: true, selector: {text: {}}}, individual: {required: true, example: Plant 1, selector: {text: {}}}, status: {required: true, selector: {select: {options: [alive, dead, pulled]}}}, reason: {selector: {select: {options: [disease, pests, frost, heat, water, animal_damage, other]}}}, note: {selector: {text: {}}}, date: {selector: {date: {}}}}
 mark_plants_lost:

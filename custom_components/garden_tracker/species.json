@@ -33,5 +33,8 @@
     {"from_day": 50, "name": "Fruiting", "focus": "Low N, higher K"},
     {"from_day": 100, "name": "Late season", "focus": "Ease off feeding"}]},
   "cucumber": {"name": "Cucumber", "kind": "plant", "pests": []},
-  "garlic": {"name": "Garlic", "kind": "plant", "pests": []}
+  "garlic": {"name": "Garlic", "kind": "plant", "pests": [], "single_harvest": true},
+  "onion": {"name": "Onion", "kind": "plant", "pests": [], "single_harvest": true},
+  "carrot": {"name": "Carrot", "kind": "plant", "pests": [], "single_harvest": true},
+  "potato": {"name": "Potato", "kind": "plant", "pests": [], "single_harvest": true}
 }
