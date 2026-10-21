@@ -150,7 +150,6 @@ class GardenTrackerCard extends HTMLElement {
   getCardSize() { return 8; }
   getGridOptions() { return { columns: 12, rows: "auto", min_columns: 6 }; }
   static getStubConfig() { return { grid_options: { columns: "full" } }; }
-  static getStubConfig() { return { grid_options: { columns: "full" } }; }
   connectedCallback() { if (this._hass && !this._sub) { this._subTried = false; this._subscribe(); } }
   disconnectedCallback() {
     if (this._sub) { this._sub.then((u) => u()).catch(() => {}); this._sub = null; this._subTried = false; }
