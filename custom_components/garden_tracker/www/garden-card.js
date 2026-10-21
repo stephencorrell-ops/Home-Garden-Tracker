@@ -18,7 +18,7 @@ const dIn = (n) => (n === null || n === undefined ? "–" : n < 0 ? `${-n} d lat
 const yrs = (y) => (y < 1 ? "<1 yr" : `${Math.floor(y)} yr${Math.floor(y) === 1 ? "" : "s"}`);
 
 const CSS = `
-:host{--ok:var(--success-color,#43a047);--spray:var(--warning-color,#ffa000);--hold:var(--error-color,#db4437);--info:var(--info-color,#039be5);--mut:var(--secondary-text-color);--line:var(--divider-color)}
+:host{display:block;width:100%;--ok:var(--success-color,#43a047);--spray:var(--warning-color,#ffa000);--hold:var(--error-color,#db4437);--info:var(--info-color,#039be5);--mut:var(--secondary-text-color);--line:var(--divider-color)}
 ha-card{padding:12px;display:block}
 *{box-sizing:border-box}
 button{font:inherit;color:var(--primary-text-color);background:transparent;border:1px solid var(--line);border-radius:8px;padding:6px 10px;cursor:pointer}
@@ -148,6 +148,8 @@ class GardenTrackerCard extends HTMLElement {
     if (!this._subTried) this._subscribe();
   }
   getCardSize() { return 8; }
+  getGridOptions() { return { columns: 12, rows: "auto", min_columns: 6 }; }
+  static getStubConfig() { return {}; }
   static getStubConfig() { return {}; }
   connectedCallback() { if (this._hass && !this._sub) { this._subTried = false; this._subscribe(); } }
   disconnectedCallback() {
@@ -881,6 +883,6 @@ class GardenTrackerCard extends HTMLElement {
   }
 }
 
-customElements.define("garden-tracker-card", GardenTrackerCard);
+if (!customElements.get("garden-tracker-card")) customElements.define("garden-tracker-card", GardenTrackerCard);
 window.customCards = window.customCards || [];
-window.customCards.push({ type: "garden-tracker-card", name: "Garden Tracker", description: "Plants, trees, harvests, adjuncts, soil pH, and sprays", preview: false });
+if (!window.customCards.some((c) => c.type === "garden-tracker-card")) window.customCards.push({ type: "garden-tracker-card", name: "Garden Tracker", description: "Plants, trees, harvests, adjuncts, soil pH, and sprays", preview: false });
