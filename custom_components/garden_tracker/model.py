@@ -593,6 +593,21 @@ class GardenModel:
                          "year": int(day[:4]), "garden_name": g["name"] if g else v.get("garden_name", "")}
         self._touch(True)
 
+    def end_season(self, garden: str, when: Any = None, notes: str | None = None,
+                   cover: str | None = None, wait_days: int | None = None) -> int:
+        """Archive every active non-tree planting in a garden; optionally sow a cover crop."""
+        g = self.find_garden(garden)
+        targets = [v["id"] for v in self.data["varieties"].values()
+                   if v["garden"] == g["id"] and not v.get("archived") and v["kind"] != "tree"]
+        if not targets and not cover:
+            raise GardenError(f"No active plants in {g['name']} to end")
+        for vid in targets:
+            self.archive_variety(vid, "season_over", when, notes)
+        if cover:
+            self.add_cover_crop(g["id"], cover, when, None, wait_days)
+        self._touch(True)
+        return len(targets)
+
     def restore_variety(self, ref: str) -> None:
         v = self.find_variety(ref, True)
         v["archived"] = None

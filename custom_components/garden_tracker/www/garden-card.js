@@ -421,7 +421,7 @@ class GardenTrackerCard extends HTMLElement {
     if (this._showLog) for (const e of log) h += this._logRow("adjunct", gid, e.id, esc(e.type_name) + (e.product ? `, ${esc(e.product)}` : ""), fmtDate(e.date) + (e.amount ? ` · ${esc(e.amount)}` : ""));
     h += `</div>`;
     const mine = this._vars().filter((v) => v.garden === gid);
-    h += `<div class="card"><div class="sec">Plants in this garden</div>${mine.map((v) => `<div class="lg" style="cursor:pointer" data-act="open-v" data-v="${v.id}"><div class="t">${esc(v.name)}<span>${esc(v.species_name)}${v.kind === "tree" ? "" : `, ${v.alive} of ${v.count} plants`}</span></div>${this._icon("chevron-right")}</div>`).join("") || `<div class="small mut">None yet.</div>`}<div class="row" style="margin-top:8px">${this._btn("form-variety", "plus", "Add plant", `data-g="${gid}"`)}</div></div>`;
+    h += `<div class="card"><div class="sec">Plants in this garden</div>${mine.map((v) => `<div class="lg" style="cursor:pointer" data-act="open-v" data-v="${v.id}"><div class="t">${esc(v.name)}<span>${esc(v.species_name)}${v.kind === "tree" ? "" : `, ${v.alive} of ${v.count} plants`}</span></div>${this._icon("chevron-right")}</div>`).join("") || `<div class="small mut">None yet.</div>`}<div class="row" style="margin-top:8px">${this._btn("form-variety", "plus", "Add plant", `data-g="${gid}"`)}${mine.some((v) => !v.archived && v.kind !== "tree") ? this._btn("form-endseason", "archive", "End season", `data-g="${gid}"`, "danger") : ""}</div></div>`;
     if (!mine.length) h += `<div class="card">${this._confirm === "rmg" ? `<div class="conf">Remove ${esc(g.name)}? Its adjunct and pH history will be lost.<div class="row"><button data-act="cancel-del">Keep</button><button class="danger" data-act="do-rmg" data-g="${gid}">Remove garden</button></div></div>` : `<button class="danger" data-act="ask-rmg">Remove garden</button>`}</div>`;
     return h;
   }
@@ -527,6 +527,7 @@ class GardenTrackerCard extends HTMLElement {
       case "form-biofix": return this._open(this._fBiofix(this._variety(d.v), d.s));
       case "form-adj": return this._open(this._fAdjunct(this._garden(d.g), d.s));
       case "form-ph": return this._open(this._fPh(this._garden(d.g)));
+      case "form-endseason": return this._open(this._fEndSeason(this._garden(d.g)));
       case "form-cover": return this._open(this._fCover(this._garden(d.g)));
       case "form-terminate": return this._open(this._fTerminate(this._garden(d.g), d.e));
       case "reopen-cover": return this._act("reopen_cover_crop", { garden: d.g, cover: d.e });
@@ -844,6 +845,21 @@ class GardenTrackerCard extends HTMLElement {
       ],
       note: "From a test kit or lab report.",
       submit: (x) => this._call("log_ph", { garden: g.id, ...x }),
+    };
+  }
+  _fEndSeason(g) {
+    const live = this._vars().filter((v) => v.garden === g.id && !v.archived && v.kind !== "tree");
+    const presets = g.cover.presets;
+    return {
+      title: `End the season: ${g.name}`, submitLabel: "End season",
+      fields: [
+        { name: "date", label: "Date", type: "date", value: this._snap.today, span: 3 },
+        { name: "cover_crop", label: "Sow a cover crop now", type: "select", options: [["", "None"], ...presets.map((p) => [p, p])], value: "", span: 3 },
+        { name: "notes", label: "Notes for next year", type: "textarea", placeholder: "What worked, what to change" },
+      ],
+      preview: () => `<div class="small mut">${live.length} planting${live.length === 1 ? "" : "s"} move to Past plants: ${live.map((v) => esc(v.name)).join(", ") || "none"}. Harvests, fertilizer, and notes are kept. Trees stay in the garden.</div>`,
+      note: "Use this at the end of the growing season. Soil pH, sensor history, and adjuncts stay with the garden.",
+      submit: (x) => this._call("end_season", { garden: g.id, ...x }),
     };
   }
   _fCover(g) {
