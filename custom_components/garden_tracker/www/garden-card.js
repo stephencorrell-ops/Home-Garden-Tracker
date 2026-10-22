@@ -329,7 +329,7 @@ class GardenTrackerCard extends HTMLElement {
     const ordered = [...gs].sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind]);
     for (const g of ordered) {
       const mine = shown.filter((v) => v.garden === g.id), cov = g.kind === "garden" ? covers(g) : [];
-      const place = g.kind !== "garden" && this._filter === "all";
+      const place = g.kind !== "garden" && this._filter === "all" && vs.some((v) => v.garden === g.id);  // empty racks and greenhouses stay off the landing page (still in the chips)
       if (!mine.length && !cov.length && !place) continue;
       if (gs.length > 1 && !place) h += `<div class="sec">${esc(g.name)}</div>`;
       if (place) h += this._placeSummary(g);

@@ -4,6 +4,11 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.12.1 - 2026-10-22
+
+### Changed
+- A seedling rack or greenhouse with no plants in it is no longer shown on the main page. Its button at the top still opens it, and it appears on the main page as soon as you move or add a plant to it.
+
 ## 0.12.0 - 2026-10-22
 
 ### Added
