@@ -16,7 +16,7 @@ from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .const import SIGNAL_STRUCTURE, SIGNAL_UPDATE, STORAGE_KEY, STORAGE_VERSION
-from .model import METRICS, GardenModel
+from .model import CLIMATE_KINDS, METRICS, GardenModel, fan_on_at, lights_on_at
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -195,12 +195,15 @@ class GardenManager(GardenModel):
 
     @callback
     def run_climate(self, only: str | None = None) -> None:
-        """Hold each greenhouse between its heat and cool set points by switching the chosen devices."""
+        """Hold each greenhouse and seedling rack between its heat and fan set points, and run the light and
+        fan schedules, by switching the chosen devices."""
         if not self._ready:
             return
         now = dt_util.utcnow()
+        local = dt_util.now()
+        minute = local.hour * 60 + local.minute
         for g in list(self.data["gardens"].values()):
-            if g.get("kind") != "greenhouse" or (only and g["id"] != only):
+            if g.get("kind") not in CLIMATE_KINDS or (only and g["id"] != only):
                 continue
             c = g["climate"]
             old = self.climate_state.get(g["id"], {})
@@ -213,14 +216,18 @@ class GardenManager(GardenModel):
                 state = "no_sensor"  # fail safe: never leave a heater running without a temperature
             else:
                 heating, cooling = prev == "heating", prev == "cooling"
+                heat_off = c["heat_off"] if c.get("heat_off") is not None else c["heat_set"] + CLIMATE_HYSTERESIS
                 if temp < c["heat_set"]:
                     heating, cooling = True, False
-                elif heating and temp >= c["heat_set"] + CLIMATE_HYSTERESIS:
+                elif heating and temp >= heat_off:
                     heating = False
                 if temp > c["cool_set"]:
                     cooling, heating = True, False
-                elif cooling and temp <= c["cool_set"] - CLIMATE_HYSTERESIS:
+                elif cooling and temp <= (c["cool_off"] if c.get("cool_off") is not None else c["cool_set"] - CLIMATE_HYSTERESIS):
                     cooling = False
+                crun = (now - old["csince"]).total_seconds() / 60 if prev == "cooling" and old.get("csince") else 0
+                if prev == "cooling" and not cooling and not heating and c.get("fan_min_run") and crun < c["fan_min_run"]:
+                    cooling = True  # minimum run time: keep the fans on until they have run long enough
                 run = (now - old["since"]).total_seconds() / 60 if prev == "heating" and old.get("since") else 0
                 mn, mx, rest = c.get("heat_min_run", 0), c.get("heat_max_run", 0), c.get("heat_rest", 10)
                 if prev == "heating" and not heating and not cooling and mn and run < mn:
@@ -237,18 +244,26 @@ class GardenManager(GardenModel):
                     new["since"] = old["since"] if prev == "heating" and old.get("since") else now
                 elif cooling:
                     state = "cooling"
-                elif resting_until and now < resting_until and temp < c["heat_set"] + CLIMATE_HYSTERESIS:
+                    new["csince"] = old["csince"] if prev == "cooling" and old.get("csince") else now
+                elif resting_until and now < resting_until and temp < heat_off:
                     state = "resting"
                     new["rest_until"] = resting_until
                 else:
                     state = "idle"
             new["state"] = state
+            lights_on = bool(c["light_sched"]) and lights_on_at(c, minute)
+            fan_want = state == "cooling" or (bool(c["fan_sched"]) and fan_on_at(c, minute))
+            new["fan"], new["light"] = fan_want, lights_on
             if c["enabled"] or prev in ("heating", "cooling", "resting"):  # switching control off also switches devices off
                 for e in c["heaters"]:
                     self._drive(e, state == "heating", "heater")
+            if c["enabled"] or c["fan_sched"] or old.get("fan"):
                 for e in c["coolers"]:
-                    self._drive(e, state == "cooling", "cooler")
-            if state != prev:
+                    self._drive(e, fan_want, "cooler")
+            if c["light_sched"] or old.get("light"):
+                for e in c["lights"]:
+                    self._drive(e, lights_on, "light")
+            if state != prev or new["fan"] != bool(old.get("fan")) or new["light"] != bool(old.get("light")):
                 self.climate_state[g["id"]] = new
                 self._touch()
             else:

@@ -33,6 +33,8 @@ class GreenhouseThermostat(ClimateEntity):
     def __init__(self, mgr: GardenManager, known: set, gid: str, g: dict) -> None:
         self._mgr, self._known, self._gid = mgr, known, gid
         self._attr_unique_id = f"{gid}_thermostat"
+        if g["kind"] == "rack":
+            self._attr_icon = "mdi:table-furniture"
         self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, f"garden:{gid}")}, name=g["name"],
                                             model=g["kind_name"], manufacturer="Garden Tracker")
         known.add(self._attr_unique_id)
@@ -82,7 +84,12 @@ class GreenhouseThermostat(ClimateEntity):
     @property
     def extra_state_attributes(self):
         c = self._c()
-        return {"heaters": c["heaters"], "coolers": c["coolers"], "status": c["state"]} if c else None
+        if not c:
+            return None
+        out = {"heaters": c["heaters"], "fans": c["coolers"], "status": c["state"], "fan_running": c["fan_on"]}
+        if c["lights"]:
+            out.update(lights=c["lights"], lights_on=c["lights_on"])
+        return out
 
     def _apply(self, **kw) -> None:
         try:
@@ -102,7 +109,7 @@ class GreenhouseThermostat(ClimateEntity):
 
 def _build(mgr: GardenManager, known: set) -> list:
     return [GreenhouseThermostat(mgr, known, g["id"], g) for g in mgr.snapshot()["gardens"]
-            if g["kind"] == "greenhouse" and f"{g['id']}_thermostat" not in known]
+            if g["kind"] in ("greenhouse", "rack") and f"{g['id']}_thermostat" not in known]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:

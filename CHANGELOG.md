@@ -4,6 +4,22 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.14.0 - 2026-10-22
+
+### Added
+- **Heat mats, fans and grow lights on the seedling rack.** Open the rack and tap Set up under "Heat mats, fans and lights".
+  - **Heat mats** come on when the air is below a set point, and **fans** come on when it is above another, the same way the greenhouse thermostat works. A rack starts with 70°F and 82°F. The fans are your cooling: if the rack gets too warm they run, even between scheduled runs.
+  - **Light schedule.** Pick your grow lights (switches or lights), the time they come on and how many hours a day, for example on at 6:00 AM for 16 hours, off for 8. The lights follow the clock every minute, so they also come back on correctly after a restart.
+  - **Fan schedule.** Run the fans for a few minutes every so many hours, for example 5 minutes every 6 hours. On the rack the cycle is counted from the time the lights come on, and you can limit the scheduled runs to while the lights are on. Schedules work even when the thermostat is off.
+  - The rack's page and its card on the main page show whether the lights are on and when the fans are running. Home Assistant gets a climate device for the rack too.
+- **Heat dead zone.** "Heat off at" sets the temperature the heaters (or the rack's heat mats) switch off at, so 60 on and 65 off gives a five degree dead zone. Leave it empty and they switch off one degree above the on point, as before. It works together with the heater minimum and maximum run times. Your existing settings are unchanged.
+- **Fan dead zone and minimum run time** for the greenhouse and the rack. "Fans off at" sets the temperature the fans switch off at, so 90 on and 85 off gives a five degree dead zone. Leave it empty and they switch off one degree below the on point, as before. "Fan minimum run" keeps the fans on for at least that long once they start for heat, so they don't cycle quickly (it never holds them on once the air is cold enough to need heat). Either one or both can be used. Your existing settings are unchanged.
+- **Fan schedule in the greenhouse.** The same "5 minutes every 6 hours" fan schedule, counted from midnight.
+
+### Changed
+- In the greenhouse, "Cooling" is now **Fans** everywhere: the set point reads "Fans on above", the device list is "Fans", and the power use split says Fans. Your existing settings and power history carry over unchanged.
+- The set_greenhouse_climate service also works for a seedling rack, and takes lights, light_sched, light_on, light_hours, fan_sched, fan_minutes, fan_every and fan_lights_only. The Home Assistant thermostat device's "coolers" attribute is now called "fans".
+
 ## 0.13.0 - 2026-10-22
 
 ### Added
