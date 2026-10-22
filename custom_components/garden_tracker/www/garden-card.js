@@ -13,6 +13,15 @@ const fmtDate = (iso, withYear) => {
   const y = withYear || d.getFullYear() !== new Date().getFullYear();
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric", ...(y ? { year: "numeric" } : {}) });
 };
+const fmtDur = (ms) => {
+  const m = Math.max(1, Math.round(ms / 60000));
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60), r = m % 60;
+  if (h < 24) return r ? `${h} h ${r} min` : `${h} h`;
+  const d = Math.floor(h / 24), hr = h % 24;
+  return hr ? `${d} d ${hr} h` : `${d} d`;
+};
+const fmtClock = (iso) => new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 const dAgo = (n) => (n === null || n === undefined ? "–" : `${n} d`);
 const dIn = (n) => (n === null || n === undefined ? "–" : n < 0 ? `${-n} d late` : n === 0 ? "today" : `${n} d`);
 const yrs = (y) => (y < 1 ? "<1 yr" : `${Math.floor(y)} yr${Math.floor(y) === 1 ? "" : "s"}`);
@@ -40,6 +49,8 @@ label{display:block;font-size:12px;color:var(--mut);margin-bottom:4px}
 .pic{width:56px;height:56px;border-radius:12px;flex:none;display:flex;align-items:center;justify-content:center}
 .pill{font-size:12px;padding:2px 10px;border-radius:8px;display:inline-block;margin-top:4px;color:var(--c);background:color-mix(in srgb,var(--c) 16%,transparent)}
 .ok{--c:var(--ok)}.spray,.warn{--c:var(--spray)}.hold,.bad,.low,.high{--c:var(--hold)}.info{--c:var(--info)}.none{--c:var(--mut)}
+.alarm{background:color-mix(in srgb,var(--hold) 16%,transparent);border:1px solid var(--hold);border-radius:10px;padding:10px 12px;margin:0 0 10px}
+.alarm b{color:var(--hold)}.alarm .row{margin-top:8px}
 .stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px}
 .stat{background:var(--secondary-background-color);border-radius:8px;padding:8px 10px}
 .stat span{display:block;font-size:11px;color:var(--mut)}.stat b{font-size:16px;font-weight:500}
@@ -329,7 +340,7 @@ class GardenTrackerCard extends HTMLElement {
     const ordered = [...gs].sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind]);
     for (const g of ordered) {
       const mine = shown.filter((v) => v.garden === g.id), cov = g.kind === "garden" ? covers(g) : [];
-      const place = g.kind !== "garden" && this._filter === "all" && vs.some((v) => v.garden === g.id);  // empty racks and greenhouses stay off the landing page (still in the chips)
+      const place = g.kind !== "garden" && this._filter === "all" && (vs.some((v) => v.garden === g.id) || (g.alarm && g.alarm.enabled && g.alarm.alerts.length > 0));  // empty racks and greenhouses stay off the landing page (still in the chips)
       if (!mine.length && !cov.length && !place) continue;
       if (gs.length > 1 && !place) h += `<div class="sec">${esc(g.name)}</div>`;
       if (place) h += this._placeSummary(g);
@@ -374,11 +385,33 @@ class GardenTrackerCard extends HTMLElement {
     if (w.level === "none") return `<span class="pill info" style="margin:0">No watering logged</span>`;
     return "";
   }
+  _alarmBanner(g) {
+    const a = g.alarm;
+    if (!a || !a.enabled) return "";
+    return a.alerts.map((x) => {
+      const hot = x.kind === "high", lim = hot ? a.high : a.low;
+      const t0 = new Date(x.start).getTime(), t1 = x.end ? new Date(x.end).getTime() : Date.now();
+      const text = x.ongoing
+        ? `${hot ? "Above" : "Below"} ${num(lim, 0)}°F for ${fmtDur(t1 - t0)}, since ${fmtClock(x.start)}. ${hot ? "Highest" : "Lowest"} so far ${num(x.peak, 0)}°F.`
+        : `Was ${hot ? "above" : "below"} ${num(lim, 0)}°F for ${fmtDur(t1 - t0)} (${fmtClock(x.start)} to ${fmtClock(x.end)}). ${hot ? "Highest" : "Lowest"} ${num(x.peak, 0)}°F. Back in range now.`;
+      const earlier = x.prior_n ? ` Before that it went ${hot ? "over" : "under"} the limit ${x.prior_n} other time${x.prior_n === 1 ? "" : "s"} (${fmtDur(x.prior_s * 1000)} in all).` : "";
+      return `<div class="alarm"><b>${this._icon(hot ? "thermometer-alert" : "snowflake-alert")} ${hot ? "Too hot" : "Too cold"}: ${esc(g.name)}</b><div class="small" style="margin-top:4px">${text}${earlier}</div><div class="row">${this._btn("ack-alarm", "check", "Acknowledge", `data-g="${g.id}" data-k="${x.kind}"`, "grow")}</div></div>`;
+    }).join("");
+  }
+  _alarmCard(g) {
+    const a = g.alarm;
+    const lim = [a.high !== null ? `Alarm above <b>${num(a.high, 0)}°F</b>` : "", a.low !== null ? `Alarm below <b>${num(a.low, 0)}°F</b>` : ""].filter(Boolean).join("<br>");
+    let h = `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("alarm-light")} Temperature alarm</div>${this._btn("toggle-alarm", "power", a.enabled ? "Turn off" : "Turn on", `data-g="${g.id}" data-p="${a.enabled ? "0" : "1"}"`, a.enabled ? "" : "primary")}</div>`;
+    h += `<div class="small" style="margin:6px 0">${a.enabled ? lim || "No limits set." : `<span class="mut">Off. ${lim ? lim.replace(/<br>/g, ", ").replace(/<\/?b>/g, "") + "." : "Set a limit to use it."}</span>`}</div>`;
+    if (a.enabled && a.acknowledged.length) h += `<div class="small mut">Acknowledged and still ${a.acknowledged.map((k) => (k === "high" ? "above the high limit" : "below the low limit")).join(" and ")}. It will warn again after the air has been back in range.</div>`;
+    h += `<div class="row" style="margin-top:8px">${this._btn("form-alarm", "cog", "Set limits", `data-g="${g.id}"`)}</div></div>`;
+    return h;
+  }
   _placeSummary(g) {
     const t = g.metrics.air_temp, w = g.water, c = g.climate, par = g.metrics.par;
     const stats = [["Temperature", t.current === null ? "–" : `${num(t.current, 0)}°F`], ["Watered", w.days_since === null ? "Never" : w.days_since === 0 ? "Today" : `${w.days_since} d ago`]];
     if (par) stats.push(["Light", par.current === null ? "–" : `${num(par.current, 0)} PAR`]);
-    return `<div class="card tile" data-act="open-g" data-g="${g.id}"><div class="row"><div class="pic" style="background:color-mix(in srgb,var(--info) 18%,transparent);color:var(--info)"><ha-icon icon="mdi:${KIND_ICON[g.kind]}" style="--mdc-icon-size:34px"></ha-icon></div><div class="grow"><div style="font-size:15px;font-weight:500">${esc(g.name)}</div><div class="sub">${esc(g.kind_name)}</div>${this._climatePill(c)}${this._waterPill(g)}</div></div>${this._statGrid(stats)}<div style="margin-top:8px">${this._trayRow(g)}</div><div class="row" style="margin-top:10px">${this._btn("log-water", "watering-can", "Water", `data-g="${g.id}"`, "grow")}</div></div>`;
+    return `<div class="card tile" data-act="open-g" data-g="${g.id}">${this._alarmBanner(g)}<div class="row"><div class="pic" style="background:color-mix(in srgb,var(--info) 18%,transparent);color:var(--info)"><ha-icon icon="mdi:${KIND_ICON[g.kind]}" style="--mdc-icon-size:34px"></ha-icon></div><div class="grow"><div style="font-size:15px;font-weight:500">${esc(g.name)}</div><div class="sub">${esc(g.kind_name)}</div>${this._climatePill(c)}${this._waterPill(g)}</div></div>${this._statGrid(stats)}<div style="margin-top:8px">${this._trayRow(g)}</div><div class="row" style="margin-top:10px">${this._btn("log-water", "watering-can", "Water", `data-g="${g.id}"`, "grow")}</div></div>`;
   }
   _climatePill(c) {
     if (!c) return "";
@@ -388,7 +421,9 @@ class GardenTrackerCard extends HTMLElement {
   _placeView(g) {
     const gid = g.id, mine = this._vars().filter((v) => v.garden === gid);
     let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="grow"><div class="ttl">${esc(g.name)}</div><div class="sub">${esc(g.kind_name)}, ${mine.length} planting${mine.length === 1 ? "" : "s"}</div></div>${this._btn("edit-g", "cog", "", `data-g="${gid}"`, "ic")}</div>`;
+    h += this._alarmBanner(g);
     if (g.climate) h += this._climateCard(g);
+    if (g.alarm) h += this._alarmCard(g);
     h += this._soilCards(g);
     h += this._waterCard(g);
     if (g.power) h += this._powerCard(g);
@@ -748,6 +783,13 @@ class GardenTrackerCard extends HTMLElement {
       case "form-upot": return this._open(this._fUpPot(this._variety(d.v)));
       case "form-climate": return this._open(this._fClimate(this._garden(d.g)));
       case "toggle-climate": return this._act("set_greenhouse_climate", { garden: d.g, enabled: d.p === "1" });
+      case "ack-alarm": return this._act("ack_temp_alarm", { garden: d.g, kind: d.k });
+      case "toggle-alarm": {
+        const al = this._garden(d.g).alarm;
+        if (d.p === "1" && al.high === null && al.low === null) return this._open(this._fAlarm(this._garden(d.g), true));
+        return this._act("set_temp_alarm", { garden: d.g, enabled: d.p === "1" });
+      }
+      case "form-alarm": return this._open(this._fAlarm(this._garden(d.g)));
       case "form-rate": return this._open(this._fRate(this._garden(d.g)));
       case "form-water-every": return this._open(this._fWaterEvery(this._garden(d.g)));
       case "toggle": {
@@ -1161,6 +1203,19 @@ class GardenTrackerCard extends HTMLElement {
       if (["energy", "power"].includes(a.device_class) || ["kwh", "wh", "mwh", "w", "kw"].includes(unit) || selected.includes(id)) out.push([id, `${a.friendly_name || id}${s2.state && s2.state !== "unknown" ? ` (${s2.state}${a.unit_of_measurement ? " " + a.unit_of_measurement : ""})` : ""}`]);
     }
     return out.sort((p, q) => p[1].localeCompare(q[1]));
+  }
+  _fAlarm(g, turnOn) {
+    const a = g.alarm, cold = g.kind === "greenhouse";
+    return {
+      title: `Temperature alarm: ${g.name}`, submitLabel: "Save",
+      fields: [
+        { name: "high", label: "Alarm when above (°F)", type: "number", step: "1", value: a.high === null ? (cold ? 90 : 85) : a.high, span: 3 },
+        { name: "low", label: "Alarm when below (°F)", type: "number", step: "1", value: a.low === null ? (cold ? 38 : 55) : a.low, span: 3 },
+        { name: "enabled", label: "Alarm", type: "seg", options: [["true", "On"], ["false", "Off"]], value: String(turnOn ? true : a.enabled) },
+      ],
+      note: "When the air goes past a limit the alarm shows here and on the main page, and stays until you tap Acknowledge, even if the temperature has come back. It says how long the air was out of range. Leave a limit empty to ignore that direction. Turning the alarm off clears it and it won't come back until you turn it on again. When the alarm is on, Home Assistant also gets a Temperature alarm sensor you can use for notifications.",
+      submit: (x) => this._call("set_temp_alarm", { garden: g.id, high: x.high === "" || x.high === undefined ? null : x.high, low: x.low === "" || x.low === undefined ? null : x.low, enabled: x.enabled === "true" }),
+    };
   }
   _fRate(g) {
     return {

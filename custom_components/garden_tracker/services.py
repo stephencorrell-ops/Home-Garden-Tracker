@@ -10,7 +10,8 @@ from homeassistant.helpers import config_validation as cv
 
 from .const import DOMAIN
 from .manager import GardenManager
-from .model import ARCHIVE_REASONS, COVER_METHODS, EDITABLE, KINDS, LOCATION_KINDS, METRICS, REASONS, GardenError
+from .model import (ARCHIVE_REASONS, COVER_METHODS, EDITABLE, KINDS, LOCATION_KINDS, METRICS, REASONS, UNSET,
+                    GardenError)
 
 R, O = vol.Required, vol.Optional
 NUM = vol.Coerce(float)
@@ -122,6 +123,12 @@ SERVICES: dict[str, tuple[dict, Handler]] = {
                                                           c.get("cool_set"), c.get("heaters"), c.get("coolers"),
                                                           c.get("heat_min_run"), c.get("heat_max_run"),
                                                           c.get("heat_rest"))),
+    "set_temp_alarm": ({R("garden"): cv.string, O("enabled"): cv.boolean,
+                        O("high"): vol.Any(None, NUM), O("low"): vol.Any(None, NUM)},
+                       lambda m, c: m.set_temp_alarm(c["garden"], c.get("enabled"), c.get("high", UNSET),
+                                                     c.get("low", UNSET))),
+    "ack_temp_alarm": ({R("garden"): cv.string, O("kind"): vol.In(["high", "low"])},
+                       lambda m, c: m.ack_temp_alarm(c["garden"], c.get("kind"))),
     "set_power_rate": ({R("cents"): vol.All(NUM, vol.Range(min=0, max=1000))},
                        lambda m, c: m.set_power_rate(c["cents"])),
     "set_power_sensors": ({R("garden"): cv.string, R("group"): vol.In(["heat", "cool", "power"]),

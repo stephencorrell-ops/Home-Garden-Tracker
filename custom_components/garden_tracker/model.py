@@ -4,13 +4,15 @@ from __future__ import annotations
 import copy
 import re
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Callable
 
 from . import calc
 
 
 DEFAULT_SETTINGS = {"frost_last": "04-25", "frost_first": "10-15"}  # Ephrata, WA averages
+ALARM_BACK_F = 1.0  # the air must come back this far inside a limit before an alarm counts as over
+UNSET: Any = object()
 GROUP_MIN = 6  # plantings above this many plants are shown as one summary
 
 
@@ -139,6 +141,10 @@ class GardenModel:
         g.setdefault("power_sensors", {})
         g.setdefault("energy", {})
         g.setdefault("energy_last", {})
+        if g["kind"] != "garden":
+            a = g.get("alarm") or {}
+            g["alarm"] = {"enabled": bool(a.get("enabled")), "high": a.get("high"), "low": a.get("low"),
+                          "events": dict(a.get("events") or {})}
         if g["kind"] == "greenhouse":
             g["climate"] = {**DEFAULT_CLIMATE, **(g.get("climate") or {})}
         g.setdefault("ec_target", list(DEFAULT_EC_TARGET))
@@ -498,6 +504,104 @@ class GardenModel:
         if enabled is not None:
             c["enabled"] = bool(enabled)
         self._touch(True)
+
+    def set_temp_alarm(self, garden: str, enabled: bool | None = None, high: Any = UNSET, low: Any = UNSET) -> None:
+        """Warn when a rack or greenhouse gets hotter or colder than a limit. Turning it off clears any alarm."""
+        g = self._location(garden)
+        if g["kind"] == "garden":
+            raise GardenError("Temperature alarms are for a seedling rack or greenhouse")
+        a = g["alarm"]
+
+        def limit(v):
+            if v is None or v == "":
+                return None
+            v = float(v)
+            if not -20 <= v <= 150:
+                raise GardenError("Alarm limits must be between -20 and 150 °F")
+            return v
+        hi = a["high"] if high is UNSET else limit(high)
+        lo = a["low"] if low is UNSET else limit(low)
+        if hi is not None and lo is not None and hi - lo < 2:
+            raise GardenError("The high limit must be at least 2 degrees above the low limit")
+        on = a["enabled"] if enabled is None else bool(enabled)
+        if on and hi is None and lo is None:
+            raise GardenError("Set a high or low limit first")
+        a["high"], a["low"], a["enabled"] = hi, lo, on
+        if not on:
+            a["events"] = {}
+        else:  # a limit that was removed has nothing left to watch
+            for kind, v in (("high", hi), ("low", lo)):
+                if v is None:
+                    a["events"].pop(kind, None)
+        self._touch(True)
+        self._alarm_changed()
+
+    def ack_temp_alarm(self, garden: str, kind: str | None = None) -> None:
+        """Acknowledge a temperature alarm. One that is still going stays quiet until the air has been back in range."""
+        g = self._location(garden)
+        if g["kind"] == "garden":
+            raise GardenError("Temperature alarms are for a seedling rack or greenhouse")
+        ev = g["alarm"]["events"]
+        for k in ([kind] if kind else ["high", "low"]):
+            e = ev.get(k)
+            if not e:
+                continue
+            if e.get("end"):
+                del ev[k]
+            else:
+                e["acked"] = True
+        self._touch(True)
+
+    def update_alarm(self, garden_id: str, temp: float, now: Any) -> bool:
+        """Feed in the latest air temperature. Returns True when an alarm started, changed or ended."""
+        g = self.data["gardens"].get(garden_id)
+        if not g or g.get("kind") == "garden" or not g["alarm"]["enabled"]:
+            return False
+        a, changed = g["alarm"], False
+        stamp = now.isoformat()
+        for kind, lim in (("high", a["high"]), ("low", a["low"])):
+            if lim is None:
+                continue
+            sign = 1 if kind == "high" else -1
+            out, back = sign * (temp - lim) > 0, sign * (temp - lim) <= -ALARM_BACK_F
+            e = a["events"].get(kind)
+            if out:
+                if e is None or e.get("end"):
+                    new = {"start": stamp, "end": None, "peak": round(temp, 1), "acked": False}
+                    if e:  # the last time out of range was never acknowledged, so keep a count of it
+                        new["prior_n"] = e.get("prior_n", 0) + 1
+                        new["prior_s"] = e.get("prior_s", 0) + int((datetime.fromisoformat(e["end"])
+                                                                   - datetime.fromisoformat(e["start"])).total_seconds())
+                    a["events"][kind] = new
+                    changed = True
+                elif sign * (temp - e["peak"]) > 0:
+                    e["peak"], changed = round(temp, 1), True
+            elif back and e and not e.get("end"):
+                if e.get("acked"):
+                    del a["events"][kind]  # it was acknowledged, so there is nothing left to show
+                else:
+                    e["end"] = stamp
+                changed = True
+        return changed
+
+    def _alarm_changed(self) -> None:
+        """Hook for the manager: check the temperature against the limits now."""
+
+    def _alarm_view(self, g: dict) -> dict:
+        a = g["alarm"]
+        alerts, quiet = [], []
+        for kind in ("high", "low"):
+            e = a["events"].get(kind)
+            if not e:
+                continue
+            if e.get("acked"):
+                quiet.append(kind)
+            else:
+                alerts.append({"kind": kind, "start": e["start"], "end": e.get("end"), "peak": e["peak"],
+                               "ongoing": not e.get("end"), "prior_n": e.get("prior_n", 0),
+                               "prior_s": e.get("prior_s", 0)})
+        alerts.sort(key=lambda x: (not x["ongoing"], x["start"]))
+        return {"enabled": a["enabled"], "high": a["high"], "low": a["low"], "alerts": alerts, "acknowledged": quiet}
 
     def set_power_sensors(self, garden: str, group: str, entities: list[str]) -> None:
         g = self._location(garden)
@@ -1117,6 +1221,7 @@ class GardenModel:
             "power": self._power_view(g, today) if kind != "garden" else None,
             "power_groups": POWER_GROUPS.get(kind, {}), "power_sensors": {k: list(v) for k, v in g.get("power_sensors", {}).items()},
             "climate": self._climate_view(g, metrics) if kind == "greenhouse" else None,
+            "alarm": self._alarm_view(g) if kind != "garden" else None,
             "ph": {"entity": g.get("ph_entity"), "current": cur and cur["value"], "date": cur and cur["date"],
                    "source": cur and cur["source"], "target": [lo, hi], "level": level,
                    "first": first and {"date": first["date"], "value": first["value"]}, "history": hist},
