@@ -40,7 +40,11 @@ METRICS = {
 LOCATION_KINDS = {"garden": "Garden", "rack": "Seedling rack", "greenhouse": "Greenhouse"}
 METRIC_SETS = {"garden": ("moisture", "ec", "soil_temp"), "rack": ("air_temp", "par"), "greenhouse": ("air_temp",)}
 DEFAULT_CONTAINERS = ["6-cell tray", "4-cell tray", "3.3 in pot", "5 in pot"]
-DEFAULT_CLIMATE = {"enabled": False, "heat_set": 60.0, "cool_set": 80.0, "heaters": [], "coolers": []}
+# How many fit in one 10x20 tray (Bootstrap Farmer sizes): 12 six-cell inserts, 8 four-cell inserts, and the pot inserts.
+CONTAINER_PER_TRAY = {"6-cell tray": 72, "4-cell tray": 32, "3.3 in pot": 18, "5 in pot": 8}
+POWER_GROUPS = {"greenhouse": {"heat": "Heating", "cool": "Cooling"}, "rack": {"power": "Lights and power"}}
+DEFAULT_CLIMATE = {"enabled": False, "heat_set": 60.0, "cool_set": 80.0, "heaters": [], "coolers": [],
+                   "heat_min_run": 0, "heat_max_run": 0, "heat_rest": 10}
 CLIMATE_MIN_GAP = 3.0  # degrees F between the heat and cool set points
 
 COVER_CROPS = ["Winter rye", "Cereal rye", "Hairy vetch", "Winter wheat", "Austrian winter peas",
@@ -132,6 +136,9 @@ class GardenModel:
         g.setdefault("trays", 0)
         g.setdefault("watering", [])
         g.setdefault("water_every", None)
+        g.setdefault("power_sensors", {})
+        g.setdefault("energy", {})
+        g.setdefault("energy_last", {})
         if g["kind"] == "greenhouse":
             g["climate"] = {**DEFAULT_CLIMATE, **(g.get("climate") or {})}
         g.setdefault("ec_target", list(DEFAULT_EC_TARGET))
@@ -453,7 +460,8 @@ class GardenModel:
 
     def set_climate(self, garden: str, enabled: bool | None = None, heat_set: float | None = None,
                     cool_set: float | None = None, heaters: list[str] | None = None,
-                    coolers: list[str] | None = None) -> None:
+                    coolers: list[str] | None = None, heat_min_run: int | None = None,
+                    heat_max_run: int | None = None, heat_rest: int | None = None) -> None:
         g = self._location(garden)
         if g["kind"] != "greenhouse":
             raise GardenError("Heating and cooling control is for a greenhouse")
@@ -478,10 +486,94 @@ class GardenModel:
             c["coolers"] = clean(coolers)
         if set(c["heaters"]) & set(c["coolers"]):
             raise GardenError("A device can't be both the heater and the cooler")
+        mn = c.get("heat_min_run", 0) if heat_min_run is None else int(heat_min_run)
+        mx = c.get("heat_max_run", 0) if heat_max_run is None else int(heat_max_run)
+        rest = c.get("heat_rest", 10) if heat_rest is None else int(heat_rest)
+        if not (0 <= mn <= 720 and 0 <= mx <= 720 and 0 <= rest <= 720):
+            raise GardenError("Run times must be between 0 and 720 minutes")
+        if mn and mx and mn > mx:
+            raise GardenError("The minimum heater run time can't be longer than the maximum")
+        c["heat_min_run"], c["heat_max_run"], c["heat_rest"] = mn, mx, rest
         c["heat_set"], c["cool_set"] = heat, cool
         if enabled is not None:
             c["enabled"] = bool(enabled)
         self._touch(True)
+
+    def set_power_sensors(self, garden: str, group: str, entities: list[str]) -> None:
+        g = self._location(garden)
+        groups = POWER_GROUPS.get(g["kind"], {})
+        if group not in groups:
+            raise GardenError("Group must be " + ", ".join(groups))
+        clean: list[str] = []
+        for e in entities or []:
+            e = str(e).strip()
+            if e and e not in clean:
+                clean.append(e)
+        if clean:
+            g["power_sensors"][group] = clean
+        else:
+            g["power_sensors"].pop(group, None)
+        for e in list(g["energy_last"]):
+            if not any(e in v for v in g["power_sensors"].values()):
+                del g["energy_last"][e]
+        self._touch(True)
+        self._power_changed()
+
+    def _power_changed(self) -> None:
+        """Hook for the manager: sample the power sensors now."""
+
+    def record_energy(self, g: dict, group: str, kwh: float) -> None:
+        """Add energy used (kWh) to today's total for a place. Keeps about a year and a half of days."""
+        if kwh <= 0:
+            return
+        day = self.today().isoformat()
+        bucket = g["energy"].setdefault(group, {})
+        bucket[day] = round(bucket.get(day, 0.0) + kwh, 4)
+        if len(bucket) > 550:
+            for old in sorted(bucket)[:-550]:
+                del bucket[old]
+
+    def _power_view(self, g: dict, today: date) -> dict | None:
+        groups = POWER_GROUPS.get(g.get("kind"), {})
+        sensors = g.get("power_sensors", {})
+        if not any(sensors.get(k) for k in groups):
+            return None
+        day, month = today.isoformat(), today.isoformat()[:7]
+        rows, total_days = [], {}
+        for key, name in groups.items():
+            if not sensors.get(key):
+                continue
+            b = g.get("energy", {}).get(key, {})
+            rows.append({"key": key, "name": name, "entities": list(sensors[key]),
+                         "today": round(b.get(day, 0.0), 2),
+                         "month": round(sum(v for d, v in b.items() if d.startswith(month)), 2)})
+            for d, v in b.items():
+                total_days[d] = total_days.get(d, 0.0) + v
+        days = [{"date": (today - timedelta(days=i)).isoformat(),
+                 "kwh": round(total_days.get((today - timedelta(days=i)).isoformat(), 0.0), 2)} for i in range(29, -1, -1)]
+        months: dict[str, float] = {}
+        for d, v in total_days.items():
+            months[d[:7]] = months.get(d[:7], 0.0) + v
+        return {"unit": "kWh", "groups": rows, "today": round(sum(r["today"] for r in rows), 2),
+                "month": round(sum(r["month"] for r in rows), 2), "days": days,
+                "months": [{"month": m, "kwh": round(v, 1)} for m, v in sorted(months.items())[-12:]]}
+
+    def _trays_calc(self, g: dict) -> dict:
+        """How many 10x20 trays the plants here would fill, from each pot or tray size."""
+        counts: dict[str, int] = {}
+        unknown = 0
+        for v in self.data["varieties"].values():
+            if v["garden"] != g["id"] or v.get("archived") or v["kind"] == "tree":
+                continue
+            alive = sum(1 for p in v["plants"] if p["status"] == "alive")
+            c = v.get("container")
+            if c in CONTAINER_PER_TRAY:
+                counts[c] = counts.get(c, 0) + alive
+            else:
+                unknown += alive
+        rows = [{"container": c, "plants": n, "per_tray": CONTAINER_PER_TRAY[c], "trays": -(-n // CONTAINER_PER_TRAY[c])}
+                for c, n in counts.items() if n]
+        return {"total": sum(r["trays"] for r in rows), "rows": rows, "unknown": unknown}
 
     def up_pot(self, ref: str, container: str, when: Any = None) -> None:
         v = self.find_variety(ref)
@@ -982,7 +1074,7 @@ class GardenModel:
         varieties.sort(key=lambda x: (x["archived"] is not None, x["garden"], x["kind"], x["name"].lower()))
         return {"today": today.isoformat(), "species": species, "gardens": gardens,
                 "varieties": varieties, "can_undo": self._trash is not None,
-                "containers": list(DEFAULT_CONTAINERS),
+                "containers": list(DEFAULT_CONTAINERS), "container_per_tray": dict(CONTAINER_PER_TRAY),
                 "reasons": REASONS}
 
     def _garden_view(self, g: dict, today: date) -> dict:
@@ -1005,6 +1097,9 @@ class GardenModel:
             "paused": {k: bool(g.get("sensors_paused", {}).get(k)) for k in METRICS},
             "fertility": self._fertility_view(g, metrics, today) if soil else None,
             "trays": g.get("trays", 0), "water": self._water_view(g, today),
+            "trays_calc": self._trays_calc(g) if kind != "garden" else None,
+            "power": self._power_view(g, today) if kind != "garden" else None,
+            "power_groups": POWER_GROUPS.get(kind, {}), "power_sensors": {k: list(v) for k, v in g.get("power_sensors", {}).items()},
             "climate": self._climate_view(g, metrics) if kind == "greenhouse" else None,
             "ph": {"entity": g.get("ph_entity"), "current": cur and cur["value"], "date": cur and cur["date"],
                    "source": cur and cur["source"], "target": [lo, hi], "level": level,

@@ -176,6 +176,12 @@ function dualChart(ec, mo, band) {
     <text class="ax" x="${L}" y="${H - 5}">${fmtDate(days[0])}</text><text class="ax" text-anchor="end" x="${W - R}" y="${H - 5}">${fmtDate(days[days.length - 1])}</text></svg>
     <div class="small mut" style="display:flex;gap:14px;margin-top:2px"><span><b style="color:var(--primary-color)">&#9644;</b> EC (mS/cm, left)</span><span><b style="color:var(--info-color,#4aa3df)">&#9548;</b> Moisture (%, right)</span><span><b style="color:var(--ok)">&#9608;</b> Target</span></div>`;
 }
+function barChart(days) {
+  const W = 340, H = 90, L = 30, B = 16, T = 8, n = days.length, max = Math.max(...days.map((d) => d.kwh), 0.01);
+  const bw = (W - L - 4) / n;
+  const bars = days.map((d, i) => { const h = Math.max(d.kwh > 0 ? 1.5 : 0, (d.kwh / max) * (H - T - B)); return `<rect x="${(L + i * bw + 1).toFixed(1)}" y="${(H - B - h).toFixed(1)}" width="${Math.max(1, bw - 2).toFixed(1)}" height="${h.toFixed(1)}" rx="1.5" fill="var(--primary-color,#03a9f4)"><title>${fmtDate(d.date)}: ${d.kwh} kWh</title></rect>`; }).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Energy used per day"><line x1="${L}" y1="${H - B}" x2="${W - 4}" y2="${H - B}" stroke="var(--divider-color)"/><text class="ax" x="2" y="${T + 8}">${max.toFixed(max < 10 ? 1 : 0)}</text><text class="ax" x="2" y="${H - B - 2}">0</text>${bars}<text class="ax" x="${L}" y="${H - 3}">${fmtDate(days[0].date)}</text><text class="ax" text-anchor="end" x="${W - 4}" y="${H - 3}">${fmtDate(days[n - 1].date)}</text></svg>`;
+}
 const COVER_TEXT = { mowed: "mowed", roll_crimped: "roll-crimped", tarped: "tarped", tilled: "tilled", winterkill: "winterkill", other: "other" };
 const METRIC_ICON = { moisture: "water-percent", ec: "flash", soil_temp: "thermometer", air_temp: "thermometer", par: "white-balance-sunny" };
 const KIND_ICON = { garden: "flower", rack: "table-furniture", greenhouse: "greenhouse" };
@@ -376,7 +382,7 @@ class GardenTrackerCard extends HTMLElement {
   }
   _climatePill(c) {
     if (!c) return "";
-    const m = { heating: ["warn", "Heating"], cooling: ["info", "Cooling"], idle: ["ok", "Holding"], no_sensor: ["warn", "No temperature, devices off"], off: ["none", "Climate control off"] }[c.state] || ["none", c.state];
+    const m = { heating: ["warn", "Heating"], cooling: ["info", "Cooling"], idle: ["ok", "Holding"], resting: ["info", "Resting (max run reached)"], no_sensor: ["warn", "No temperature, devices off"], off: ["none", "Climate control off"] }[c.state] || ["none", c.state];
     return `<span class="pill ${m[0]}" style="margin:4px 6px 0 0">${m[1]}</span>`;
   }
   _placeView(g) {
@@ -385,11 +391,28 @@ class GardenTrackerCard extends HTMLElement {
     if (g.climate) h += this._climateCard(g);
     h += this._soilCards(g);
     h += this._waterCard(g);
-    h += `<div class="card">${this._trayRow(g)}</div>`;
+    if (g.power) h += this._powerCard(g);
+    h += `<div class="card">${this._trayRow(g)}${this._traysCalc(g)}</div>`;
     h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">Plants here</div>${this._btn("form-variety", "plus", "Add plant", `data-g="${gid}"`)}</div>${mine.length ? "" : `<div class="small mut" style="margin:6px 0">None yet.</div>`}</div>`;
     h += mine.map((v) => this._tile(v)).join("");
     if (!mine.length) h += `<div class="card">${this._confirm === "rmg" ? `<div class="conf">Remove ${esc(g.name)}? Its watering and temperature history will be lost.<div class="row"><button data-act="cancel-del">Keep</button><button class="danger" data-act="do-rmg" data-g="${gid}">Remove</button></div></div>` : `<button class="danger" data-act="ask-rmg">Remove ${esc(g.kind_name.toLowerCase())}</button>`}</div>`;
     return h;
+  }
+  _powerCard(g) {
+    const p = g.power;
+    let h = `<div class="card"><div class="sec">${this._icon("flash")} Power use</div>`;
+    h += `<div class="row" style="align-items:baseline;gap:22px;margin:6px 0"><div><span class="ph">${num(p.today, 2)}</span> <span class="small mut">kWh today</span></div><div><span class="ph">${num(p.month, 1)}</span> <span class="small mut">kWh this month</span></div></div>`;
+    if (p.groups.length > 1) h += `<div class="small mut" style="margin-bottom:6px">${p.groups.map((r) => `${esc(r.name)}: ${num(r.today, 2)} today, ${num(r.month, 1)} this month`).join("<br>")}</div>`;
+    h += barChart(p.days);
+    const ms = p.months.slice(-6).reverse();
+    if (ms.length > 1) h += `<div class="small mut" style="margin-top:6px">${ms.map((m) => `${new Date(m.month + "-15").toLocaleDateString(undefined, { month: "short", year: "numeric" })}: ${num(m.kwh, 1)} kWh`).join("<br>")}</div>`;
+    return h + `</div>`;
+  }
+  _traysCalc(g) {
+    const t = g.trays_calc;
+    if (!t || !t.total) return "";
+    const parts = t.rows.map((r) => `${r.plants} in ${esc(r.container)} (${r.per_tray} per tray)`).join(", ");
+    return `<div class="small mut" style="margin-top:6px">Your plants fill about ${t.total} tray${t.total === 1 ? "" : "s"}: ${parts}.${t.unknown ? ` ${t.unknown} more are in other pots.` : ""}${t.total !== g.trays ? ` ${this._btn("trays-set", "", `Use ${t.total}`, `data-g="${g.id}" data-n="${t.total}"`)}` : ""}</div>`;
   }
   _waterCard(g) {
     const w = g.water, gid = g.id;
@@ -405,6 +428,8 @@ class GardenTrackerCard extends HTMLElement {
     let h = `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("thermostat")} Heating and cooling</div>${this._btn("toggle-climate", c.enabled ? "power" : "power", c.enabled ? "Turn off" : "Turn on", `data-g="${gid}" data-p="${c.enabled ? "0" : "1"}"`, c.enabled ? "" : "primary")}</div>`;
     h += `<div style="margin:6px 0">${this._climatePill(c)}</div>`;
     h += `<div class="row" style="align-items:baseline;gap:22px;margin:6px 0"><div><span class="ph">${c.temp === null ? "–" : num(c.temp, 0) + "°"}</span> <span class="small mut">now</span></div><div class="small">Heat below <b>${num(c.heat_set, 0)}°F</b><br>Cool above <b>${num(c.cool_set, 0)}°F</b></div></div>`;
+    const lim = [c.heat_min_run ? `at least ${c.heat_min_run} min` : "", c.heat_max_run ? `at most ${c.heat_max_run} min, then rests ${c.heat_rest} min` : ""].filter(Boolean);
+    if (lim.length) h += `<div class="small mut" style="margin-bottom:4px">Each heater run: ${lim.join(", ")}.</div>`;
     h += `<div class="small mut">Heaters: ${c.heaters.length ? c.heaters.map((e) => esc(nm(e))).join(", ") : "none chosen"}<br>Coolers: ${c.coolers.length ? c.coolers.map((e) => esc(nm(e))).join(", ") : "none chosen"}</div>`;
     if (c.enabled && !c.heaters.length && !c.coolers.length) h += `<div class="pill warn" style="margin:8px 0">Pick a heater or cooler under Set up.</div>`;
     if (c.enabled && !g.metrics.air_temp.entities.length) h += `<div class="pill warn" style="margin:8px 0">Pick a temperature sensor below. Without one the devices stay off.</div>`;
@@ -714,6 +739,7 @@ class GardenTrackerCard extends HTMLElement {
       case "reopen-cover": return this._act("reopen_cover_crop", { garden: d.g, cover: d.e });
       case "form-metric": return this._open(this._fMetric(this._garden(d.g), d.s));
       case "form-sensors": return this._open(this._fSensors(this._garden(d.g), d.s));
+      case "trays-set": return this._act("set_trays", { garden: d.g, trays: Number(d.n) });
       case "log-water": return this._act("log_watering", { garden: d.g });
       case "trays": return this._act("set_trays", { garden: d.g, trays: Math.max(0, this._garden(d.g).trays + Number(d.d)) });
       case "form-move": return this._open(this._fMove(this._variety(d.v)));
@@ -1017,6 +1043,7 @@ class GardenTrackerCard extends HTMLElement {
           { name: "ph_min", label: "Target pH from", type: "number", step: "0.1", value: g ? g.ph.target[0] : 6.0, span: 3, show: gOnly },
           { name: "ph_max", label: "Target pH to", type: "number", step: "0.1", value: g ? g.ph.target[1] : 6.8, span: 3, show: gOnly },
         ] : []),
+        ...(g && !isGarden ? Object.entries(g.power_groups).map(([k, label]) => ({ name: `power_${k}`, label: `${label}: power or energy sensors (tap to include)`, type: "multi", options: this._energyCandidates((g.power_sensors || {})[k] || []), value: ((g.power_sensors || {})[k] || []).join(",") })) : []),
         ...(g && isGarden ? [
           { name: "ec_min", label: "Healthy soil EC from (mS/cm)", type: "number", step: "0.1", value: g.fertility.ec_target[0], span: 3 },
           { name: "ec_max", label: "Healthy soil EC to (mS/cm)", type: "number", step: "0.1", value: g.fertility.ec_target[1], span: 3 },
@@ -1028,11 +1055,20 @@ class GardenTrackerCard extends HTMLElement {
           { name: "frost_scope", label: "Apply frost dates to", type: "seg", options: [["garden", "This garden"], ["all", "All gardens"]], value: "garden" },
         ] : []),
       ],
-      note: isGarden ? "Leave the sensor empty to log pH by hand. EC and moisture ranges set when feeding advice shows. Frost dates repeat every year, so set the average for your area." : `A ${kindName} tracks temperature${g && g.kind === "rack" ? ", light" : ""}, watering and 10x20 trays. Pick its sensors from its page.`,
+      note: isGarden ? "Leave the sensor empty to log pH by hand. EC and moisture ranges set when feeding advice shows. Frost dates repeat every year, so set the average for your area." : `A ${kindName} tracks temperature${g && g.kind === "rack" ? ", light" : ""}, watering and 10x20 trays. Pick its temperature sensors from its page. Choosing power or energy sensors here adds a power use card with usage by day and month. Without them the card stays hidden.`,
       submit: async (x) => {
         const { frost_last, frost_first, frost_scope, ...rest } = x;
         if (!g) return this._call("add_garden", rest);
-        if (!isGarden) return this._call("update_garden", { garden: g.id, ...rest });
+        if (!isGarden) {
+          const pw = Object.fromEntries(Object.entries(rest).filter(([k]) => k.startsWith("power_")));
+          const base = Object.fromEntries(Object.entries(rest).filter(([k]) => !k.startsWith("power_")));
+          await this._call("update_garden", { garden: g.id, ...base });
+          for (const k of Object.keys(g.power_groups)) {
+            const now = String(pw[`power_${k}`] || "").split(",").filter(Boolean), was = (g.power_sensors || {})[k] || [];
+            if (now.join(",") !== was.join(",")) await this._call("set_power_sensors", { garden: g.id, group: k, entities: now });
+          }
+          return;
+        }
         await this._call("update_garden", { garden: g.id, ...rest, ph_entity: rest.ph_entity === undefined ? " " : rest.ph_entity });
         const changed = (frost_last && frost_last !== g.frost.last_date) || (frost_first && frost_first !== g.frost.first_date);
         if (frost_scope === "all" || changed) await this._call("set_frost_dates", { garden: g.id, last_frost: frost_last, first_frost: frost_first, all_gardens: frost_scope === "all" });
@@ -1104,11 +1140,24 @@ class GardenTrackerCard extends HTMLElement {
         { name: "cool_set", label: "Cool when above (°F)", type: "number", step: "1", value: c.cool_set, req: true, span: 3 },
         { name: "heaters", label: "Heaters (tap to include)", type: "multi", options: this._deviceCandidates(c.heaters), value: c.heaters.join(",") },
         { name: "coolers", label: "Coolers or fans (tap to include)", type: "multi", options: this._deviceCandidates(c.coolers), value: c.coolers.join(",") },
+        { name: "heat_min_run", label: "Heater minimum run (min)", type: "number", step: "1", value: c.heat_min_run, span: 2 },
+        { name: "heat_max_run", label: "Heater maximum run (min)", type: "number", step: "1", value: c.heat_max_run, span: 2 },
+        { name: "heat_rest", label: "Rest after maximum (min)", type: "number", step: "1", value: c.heat_rest, span: 2 },
         { name: "enabled", label: "Control", type: "seg", options: [["true", "On"], ["false", "Off"]], value: String(c.enabled) },
       ],
-      note: `Garden Tracker switches your heater and cooler on and off to keep the air between the two points, with ${num(c.gap, 0)} degrees minimum between them. A heater or cooler that is a climate device is set to heat, cool or off. It uses this greenhouse's temperature sensors. If they stop reporting, it switches everything off, so keep the heater's own safety thermostat as a backup.`,
-      submit: (x) => this._call("set_greenhouse_climate", { garden: g.id, heat_set: x.heat_set, cool_set: x.cool_set, enabled: x.enabled === "true", heaters: String(x.heaters || "").split(",").filter(Boolean), coolers: String(x.coolers || "").split(",").filter(Boolean) }),
+      note: `Garden Tracker switches your heater and cooler on and off to keep the air between the two points, with ${num(c.gap, 0)} degrees minimum between them. A heater or cooler that is a climate device is set to heat, cool or off. It uses this greenhouse's temperature sensors. If they stop reporting, it switches everything off, so keep the heater's own safety thermostat as a backup. Minimum run keeps the heater on for at least that long once it starts. Maximum run turns it off after that long, then it rests before it can start again. Use 0 to turn either off. Below 36°F the maximum run never holds the heater off.`,
+      submit: (x) => this._call("set_greenhouse_climate", { garden: g.id, heat_set: x.heat_set, cool_set: x.cool_set, enabled: x.enabled === "true", heaters: String(x.heaters || "").split(",").filter(Boolean), coolers: String(x.coolers || "").split(",").filter(Boolean), heat_min_run: x.heat_min_run ?? 0, heat_max_run: x.heat_max_run ?? 0, heat_rest: x.heat_rest ?? 10 }),
     };
+  }
+  _energyCandidates(selected) {
+    const st = (this._hass && this._hass.states) || {};
+    const out = [];
+    for (const [id, s2] of Object.entries(st)) {
+      if (!id.startsWith("sensor.")) continue;
+      const a = s2.attributes || {}, unit = String(a.unit_of_measurement || "").toLowerCase();
+      if (["energy", "power"].includes(a.device_class) || ["kwh", "wh", "mwh", "w", "kw"].includes(unit) || selected.includes(id)) out.push([id, `${a.friendly_name || id}${s2.state && s2.state !== "unknown" ? ` (${s2.state}${a.unit_of_measurement ? " " + a.unit_of_measurement : ""})` : ""}`]);
+    }
+    return out.sort((p, q) => p[1].localeCompare(q[1]));
   }
   _fWaterEvery(g) {
     return {

@@ -21,6 +21,9 @@ from .model import METRICS, GardenModel
 
 _LOGGER = logging.getLogger(__name__)
 CLIMATE_INTERVAL = timedelta(minutes=1)
+FREEZE_GUARD_F = 36.0  # below this the heater is never held off by a maximum run time
+ENERGY_UNITS = {"kwh": 1.0, "wh": 0.001, "mwh": 1000.0}
+POWER_UNITS = {"w": 0.001, "kw": 1.0}
 CLIMATE_HYSTERESIS = 1.0  # degrees F past a set point before a heater or cooler turns off again
 
 
@@ -31,6 +34,7 @@ class GardenManager(GardenModel):
         self._store: Store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
         self._ph_unsub = None
         self._climate_unsub = None
+        self._power_t: dict[str, object] = {}
         self._ready = False
 
     async def async_load(self) -> None:
@@ -40,7 +44,16 @@ class GardenManager(GardenModel):
         self.presets = {k: v for k, v in json.loads(text).items() if not k.startswith("_")}
         self._ready = True
         self.refresh_ph_listeners()
-        self._climate_unsub = async_track_time_interval(self.hass, lambda _now: self.run_climate(), CLIMATE_INTERVAL)
+        self._climate_unsub = async_track_time_interval(self.hass, self._tick, CLIMATE_INTERVAL)
+
+    def _power_changed(self) -> None:
+        if self._ready:
+            self.sample_power()
+
+    @callback
+    def _tick(self, _now) -> None:
+        self.run_climate()
+        self.sample_power()
 
     async def async_shutdown(self) -> None:
         if self._climate_unsub:
@@ -154,12 +167,15 @@ class GardenManager(GardenModel):
         """Hold each greenhouse between its heat and cool set points by switching the chosen devices."""
         if not self._ready:
             return
+        now = dt_util.utcnow()
         for g in list(self.data["gardens"].values()):
             if g.get("kind") != "greenhouse" or (only and g["id"] != only):
                 continue
             c = g["climate"]
-            prev = self.climate_state.get(g["id"], {}).get("state")
+            old = self.climate_state.get(g["id"], {})
+            prev = old.get("state")
             temp = self._air_temp_now(g)
+            new: dict = {}
             if not c["enabled"]:
                 state = "off"
             elif temp is None:
@@ -174,15 +190,82 @@ class GardenManager(GardenModel):
                     cooling, heating = True, False
                 elif cooling and temp <= c["cool_set"] - CLIMATE_HYSTERESIS:
                     cooling = False
-                state = "heating" if heating else "cooling" if cooling else "idle"
-            if c["enabled"] or prev in ("heating", "cooling"):  # switching control off also switches devices off
+                run = (now - old["since"]).total_seconds() / 60 if prev == "heating" and old.get("since") else 0
+                mn, mx, rest = c.get("heat_min_run", 0), c.get("heat_max_run", 0), c.get("heat_rest", 10)
+                if prev == "heating" and not heating and not cooling and mn and run < mn:
+                    heating = True  # minimum run time: keep the heater on until it has run long enough
+                resting_until = old.get("rest_until") if prev == "resting" else None
+                cold = temp < FREEZE_GUARD_F  # near freezing, run times never stop the heater
+                if heating and not cold:
+                    if prev == "heating" and mx and run >= mx:
+                        heating, resting_until = False, now + timedelta(minutes=rest)
+                    elif prev != "heating" and resting_until and now < resting_until:
+                        heating = False
+                if heating:
+                    state = "heating"
+                    new["since"] = old["since"] if prev == "heating" and old.get("since") else now
+                elif cooling:
+                    state = "cooling"
+                elif resting_until and now < resting_until and temp < c["heat_set"] + CLIMATE_HYSTERESIS:
+                    state = "resting"
+                    new["rest_until"] = resting_until
+                else:
+                    state = "idle"
+            new["state"] = state
+            if c["enabled"] or prev in ("heating", "cooling", "resting"):  # switching control off also switches devices off
                 for e in c["heaters"]:
                     self._drive(e, state == "heating", "heater")
                 for e in c["coolers"]:
                     self._drive(e, state == "cooling", "cooler")
             if state != prev:
-                self.climate_state[g["id"]] = {"state": state}
+                self.climate_state[g["id"]] = new
                 self._touch()
+            else:
+                old.update({k: v for k, v in new.items() if k != "state"})
+
+    # ---- power and energy ---------------------------------------------------------------
+    @callback
+    def sample_power(self) -> None:
+        """Add up energy from the power or energy sensors chosen for each rack and greenhouse."""
+        if not self._ready:
+            return
+        now = dt_util.utcnow()
+        changed = False
+        for g in self.data["gardens"].values():
+            for group, ents in (g.get("power_sensors") or {}).items():
+                for e in ents:
+                    st = self.hass.states.get(e)
+                    if st is None or st.state in (STATE_UNKNOWN, STATE_UNAVAILABLE):
+                        self._power_t.pop(e, None)
+                        continue
+                    try:
+                        val = float(st.state)
+                    except ValueError:
+                        continue
+                    unit = (st.attributes.get("unit_of_measurement") or "").strip().lower()
+                    kwh = 0.0
+                    if unit in ENERGY_UNITS:
+                        total = val * ENERGY_UNITS[unit]
+                        last = g["energy_last"].get(e)
+                        if last != total:
+                            g["energy_last"][e] = total
+                            changed = True
+                        if last is not None:
+                            d = total - last
+                            kwh = d if d >= 0 else total  # a drop means the meter was reset
+                            if kwh > 500:
+                                kwh = 0.0  # ignore a wild jump rather than record nonsense
+                    elif unit in POWER_UNITS:
+                        t0 = self._power_t.get(e)
+                        self._power_t[e] = now
+                        if t0 is not None:
+                            secs = min((now - t0).total_seconds(), 300)
+                            kwh = val * POWER_UNITS[unit] * secs / 3600
+                    if kwh > 0:
+                        self.record_energy(g, group, kwh)
+                        changed = True
+        if changed:
+            self._touch()
 
     def _ingest(self, gid: str, metric: str) -> None:
         g = self.data["gardens"].get(gid)
