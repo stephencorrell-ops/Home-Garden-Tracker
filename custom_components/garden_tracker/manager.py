@@ -61,6 +61,17 @@ class GardenManager(GardenModel):
             return
         now, changed = dt_util.utcnow(), False
         for g in list(self.data["gardens"].values()):
+            if g["sensor_alarm"]["enabled"]:
+                status = {}
+                for ent, metric in self.sensors_in_use(g).items():
+                    st = self.hass.states.get(ent)
+                    try:
+                        ok = st is not None and st.state not in (STATE_UNKNOWN, STATE_UNAVAILABLE) and float(st.state) == float(st.state)
+                    except (TypeError, ValueError):
+                        ok = False
+                    status[ent] = (metric, ok)
+                if self.update_sensor_alarm(g["id"], status, now):
+                    changed = True
             if g.get("kind") == "garden" or not g["alarm"]["enabled"]:
                 continue
             temp = self._air_temp_now(g)

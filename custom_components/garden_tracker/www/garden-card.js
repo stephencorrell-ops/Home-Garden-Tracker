@@ -327,6 +327,7 @@ class GardenTrackerCard extends HTMLElement {
       return h + `<div class="msg">Create your first garden to start adding plants.<br><br>${this._btn("form-garden", "plus", "Add garden", "", "primary")}</div>`;
     }
     h += `<div class="chips">${gs.map((g) => `<button class="chip" data-act="open-g" data-g="${g.id}">${g.kind === "garden" ? "" : this._icon(KIND_ICON[g.kind]) + " "}${esc(g.name)}</button>`).join("")}${this._config.garden ? "" : `<button class="chip" data-act="form-garden">+ Location</button>`}</div>`;
+    h += gs.map((g) => this._sensorBanner(g)).join("");
     const frost = gs.filter((g) => g.kind === "garden").map((g) => this._frostPill(g, gs.length > 1)).join("");
     if (frost) h += `<div>${frost}</div>`;
     const cnt = (l) => vs.filter((v) => v.status.level === l).length;
@@ -398,6 +399,29 @@ class GardenTrackerCard extends HTMLElement {
       return `<div class="alarm"><b>${this._icon(hot ? "thermometer-alert" : "snowflake-alert")} ${hot ? "Too hot" : "Too cold"}: ${esc(g.name)}</b><div class="small" style="margin-top:4px">${text}${earlier}</div><div class="row">${this._btn("ack-alarm", "check", "Acknowledge", `data-g="${g.id}" data-k="${x.kind}"`, "grow")}</div></div>`;
     }).join("");
   }
+  _sensorBanner(g) {
+    const a = g.sensor_alarm;
+    if (!a || !a.enabled) return "";
+    const st = (this._hass && this._hass.states) || {};
+    const WHAT = { moisture: "soil moisture", ec: "soil EC", soil_temp: "soil temperature", air_temp: "air temperature", par: "light", ph: "pH", power: "power" };
+    return a.alerts.map((x) => {
+      const name = (st[x.entity] && st[x.entity].attributes && st[x.entity].attributes.friendly_name) || x.entity;
+      const t0 = new Date(x.since).getTime(), t1 = x.end ? new Date(x.end).getTime() : Date.now();
+      const text = x.ongoing
+        ? `No reading for ${fmtDur(t1 - t0)}, since ${fmtClock(x.since)}.`
+        : `Had no reading for ${fmtDur(t1 - t0)} (${fmtClock(x.since)} to ${fmtClock(x.end)}). It is reporting again now.`;
+      const earlier = x.prior_n ? ` It also dropped out ${x.prior_n} other time${x.prior_n === 1 ? "" : "s"} before you acknowledged (${fmtDur(x.prior_s * 1000)} in all).` : "";
+      return `<div class="alarm"><b>${this._icon("access-point-off")} Sensor offline: ${esc(name)}</b><div class="small" style="margin-top:4px">${esc(g.name)}, ${WHAT[x.metric] || x.metric}. ${text}${earlier}</div><div class="row">${this._btn("ack-sensor", "check", "Acknowledge", `data-g="${g.id}" data-e="${esc(x.entity)}"`, "grow")}</div></div>`;
+    }).join("");
+  }
+  _sensorAlarmCard(g) {
+    const a = g.sensor_alarm;
+    if (!a || (!a.in_use && !a.enabled)) return "";
+    let h = `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("access-point-off")} Sensor offline alarm</div>${this._btn("toggle-sensor-alarm", "power", a.enabled ? "Turn off" : "Turn on", `data-g="${g.id}" data-p="${a.enabled ? "0" : "1"}"`, a.enabled ? "" : "primary")}</div>`;
+    h += `<div class="small mut" style="margin-top:6px">${a.enabled ? `Warns when any of the ${a.in_use} sensor${a.in_use === 1 ? "" : "s"} in use reports nothing for an hour. A probe marked out is ignored.` : "Off. No warnings for sensors that stop reporting."}</div>`;
+    if (a.enabled && a.acknowledged.length) h += `<div class="small mut" style="margin-top:4px">${a.acknowledged.length} acknowledged and still offline. It warns again after it has reported once.</div>`;
+    return h + `</div>`;
+  }
   _alarmCard(g) {
     const a = g.alarm;
     const lim = [a.high !== null ? `Alarm above <b>${num(a.high, 0)}°F</b>` : "", a.low !== null ? `Alarm below <b>${num(a.low, 0)}°F</b>` : ""].filter(Boolean).join("<br>");
@@ -421,7 +445,7 @@ class GardenTrackerCard extends HTMLElement {
   _placeView(g) {
     const gid = g.id, mine = this._vars().filter((v) => v.garden === gid);
     let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="grow"><div class="ttl">${esc(g.name)}</div><div class="sub">${esc(g.kind_name)}, ${mine.length} planting${mine.length === 1 ? "" : "s"}</div></div>${this._btn("edit-g", "cog", "", `data-g="${gid}"`, "ic")}</div>`;
-    h += this._alarmBanner(g);
+    h += this._alarmBanner(g) + this._sensorBanner(g);
     if (g.climate) h += this._climateCard(g);
     if (g.alarm) h += this._alarmCard(g);
     h += this._soilCards(g);
@@ -430,6 +454,7 @@ class GardenTrackerCard extends HTMLElement {
     h += `<div class="card">${this._trayRow(g)}${this._traysCalc(g)}</div>`;
     h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">Plants here</div>${this._btn("form-variety", "plus", "Add plant", `data-g="${gid}"`)}</div>${mine.length ? "" : `<div class="small mut" style="margin:6px 0">None yet.</div>`}</div>`;
     h += mine.map((v) => this._tile(v)).join("");
+    h += this._sensorAlarmCard(g);
     if (!mine.length) h += `<div class="card">${this._confirm === "rmg" ? `<div class="conf">Remove ${esc(g.name)}? Its watering and temperature history will be lost.<div class="row"><button data-act="cancel-del">Keep</button><button class="danger" data-act="do-rmg" data-g="${gid}">Remove</button></div></div>` : `<button class="danger" data-act="ask-rmg">Remove ${esc(g.kind_name.toLowerCase())}</button>`}</div>`;
     return h;
   }
@@ -621,7 +646,7 @@ class GardenTrackerCard extends HTMLElement {
     if (g.kind !== "garden") return this._placeView(g);
     const ph = g.ph, gid = g.id;
     let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="grow"><div class="ttl">${esc(g.name)}</div><div class="sub">${this._vars().filter((v) => v.garden === gid).length} plants</div></div>${this._btn("edit-g", "cog", "", `data-g="${gid}"`, "ic")}</div>`;
-    h += this._frostPill(g, false);
+    h += this._frostPill(g, false) + this._sensorBanner(g);
     h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">Soil pH</div>${ph.level ? `<span class="pill ${ph.level === "ok" ? "ok" : "warn"}" style="margin:0">${ph.level === "ok" ? "In range" : ph.level === "low" ? "Below target" : "Above target"}</span>` : ""}</div>`;
     if (ph.current !== null) {
       const d = ph.first && ph.first.date !== ph.date ? ph.current - ph.first.value : null;
@@ -643,6 +668,7 @@ class GardenTrackerCard extends HTMLElement {
     h += `<button style="width:100%;margin-top:8px" data-act="toggle-log">${this._icon(this._showLog ? "chevron-up" : "chevron-down")} Application log (${log.length})</button>`;
     if (this._showLog) for (const e of log) h += this._logRow("adjunct", gid, e.id, esc(e.type_name) + (e.product ? `, ${esc(e.product)}` : ""), fmtDate(e.date) + (e.amount ? ` · ${esc(e.amount)}` : ""));
     h += `</div>`;
+    h += this._sensorAlarmCard(g);
     const mine = this._vars().filter((v) => v.garden === gid);
     h += `<div class="card"><div class="sec">Plants in this garden</div>${mine.map((v) => `<div class="lg" style="cursor:pointer" data-act="open-v" data-v="${v.id}"><div class="t">${esc(v.name)}<span>${esc(v.species_name)}${v.kind === "tree" ? "" : `, ${v.alive} of ${v.count} plants`}</span></div>${this._icon("chevron-right")}</div>`).join("") || `<div class="small mut">None yet.</div>`}<div class="row" style="margin-top:8px">${this._btn("form-variety", "plus", "Add plant", `data-g="${gid}"`)}${mine.some((v) => !v.archived && v.kind !== "tree") ? this._btn("form-endseason", "archive", "End season", `data-g="${gid}"`, "danger") : ""}</div></div>`;
     if (!mine.length) h += `<div class="card">${this._confirm === "rmg" ? `<div class="conf">Remove ${esc(g.name)}? Its adjunct and pH history will be lost.<div class="row"><button data-act="cancel-del">Keep</button><button class="danger" data-act="do-rmg" data-g="${gid}">Remove garden</button></div></div>` : `<button class="danger" data-act="ask-rmg">Remove garden</button>`}</div>`;
@@ -783,6 +809,8 @@ class GardenTrackerCard extends HTMLElement {
       case "form-upot": return this._open(this._fUpPot(this._variety(d.v)));
       case "form-climate": return this._open(this._fClimate(this._garden(d.g)));
       case "toggle-climate": return this._act("set_greenhouse_climate", { garden: d.g, enabled: d.p === "1" });
+      case "ack-sensor": return this._act("ack_sensor_alarm", { garden: d.g, entity: d.e });
+      case "toggle-sensor-alarm": return this._act("set_sensor_alarm", { garden: d.g, enabled: d.p === "1" });
       case "ack-alarm": return this._act("ack_temp_alarm", { garden: d.g, kind: d.k });
       case "toggle-alarm": {
         const al = this._garden(d.g).alarm;

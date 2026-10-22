@@ -59,9 +59,40 @@ class TemperatureAlarm(BinarySensorEntity):
                            for x in a["alerts"]]}
 
 
+class SensorAlarm(TemperatureAlarm):
+    """On while a sensor that is in use has reported nothing for over an hour and nobody has acknowledged it."""
+
+    _attr_name = "Sensor offline alarm"
+
+    def __init__(self, mgr: GardenManager, known: set, gid: str, g: dict) -> None:
+        super().__init__(mgr, known, gid, g)
+        self._attr_unique_id = f"{gid}_sensor_alarm"
+        known.add(self._attr_unique_id)
+
+    def _a(self) -> dict | None:
+        g = self._mgr.index()["g"].get(self._gid)
+        return g["sensor_alarm"] if g else None
+
+    @property
+    def is_on(self) -> bool:
+        a = self._a()
+        return bool(a and a["enabled"] and a["alerts"])
+
+    @property
+    def extra_state_attributes(self):
+        a = self._a()
+        return None if not a else {"sensors": [{"entity_id": x["entity"], "measures": x["metric"], "since": x["since"],
+                                                "back": x["end"]} for x in a["alerts"]]}
+
+
 def _build(mgr: GardenManager, known: set) -> list:
-    return [TemperatureAlarm(mgr, known, g["id"], g) for g in mgr.snapshot()["gardens"]
-            if g["alarm"] and g["alarm"]["enabled"] and f"{g['id']}_temp_alarm" not in known]
+    out: list = []
+    for g in mgr.snapshot()["gardens"]:
+        if g["alarm"] and g["alarm"]["enabled"] and f"{g['id']}_temp_alarm" not in known:
+            out.append(TemperatureAlarm(mgr, known, g["id"], g))
+        if g["sensor_alarm"]["enabled"] and g["sensor_alarm"]["in_use"] and f"{g['id']}_sensor_alarm" not in known:
+            out.append(SensorAlarm(mgr, known, g["id"], g))
+    return out
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:

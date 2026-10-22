@@ -13,7 +13,12 @@ After updating in HACS, restart Home Assistant and refresh your dashboard (close
   - If you acknowledge while it is still too hot or too cold, it stays quiet and only warns again after the air has been back in range.
   - The **Turn off** button switches the alarm off completely and clears any warning. It won't come back until you turn it on again.
   - When the alarm is on, Home Assistant gets a "Temperature alarm" sensor for that place (on while a warning is waiting to be acknowledged), so you can send yourself a notification. A reading that stops coming in never clears or starts an alarm.
-- New services: set_temp_alarm and ack_temp_alarm.
+- **Sensor offline alarm** for every place (gardens, seedling racks and greenhouses). If a sensor that is in use reports no value (unavailable, unknown, missing or not a number) for more than an hour, a warning shows on the main page and on that place's page, naming the sensor, what it measures, and how long it has been offline.
+  - It stays until you tap **Acknowledge**, even if the sensor has come back, and then says how long it was out. If it dropped out more than once before you looked, it tells you how many times and for how long in all.
+  - Sensors you have marked as out (Sensors out) are ignored, and so is a sensor you remove. A gap shorter than an hour never raises a warning.
+  - Each place has a "Sensor offline alarm" card with a **Turn off** button. It is on by default. Turning it off clears any warning and it won't come back until you turn it on again.
+  - When it is on and the place has sensors, Home Assistant gets a "Sensor offline alarm" sensor for that place.
+- New services: set_temp_alarm, ack_temp_alarm, set_sensor_alarm and ack_sensor_alarm.
 
 ## 0.12.1 - 2026-10-22
 

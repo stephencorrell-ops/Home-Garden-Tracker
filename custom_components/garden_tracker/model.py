@@ -11,6 +11,7 @@ from . import calc
 
 
 DEFAULT_SETTINGS = {"frost_last": "04-25", "frost_first": "10-15"}  # Ephrata, WA averages
+SENSOR_ALARM_AFTER = timedelta(hours=1)  # how long an in-use sensor may report nothing before it alarms
 ALARM_BACK_F = 1.0  # the air must come back this far inside a limit before an alarm counts as over
 UNSET: Any = object()
 GROUP_MIN = 6  # plantings above this many plants are shown as one summary
@@ -141,6 +142,8 @@ class GardenModel:
         g.setdefault("power_sensors", {})
         g.setdefault("energy", {})
         g.setdefault("energy_last", {})
+        sa = g.get("sensor_alarm") or {}
+        g["sensor_alarm"] = {"enabled": sa.get("enabled", True), "down": dict(sa.get("down") or {})}
         if g["kind"] != "garden":
             a = g.get("alarm") or {}
             g["alarm"] = {"enabled": bool(a.get("enabled")), "high": a.get("high"), "low": a.get("low"),
@@ -583,6 +586,85 @@ class GardenModel:
                     e["end"] = stamp
                 changed = True
         return changed
+
+    @staticmethod
+    def sensors_in_use(g: dict) -> dict[str, str]:
+        """Every sensor a place is relying on, as entity id to what it measures. Probes marked out are left off."""
+        out: dict[str, str] = {}
+        paused = g.get("sensors_paused", {})
+        for metric, ents in g.get("sensors", {}).items():
+            if not paused.get(metric):
+                for e in ents:
+                    out.setdefault(e, metric)
+        if g.get("ph_entity"):
+            out.setdefault(g["ph_entity"], "ph")
+        for ents in g.get("power_sensors", {}).values():
+            for e in ents:
+                out.setdefault(e, "power")
+        return out
+
+    def set_sensor_alarm(self, garden: str, enabled: bool) -> None:
+        """Warn when a sensor in use reports nothing for an hour. Turning it off clears any warning."""
+        g = self.find_garden(garden)
+        g["sensor_alarm"]["enabled"] = bool(enabled)
+        if not enabled:
+            g["sensor_alarm"]["down"] = {}
+        self._touch(True)
+        self._alarm_changed()
+
+    def ack_sensor_alarm(self, garden: str, entity: str | None = None) -> None:
+        g = self.find_garden(garden)
+        down = g["sensor_alarm"]["down"]
+        for ent in ([entity] if entity else list(down)):
+            e = down.get(ent)
+            if not e or not e.get("raised"):
+                continue
+            if e.get("end"):
+                del down[ent]
+            else:
+                e["acked"] = True
+        self._touch(True)
+
+    def update_sensor_alarm(self, garden_id: str, status: dict[str, tuple[str, bool]], now: Any) -> bool:
+        """Feed in whether each sensor in use has a value. Returns True when a warning started, changed or ended."""
+        g = self.data["gardens"].get(garden_id)
+        if not g or not g["sensor_alarm"]["enabled"]:
+            return False
+        down, changed, stamp = g["sensor_alarm"]["down"], False, now.isoformat()
+        for ent in list(down):
+            if ent not in status:  # no longer in use, so nothing to watch
+                changed = changed or bool(down[ent].get("raised"))
+                del down[ent]
+        for ent, (metric, ok) in status.items():
+            e = down.get(ent)
+            if ok:
+                if not e:
+                    continue
+                if not e.get("raised") or e.get("acked"):
+                    changed = changed or bool(e.get("raised"))
+                    del down[ent]  # a short gap, or a warning you already acknowledged
+                elif not e.get("end"):
+                    e["end"], changed = stamp, True
+            elif e is None or e.get("end"):
+                new = {"since": stamp, "metric": metric, "raised": False, "end": None, "acked": False}
+                if e:  # it dropped out again before the last warning was acknowledged
+                    new.update(raised=True, prior_n=e.get("prior_n", 0) + 1,
+                               prior_s=e.get("prior_s", 0) + int((datetime.fromisoformat(e["end"])
+                                                                  - datetime.fromisoformat(e["since"])).total_seconds()))
+                    changed = True
+                down[ent] = new
+            elif not e.get("raised") and now - datetime.fromisoformat(e["since"]) >= SENSOR_ALARM_AFTER:
+                e["raised"], changed = True, True
+        return changed
+
+    def _sensor_alarm_view(self, g: dict) -> dict:
+        sa = g["sensor_alarm"]
+        alerts = [{"entity": ent, "metric": e["metric"], "since": e["since"], "end": e.get("end"),
+                   "ongoing": not e.get("end"), "prior_n": e.get("prior_n", 0), "prior_s": e.get("prior_s", 0)}
+                  for ent, e in sa["down"].items() if e.get("raised") and not e.get("acked")]
+        alerts.sort(key=lambda x: (not x["ongoing"], x["since"]))
+        return {"enabled": sa["enabled"], "in_use": len(self.sensors_in_use(g)), "alerts": alerts,
+                "acknowledged": [ent for ent, e in sa["down"].items() if e.get("raised") and e.get("acked")]}
 
     def _alarm_changed(self) -> None:
         """Hook for the manager: check the temperature against the limits now."""
@@ -1222,6 +1304,7 @@ class GardenModel:
             "power_groups": POWER_GROUPS.get(kind, {}), "power_sensors": {k: list(v) for k, v in g.get("power_sensors", {}).items()},
             "climate": self._climate_view(g, metrics) if kind == "greenhouse" else None,
             "alarm": self._alarm_view(g) if kind != "garden" else None,
+            "sensor_alarm": self._sensor_alarm_view(g),
             "ph": {"entity": g.get("ph_entity"), "current": cur and cur["value"], "date": cur and cur["date"],
                    "source": cur and cur["source"], "target": [lo, hi], "level": level,
                    "first": first and {"date": first["date"], "value": first["value"]}, "history": hist},
