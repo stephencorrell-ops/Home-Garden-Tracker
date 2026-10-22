@@ -48,6 +48,8 @@ CONTAINER_PER_TRAY = {"6-cell tray": 72, "4-cell tray": 32, "3.3 in pot": 18, "5
 POWER_GROUPS = {"greenhouse": {"heat": "Heating", "cool": "Fans"}, "rack": {"power": "Lights and power"}}
 DEFAULT_CLIMATE = {"enabled": False, "heat_set": 60.0, "cool_set": 80.0, "heaters": [], "coolers": [],
                    "heat_min_run": 0, "heat_max_run": 0, "heat_rest": 10,
+                   # fans switch on above cool_set and off at cool_off (None = one degree below cool_set)
+                   "cool_off": None, "fan_min_run": 0,
                    # grow lights (seedling rack): on for light_hours a day, starting at light_on
                    "lights": [], "light_sched": False, "light_on": "06:00", "light_hours": 16.0,
                    # fans also run on a schedule: fan_minutes at the start of every fan_every hours
@@ -499,7 +501,8 @@ class GardenModel:
                     heat_max_run: int | None = None, heat_rest: int | None = None,
                     lights: list[str] | None = None, light_sched: bool | None = None, light_on: str | None = None,
                     light_hours: float | None = None, fan_sched: bool | None = None, fan_minutes: int | None = None,
-                    fan_every: float | None = None, fan_lights_only: bool | None = None) -> None:
+                    fan_every: float | None = None, fan_lights_only: bool | None = None,
+                    cool_off: Any = UNSET, fan_min_run: int | None = None) -> None:
         g = self._location(garden)
         if g["kind"] not in CLIMATE_KINDS:
             raise GardenError("Heating, fan and light control is for a seedling rack or greenhouse")
@@ -510,6 +513,11 @@ class GardenModel:
             raise GardenError("Set points must be between 30 and 130 °F")
         if cool - heat < CLIMATE_MIN_GAP:
             raise GardenError(f"The cool set point must be at least {CLIMATE_MIN_GAP:g} degrees above the heat set point")
+        off = c.get("cool_off") if cool_off is UNSET else (None if cool_off in (None, "") else float(cool_off))
+        if off is not None and not heat < off < cool:
+            raise GardenError("The fans-off temperature must be between the heat set point and the fans-on temperature")
+        if fan_min_run is not None and not 0 <= int(fan_min_run) <= 720:
+            raise GardenError("Fan minimum run must be between 0 and 720 minutes")
 
         def clean(items):
             out: list[str] = []
@@ -563,7 +571,9 @@ class GardenModel:
         if mn and mx and mn > mx:
             raise GardenError("The minimum heater run time can't be longer than the maximum")
         c["heat_min_run"], c["heat_max_run"], c["heat_rest"] = mn, mx, rest
-        c["heat_set"], c["cool_set"] = heat, cool
+        c["heat_set"], c["cool_set"], c["cool_off"] = heat, cool, off
+        if fan_min_run is not None:
+            c["fan_min_run"] = int(fan_min_run)
         if enabled is not None:
             c["enabled"] = bool(enabled)
         self._touch(True)
@@ -1387,7 +1397,7 @@ class GardenModel:
         c = g.get("climate") or dict(DEFAULT_CLIMATE)
         st = self.climate_state.get(g["id"], {})
         return {**c, "temp": metrics["air_temp"]["current"], "state": st.get("state", "off" if not c["enabled"] else "idle"),
-                "gap": CLIMATE_MIN_GAP, "fan_on": bool(st.get("fan")), "lights_on": bool(st.get("light"))}
+                "gap": CLIMATE_MIN_GAP, "cool_off_at": c.get("cool_off") if c.get("cool_off") is not None else c["cool_set"] - 1.0, "fan_on": bool(st.get("fan")), "lights_on": bool(st.get("light"))}
 
     def _fertility_view(self, g: dict, metrics: dict, today: date) -> dict:
         """Judge soil EC (fertility) together with moisture, for the top few inches the probe can see."""

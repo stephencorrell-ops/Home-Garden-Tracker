@@ -222,8 +222,11 @@ class GardenManager(GardenModel):
                     heating = False
                 if temp > c["cool_set"]:
                     cooling, heating = True, False
-                elif cooling and temp <= c["cool_set"] - CLIMATE_HYSTERESIS:
+                elif cooling and temp <= (c["cool_off"] if c.get("cool_off") is not None else c["cool_set"] - CLIMATE_HYSTERESIS):
                     cooling = False
+                crun = (now - old["csince"]).total_seconds() / 60 if prev == "cooling" and old.get("csince") else 0
+                if prev == "cooling" and not cooling and not heating and c.get("fan_min_run") and crun < c["fan_min_run"]:
+                    cooling = True  # minimum run time: keep the fans on until they have run long enough
                 run = (now - old["since"]).total_seconds() / 60 if prev == "heating" and old.get("since") else 0
                 mn, mx, rest = c.get("heat_min_run", 0), c.get("heat_max_run", 0), c.get("heat_rest", 10)
                 if prev == "heating" and not heating and not cooling and mn and run < mn:
@@ -240,6 +243,7 @@ class GardenManager(GardenModel):
                     new["since"] = old["since"] if prev == "heating" and old.get("since") else now
                 elif cooling:
                     state = "cooling"
+                    new["csince"] = old["csince"] if prev == "cooling" and old.get("csince") else now
                 elif resting_until and now < resting_until and temp < c["heat_set"] + CLIMATE_HYSTERESIS:
                     state = "resting"
                     new["rest_until"] = resting_until

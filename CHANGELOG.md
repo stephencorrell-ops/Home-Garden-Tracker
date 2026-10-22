@@ -12,6 +12,7 @@ After updating in HACS, restart Home Assistant and refresh your dashboard (close
   - **Light schedule.** Pick your grow lights (switches or lights), the time they come on and how many hours a day, for example on at 6:00 AM for 16 hours, off for 8. The lights follow the clock every minute, so they also come back on correctly after a restart.
   - **Fan schedule.** Run the fans for a few minutes every so many hours, for example 5 minutes every 6 hours. On the rack the cycle is counted from the time the lights come on, and you can limit the scheduled runs to while the lights are on. Schedules work even when the thermostat is off.
   - The rack's page and its card on the main page show whether the lights are on and when the fans are running. Home Assistant gets a climate device for the rack too.
+- **Fan dead zone and minimum run time** for the greenhouse and the rack. "Fans off at" sets the temperature the fans switch off at, so 90 on and 85 off gives a five degree dead zone. Leave it empty and they switch off one degree below the on point, as before. "Fan minimum run" keeps the fans on for at least that long once they start for heat, so they don't cycle quickly (it never holds them on once the air is cold enough to need heat). Either one or both can be used. Your existing settings are unchanged.
 - **Fan schedule in the greenhouse.** The same "5 minutes every 6 hours" fan schedule, counted from midnight.
 
 ### Changed
