@@ -323,19 +323,31 @@ class GardenTrackerCard extends HTMLElement {
       if (!mine.length && !cov.length) continue;
       if (gs.length > 1) h += `<div class="sec">${esc(g.name)}</div>`;
       h += mine.map((v) => this._tile(v)).join("");
-      h += cov.map((i) => this._coverTile(g, i)).join("");
+      if (cov.length) h += this._coverTile(g, cov);
     }
     const past = this._vars(true).length;
     if (past) h += `<button style="width:100%" data-act="open-archive">${this._icon("archive")} Past plants (${past})</button>`;
     return h;
   }
-  _coverTile(g, i) {
-    const growing = i.state === "growing";
+  _coverTile(g, list) {
+    const growing = list.some((i) => i.state === "growing");
+    const names = list.map((i) => i.crop).join(" + ");
+    const gr = list.filter((i) => i.state === "growing"), wt = list.filter((i) => i.state === "waiting");
+    const sown = list.map((i) => i.sown).sort()[0];
+    const i = {
+      crop: names, sown,
+      days_in_ground: Math.max(...list.map((x) => x.days_in_ground)),
+      days_left: Math.max(0, ...wt.map((x) => x.days_left || 0)),
+      ready_date: wt.map((x) => x.ready_date).sort().pop(),
+      days_since_term: Math.max(0, ...wt.map((x) => x.days_since_term || 0)),
+      wait_days: Math.max(...list.map((x) => x.wait_days)),
+      id: "__all__",
+    };
     const c = growing ? "var(--ok)" : "var(--spray)";
     const stats = growing
       ? [["In the ground", `${i.days_in_ground} d`], ["Sown", fmtDate(i.sown)]]
       : [["Plant in", `${i.days_left} d`], ["Ready", fmtDate(i.ready_date)]];
-    return `<div class="card tile" data-act="open-g" data-g="${g.id}"><div class="row"><div class="pic" style="background:color-mix(in srgb,${c} 18%,transparent);color:${c}"><ha-icon icon="mdi:grass" style="--mdc-icon-size:34px"></ha-icon></div><div class="grow"><div style="font-size:15px;font-weight:500">${esc(i.crop)}</div><div class="sub">Winter cover crop</div><span class="pill ${growing ? "ok" : "warn"}" style="margin:4px 0 0">${growing ? "Growing" : `Waiting, day ${i.days_since_term} of ${i.wait_days}`}</span></div></div>${this._statGrid(stats)}${growing ? `<div class="row" style="margin-top:10px">${this._btn("form-terminate", "scissors-cutting", "Terminate", `data-g="${g.id}" data-e="${i.id}"`, "grow")}</div>` : ""}</div>`;
+    return `<div class="card tile" data-act="open-g" data-g="${g.id}"><div class="row"><div class="pic" style="background:color-mix(in srgb,${c} 18%,transparent);color:${c}"><ha-icon icon="mdi:grass" style="--mdc-icon-size:34px"></ha-icon></div><div class="grow"><div style="font-size:15px;font-weight:500">${esc(i.crop)}</div><div class="sub">Winter cover crop${list.length > 1 ? " mix" : ""}</div><span class="pill ${growing ? "ok" : "warn"}" style="margin:4px 0 0">${growing ? (wt.length ? `Growing, ${wt.map((x) => x.crop).join(" + ")} terminated` : "Growing") : `Waiting, day ${i.days_since_term} of ${i.wait_days}`}</span></div></div>${this._statGrid(stats)}${growing ? `<div class="row" style="margin-top:10px">${this._btn("form-terminate", "scissors-cutting", gr.length > 1 ? "Terminate all" : "Terminate", `data-g="${g.id}" data-e="${gr.length > 1 ? "__all__" : gr[0].id}"`, "grow")}</div>` : ""}</div>`;
   }
   _tile(v) {
     const tree = v.kind === "tree";
@@ -1005,7 +1017,8 @@ class GardenTrackerCard extends HTMLElement {
     };
   }
   _fTerminate(g, id) {
-    const i = g.cover.items.find((x) => x.id === id) || {};
+    const all = id === "__all__" ? g.cover.items.filter((x) => x.state === "growing") : null;
+    const i = all ? { crop: all.map((x) => x.crop).join(" + "), wait_days: Math.max(...all.map((x) => x.wait_days)) } : (g.cover.items.find((x) => x.id === id) || {});
     return {
       title: `Terminate ${i.crop || "cover crop"}`, submitLabel: "Terminate",
       fields: [
@@ -1014,7 +1027,7 @@ class GardenTrackerCard extends HTMLElement {
         { name: "notes", label: "Notes", type: "text" },
       ],
       preview: (x) => (x.date ? `<div class="pill ok">Plant after ${fmtDate(this._isoAdd(x.date, i.wait_days || 21), true)} (${i.wait_days || 21} days)</div>` : ""),
-      submit: (x) => this._call("terminate_cover_crop", { garden: g.id, cover: id, ...x }),
+      submit: async (x) => { for (const c of all || [{ id }]) await this._call("terminate_cover_crop", { garden: g.id, cover: c.id, ...x }); },
     };
   }
   _fMetric(g, key) {

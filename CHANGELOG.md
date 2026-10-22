@@ -4,6 +4,11 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.10.1 - 2026-10-22
+
+### Changed
+- The main Garden page now shows one cover crop card per garden, named after the mix (for example "Winter rye + Snow peas"), instead of a card for each crop. It shows the oldest sown date and days in the ground, and a "Terminate all" button that terminates every growing crop in the mix with one date and method. If part of the mix has been terminated, the card says which. The garden page still lists each crop separately.
+
 ## 0.10.0 - 2026-10-22
 
 ### Added
