@@ -179,7 +179,7 @@ function dualChart(ec, mo, band) {
 function barChart(days) {
   const W = 340, H = 90, L = 30, B = 16, T = 8, n = days.length, max = Math.max(...days.map((d) => d.kwh), 0.01);
   const bw = (W - L - 4) / n;
-  const bars = days.map((d, i) => { const h = Math.max(d.kwh > 0 ? 1.5 : 0, (d.kwh / max) * (H - T - B)); return `<rect x="${(L + i * bw + 1).toFixed(1)}" y="${(H - B - h).toFixed(1)}" width="${Math.max(1, bw - 2).toFixed(1)}" height="${h.toFixed(1)}" rx="1.5" fill="var(--primary-color,#03a9f4)"><title>${fmtDate(d.date)}: ${d.kwh} kWh</title></rect>`; }).join("");
+  const bars = days.map((d, i) => { const h = Math.max(d.kwh > 0 ? 1.5 : 0, (d.kwh / max) * (H - T - B)); return `<rect x="${(L + i * bw + 1).toFixed(1)}" y="${(H - B - h).toFixed(1)}" width="${Math.max(1, bw - 2).toFixed(1)}" height="${h.toFixed(1)}" rx="1.5" fill="var(--primary-color,#03a9f4)"><title>${fmtDate(d.date)}: ${d.kwh} kWh${d.cost !== null && d.cost !== undefined ? `, $${d.cost.toFixed(2)}` : ""}</title></rect>`; }).join("");
   return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Energy used per day"><line x1="${L}" y1="${H - B}" x2="${W - 4}" y2="${H - B}" stroke="var(--divider-color)"/><text class="ax" x="2" y="${T + 8}">${max.toFixed(max < 10 ? 1 : 0)}</text><text class="ax" x="2" y="${H - B - 2}">0</text>${bars}<text class="ax" x="${L}" y="${H - 3}">${fmtDate(days[0].date)}</text><text class="ax" text-anchor="end" x="${W - 4}" y="${H - 3}">${fmtDate(days[n - 1].date)}</text></svg>`;
 }
 const COVER_TEXT = { mowed: "mowed", roll_crimped: "roll-crimped", tarped: "tarped", tilled: "tilled", winterkill: "winterkill", other: "other" };
@@ -400,12 +400,14 @@ class GardenTrackerCard extends HTMLElement {
   }
   _powerCard(g) {
     const p = g.power;
-    let h = `<div class="card"><div class="sec">${this._icon("flash")} Power use</div>`;
-    h += `<div class="row" style="align-items:baseline;gap:22px;margin:6px 0"><div><span class="ph">${num(p.today, 2)}</span> <span class="small mut">kWh today</span></div><div><span class="ph">${num(p.month, 1)}</span> <span class="small mut">kWh this month</span></div></div>`;
-    if (p.groups.length > 1) h += `<div class="small mut" style="margin-bottom:6px">${p.groups.map((r) => `${esc(r.name)}: ${num(r.today, 2)} today, ${num(r.month, 1)} this month`).join("<br>")}</div>`;
+    const usd = (n) => (n === null || n === undefined ? "" : `$${n.toFixed(2)}`);
+    let h = `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("flash")} Power use</div>${this._btn("form-rate", "cash", p.rate ? `${num(p.rate, 2)}¢ per kWh` : "Set rate", `data-g="${g.id}"`)}</div>`;
+    h += `<div class="row" style="align-items:baseline;gap:22px;margin:6px 0"><div><span class="ph">${p.rate ? usd(p.today_cost) : num(p.today, 2)}</span> <span class="small mut">${p.rate ? `today, ${num(p.today, 2)} kWh` : "kWh today"}</span></div><div><span class="ph">${p.rate ? usd(p.month_cost) : num(p.month, 1)}</span> <span class="small mut">${p.rate ? `this month, ${num(p.month, 1)} kWh` : "kWh this month"}</span></div></div>`;
+    if (!p.rate) h += `<div class="small mut" style="margin-bottom:6px">Set your rate in cents per kWh to see dollars.</div>`;
+    if (p.groups.length > 1) h += `<div class="small mut" style="margin-bottom:6px">${p.groups.map((r) => `${esc(r.name)}: ${num(r.today, 2)} kWh${p.rate ? ` (${usd(r.today_cost)})` : ""} today, ${num(r.month, 1)} kWh${p.rate ? ` (${usd(r.month_cost)})` : ""} this month`).join("<br>")}</div>`;
     h += barChart(p.days);
     const ms = p.months.slice(-6).reverse();
-    if (ms.length > 1) h += `<div class="small mut" style="margin-top:6px">${ms.map((m) => `${new Date(m.month + "-15").toLocaleDateString(undefined, { month: "short", year: "numeric" })}: ${num(m.kwh, 1)} kWh`).join("<br>")}</div>`;
+    if (ms.length > 1) h += `<div class="small mut" style="margin-top:6px">${ms.map((m) => `${new Date(m.month + "-15").toLocaleDateString(undefined, { month: "short", year: "numeric" })}: ${num(m.kwh, 1)} kWh${p.rate ? `, ${usd(m.cost)}` : ""}`).join("<br>")}</div>`;
     return h + `</div>`;
   }
   _traysCalc(g) {
@@ -746,6 +748,7 @@ class GardenTrackerCard extends HTMLElement {
       case "form-upot": return this._open(this._fUpPot(this._variety(d.v)));
       case "form-climate": return this._open(this._fClimate(this._garden(d.g)));
       case "toggle-climate": return this._act("set_greenhouse_climate", { garden: d.g, enabled: d.p === "1" });
+      case "form-rate": return this._open(this._fRate(this._garden(d.g)));
       case "form-water-every": return this._open(this._fWaterEvery(this._garden(d.g)));
       case "toggle": {
         const cur = (this._form.values[d.f] || "").split(",").filter(Boolean);
@@ -1158,6 +1161,14 @@ class GardenTrackerCard extends HTMLElement {
       if (["energy", "power"].includes(a.device_class) || ["kwh", "wh", "mwh", "w", "kw"].includes(unit) || selected.includes(id)) out.push([id, `${a.friendly_name || id}${s2.state && s2.state !== "unknown" ? ` (${s2.state}${a.unit_of_measurement ? " " + a.unit_of_measurement : ""})` : ""}`]);
     }
     return out.sort((p, q) => p[1].localeCompare(q[1]));
+  }
+  _fRate(g) {
+    return {
+      title: "Electricity rate", submitLabel: "Save",
+      fields: [{ name: "cents", label: "Cents per kWh", type: "number", step: "0.01", value: g.power && g.power.rate ? g.power.rate : "", req: true }],
+      note: "Used for the dollar figures on every power use card. Dollars are worked out from the rate you set now, so changing it also changes past days and months. Enter 0 to remove it.",
+      submit: (x) => this._call("set_power_rate", { cents: x.cents }),
+    };
   }
   _fWaterEvery(g) {
     return {

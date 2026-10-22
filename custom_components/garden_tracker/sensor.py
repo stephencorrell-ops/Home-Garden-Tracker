@@ -393,6 +393,37 @@ class PlaceEnergySensor(_Base):
         return {r["name"].lower(): r[self._period] for r in p["groups"]} if p else None
 
 
+class PlaceEnergyCostSensor(PlaceEnergySensor):
+    """What the energy used today or this month cost, at the electricity rate you set."""
+
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_icon = "mdi:cash"
+
+    def __init__(self, mgr, known, gid: str, g: dict, period: str) -> None:
+        _Base.__init__(self, mgr, known, f"{gid}_cost_{period}", f"garden:{gid}", g["name"], g["kind_name"])
+        self._gid, self._period = gid, period
+        self._attr_name = "Energy cost today" if period == "today" else "Energy cost this month"
+
+    @property
+    def native_unit_of_measurement(self):
+        return self.hass.config.currency if self.hass else "USD"
+
+    @property
+    def available(self) -> bool:
+        p = self._p()
+        return p is not None and p["rate"] is not None
+
+    @property
+    def native_value(self):
+        p = self._p()
+        return p[f"{self._period}_cost"] if p else None
+
+    @property
+    def extra_state_attributes(self):
+        p = self._p()
+        return {"cents_per_kwh": p["rate"]} if p else None
+
+
 class AdjunctSensor(_Base):
     _attr_device_class = SensorDeviceClass.DURATION
     _attr_native_unit_of_measurement = UnitOfTime.DAYS
@@ -436,6 +467,8 @@ def _build(mgr: GardenManager, known: set) -> list:
                 for period in ("today", "month"):
                     if f"{g['id']}_energy_{period}" not in known:
                         ents.append(PlaceEnergySensor(mgr, known, g["id"], g, period))
+                    if f"{g['id']}_cost_{period}" not in known:
+                        ents.append(PlaceEnergyCostSensor(mgr, known, g["id"], g, period))
             continue
         if f"{g['id']}_ph" not in known:
             ents.append(GardenPhSensor(mgr, known, g["id"], g))

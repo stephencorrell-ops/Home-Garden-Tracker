@@ -519,6 +519,13 @@ class GardenModel:
         self._touch(True)
         self._power_changed()
 
+    def set_power_rate(self, cents: float | None) -> None:
+        """Price of electricity in cents per kWh, used to put a dollar figure on power use. 0 clears it."""
+        if cents is not None and not 0 <= cents <= 1000:
+            raise GardenError("Rate must be between 0 and 1000 cents per kWh")
+        self.data["settings"]["rate_cents"] = round(float(cents), 4) if cents else None
+        self._touch(True)
+
     def _power_changed(self) -> None:
         """Hook for the manager: sample the power sensors now."""
 
@@ -554,9 +561,18 @@ class GardenModel:
         months: dict[str, float] = {}
         for d, v in total_days.items():
             months[d[:7]] = months.get(d[:7], 0.0) + v
-        return {"unit": "kWh", "groups": rows, "today": round(sum(r["today"] for r in rows), 2),
-                "month": round(sum(r["month"] for r in rows), 2), "days": days,
-                "months": [{"month": m, "kwh": round(v, 1)} for m, v in sorted(months.items())[-12:]]}
+        rate = self.data["settings"].get("rate_cents")
+
+        def cost(kwh: float) -> float | None:
+            return None if not rate else round(kwh * rate / 100, 2)
+        for r in rows:
+            r["today_cost"], r["month_cost"] = cost(r["today"]), cost(r["month"])
+        total_today, total_month = sum(r["today"] for r in rows), sum(r["month"] for r in rows)
+        for d in days:
+            d["cost"] = cost(d["kwh"])
+        return {"unit": "kWh", "groups": rows, "today": round(total_today, 2), "month": round(total_month, 2),
+                "rate": rate, "today_cost": cost(total_today), "month_cost": cost(total_month), "days": days,
+                "months": [{"month": m, "kwh": round(v, 1), "cost": cost(v)} for m, v in sorted(months.items())[-12:]]}
 
     def _trays_calc(self, g: dict) -> dict:
         """How many 10x20 trays the plants here would fill, from each pot or tray size."""

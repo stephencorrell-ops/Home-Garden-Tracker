@@ -122,6 +122,8 @@ SERVICES: dict[str, tuple[dict, Handler]] = {
                                                           c.get("cool_set"), c.get("heaters"), c.get("coolers"),
                                                           c.get("heat_min_run"), c.get("heat_max_run"),
                                                           c.get("heat_rest"))),
+    "set_power_rate": ({R("cents"): vol.All(NUM, vol.Range(min=0, max=1000))},
+                       lambda m, c: m.set_power_rate(c["cents"])),
     "set_power_sensors": ({R("garden"): cv.string, R("group"): vol.In(["heat", "cool", "power"]),
                            R("entities"): vol.All(cv.ensure_list, [cv.string])},
                           lambda m, c: m.set_power_sensors(c["garden"], c["group"], c["entities"])),
