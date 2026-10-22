@@ -162,12 +162,15 @@ class GardenPhSensor(_Base):
 class GardenMetricSensor(_Base):
     """Soil moisture, EC or temperature for a garden (averaged across its sensors)."""
 
-    _UNITS = {"moisture": PERCENTAGE, "ec": "mS/cm", "soil_temp": UnitOfTemperature.FAHRENHEIT}
-    _CLASS = {"moisture": SensorDeviceClass.MOISTURE, "ec": None, "soil_temp": SensorDeviceClass.TEMPERATURE}
-    _ICON = {"moisture": "mdi:water-percent", "ec": "mdi:flash", "soil_temp": "mdi:thermometer"}
+    _UNITS = {"moisture": PERCENTAGE, "ec": "mS/cm", "soil_temp": UnitOfTemperature.FAHRENHEIT,
+              "air_temp": UnitOfTemperature.FAHRENHEIT, "par": "µmol/m²/s"}
+    _CLASS = {"moisture": SensorDeviceClass.MOISTURE, "ec": None, "soil_temp": SensorDeviceClass.TEMPERATURE,
+              "air_temp": SensorDeviceClass.TEMPERATURE, "par": None}
+    _ICON = {"moisture": "mdi:water-percent", "ec": "mdi:flash", "soil_temp": "mdi:thermometer",
+             "air_temp": "mdi:thermometer", "par": "mdi:white-balance-sunny"}
 
     def __init__(self, mgr, known, gid: str, g: dict, metric: str) -> None:
-        super().__init__(mgr, known, f"{gid}_{metric}", f"garden:{gid}", g["name"], "Garden")
+        super().__init__(mgr, known, f"{gid}_{metric}", f"garden:{gid}", g["name"], g["kind_name"])
         self._gid, self._metric = gid, metric
         self._attr_name = g["metrics"][metric]["name"]
         self._attr_native_unit_of_measurement = self._UNITS[metric]
@@ -307,6 +310,58 @@ class FertilitySensor(_Base):
                 "ec_change_14d": f["ec_change"], "last_fed": f["last_fed"]}
 
 
+class WateringSensor(_Base):
+    """Days since the seedling rack or greenhouse was last watered."""
+
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_native_unit_of_measurement = UnitOfTime.DAYS
+    _attr_name = "Days since watered"
+    _attr_icon = "mdi:watering-can"
+
+    def __init__(self, mgr, known, gid: str, g: dict) -> None:
+        super().__init__(mgr, known, f"{gid}_watered", f"garden:{gid}", g["name"], g["kind_name"])
+        self._gid = gid
+
+    def _w(self):
+        g = self._mgr.index()["g"].get(self._gid)
+        return g["water"] if g else None
+
+    @property
+    def available(self) -> bool:
+        return self._w() is not None
+
+    @property
+    def native_value(self):
+        w = self._w()
+        return w["days_since"] if w else None
+
+    @property
+    def extra_state_attributes(self):
+        w = self._w()
+        return {"last_watered": w["last"], "water_every_days": w["every"], "status": w["level"]} if w else None
+
+
+class TraysSensor(_Base):
+    """How many 10x20 trays are in use."""
+
+    _attr_name = "10x20 trays in use"
+    _attr_icon = "mdi:tray-full"
+    _attr_native_unit_of_measurement = "trays"
+
+    def __init__(self, mgr, known, gid: str, g: dict) -> None:
+        super().__init__(mgr, known, f"{gid}_trays", f"garden:{gid}", g["name"], g["kind_name"])
+        self._gid = gid
+
+    @property
+    def available(self) -> bool:
+        return self._gid in self._mgr.index()["g"]
+
+    @property
+    def native_value(self):
+        g = self._mgr.index()["g"].get(self._gid)
+        return g["trays"] if g else None
+
+
 class AdjunctSensor(_Base):
     _attr_device_class = SensorDeviceClass.DURATION
     _attr_native_unit_of_measurement = UnitOfTime.DAYS
@@ -339,6 +394,14 @@ def _build(mgr: GardenManager, known: set) -> list:
     ents: list = []
     snap = mgr.snapshot()
     for g in snap["gardens"]:
+        if g["kind"] != "garden":
+            for uid, cls in (("watered", WateringSensor), ("trays", TraysSensor)):
+                if f"{g['id']}_{uid}" not in known:
+                    ents.append(cls(mgr, known, g["id"], g))
+            for metric in g["metrics"]:
+                if f"{g['id']}_{metric}" not in known:
+                    ents.append(GardenMetricSensor(mgr, known, g["id"], g, metric))
+            continue
         if f"{g['id']}_ph" not in known:
             ents.append(GardenPhSensor(mgr, known, g["id"], g))
         if f"{g['id']}_frost" not in known:
