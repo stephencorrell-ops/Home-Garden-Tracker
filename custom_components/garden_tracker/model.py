@@ -36,6 +36,11 @@ COVER_CROPS = ["Winter rye", "Cereal rye", "Hairy vetch", "Winter wheat", "Austr
                "Crimson clover", "Snow peas"]
 COVER_METHODS = ["mowed", "roll_crimped", "tarped", "tilled", "winterkill", "other"]
 COVER_WAIT_DAYS = 21
+# Soil EC and moisture guidance. The probe only reads the top few inches, and EC reads high in dry soil
+# and low in wet soil, so a reading is only trusted when moisture is inside the band.
+DEFAULT_EC_TARGET = [0.8, 1.8]
+DEFAULT_MOISTURE_BAND = [25, 60]
+DEFAULT_PROBE_DEPTH = 4
 # Rule-of-thumb minimum soil temperatures (°F) for sowing or transplanting.
 PLANTING_TEMPS = [
     ("Peas, spinach, lettuce", 40), ("Carrots, beets, onions", 45), ("Potatoes", 45),
@@ -109,6 +114,9 @@ class GardenModel:
         g.setdefault("sensors", {})
         g.setdefault("cover_crops", [])
         g.setdefault("frost", {})
+        g.setdefault("ec_target", list(DEFAULT_EC_TARGET))
+        g.setdefault("moisture_band", list(DEFAULT_MOISTURE_BAND))
+        g.setdefault("probe_depth", DEFAULT_PROBE_DEPTH)
 
     def today(self) -> date:
         return self._today_fn()
@@ -184,8 +192,23 @@ class GardenModel:
         return gid
 
     def update_garden(self, ref: str, name: str | None = None, ph_entity: str | None = None,
-                      ph_min: float | None = None, ph_max: float | None = None) -> None:
+                      ph_min: float | None = None, ph_max: float | None = None,
+                      ec_min: float | None = None, ec_max: float | None = None,
+                      moisture_min: float | None = None, moisture_max: float | None = None,
+                      probe_depth: float | None = None) -> None:
         g = self.find_garden(ref)
+        self._ensure_garden(g)
+        elo, ehi = g["ec_target"]
+        elo, ehi = (ec_min if ec_min is not None else elo), (ec_max if ec_max is not None else ehi)
+        mlo, mhi = g["moisture_band"]
+        mlo, mhi = (moisture_min if moisture_min is not None else mlo), (moisture_max if moisture_max is not None else mhi)
+        if elo >= ehi or mlo >= mhi:
+            raise GardenError("The low end of a range must be below the high end")
+        g["ec_target"], g["moisture_band"] = [elo, ehi], [mlo, mhi]
+        if probe_depth is not None:
+            if probe_depth <= 0:
+                raise GardenError("Probe depth must be above zero")
+            g["probe_depth"] = probe_depth
         if name:
             g["name"] = name
         if ph_entity is not None:
@@ -820,12 +843,58 @@ class GardenModel:
             "planting": self._planting_view(metrics["soil_temp"]),
             "cover": self._cover_view(g, today),
             "frost": self._frost_view(g, today),
+            "fertility": self._fertility_view(g, metrics, today),
             "ph": {"entity": g.get("ph_entity"), "current": cur and cur["value"], "date": cur and cur["date"],
                    "source": cur and cur["source"], "target": [lo, hi], "level": level,
                    "first": first and {"date": first["date"], "value": first["value"]}, "history": hist},
             "adjuncts": [calc.adjunct_status(t, g["adjuncts"], today) for t in g["adjunct_types"].values()],
             "adjunct_log": [{**e, "type_name": names.get(e["type"], e["type"])} for e in log],
         }
+
+    def _fertility_view(self, g: dict, metrics: dict, today: date) -> dict:
+        """Judge soil EC (fertility) together with moisture, for the top few inches the probe can see."""
+        elo, ehi = g.get("ec_target", DEFAULT_EC_TARGET)
+        mlo, mhi = g.get("moisture_band", DEFAULT_MOISTURE_BAND)
+        ec, mo = metrics["ec"], metrics["moisture"]
+        out = {"ec_target": [elo, ehi], "moisture_band": [mlo, mhi], "depth": g.get("probe_depth", DEFAULT_PROBE_DEPTH),
+               "ec": ec["current"], "moisture": mo["current"], "level": None, "moisture_state": None,
+               "advice": None, "action": None, "ec_change": None, "last_fed": None}
+        fed = [f["date"] for v in self.data["varieties"].values() if v["garden"] == g["id"]
+               and not v.get("archived") for f in v.get("fertilizations", [])]
+        out["last_fed"] = max(fed) if fed else None
+        if ec["current"] is None:
+            return out
+        e = ec["current"]
+        out["level"] = "low" if e < elo else ("high" if e > ehi else "ok")
+        if mo["current"] is not None:
+            m = mo["current"]
+            out["moisture_state"] = "dry" if m < mlo else ("wet" if m > mhi else "ok")
+        ms = out["moisture_state"]
+        depth = out["depth"]
+        depth = int(depth) if float(depth).is_integer() else depth
+        week = [r for r in ec["history"] if (today - date.fromisoformat(r["date"])).days <= 14]
+        if len(week) >= 2:
+            out["ec_change"] = round(e - week[0]["value"], 2)
+        lvl = out["level"]
+        if lvl == "ok":
+            out["action"], out["advice"] = "ok", f"Fertility is in range in the top {depth} in. No feeding needed."
+        elif lvl == "low":
+            if ms == "wet":
+                out["action"] = "recheck"
+                out["advice"] = "EC reads low, but the soil is wet and that lowers the reading. Check again once it drains."
+            else:
+                out["action"] = "feed"
+                out["advice"] = f"Fertility is low in the top {depth} in. Consider feeding."
+        else:
+            if ms == "dry":
+                out["action"] = "recheck"
+                out["advice"] = "EC reads high, but the soil is dry and that raises the reading. Water, then check again."
+            else:
+                out["action"] = "hold"
+                out["advice"] = f"Salts are high in the top {depth} in. Skip fertilizer and water deeply to flush them."
+        if ms is None and out["action"] in ("feed", "hold"):
+            out["advice"] += " Add a moisture reading to confirm."
+        return out
 
     @staticmethod
     def _metric_view(g: dict, key: str) -> dict:

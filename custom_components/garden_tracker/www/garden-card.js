@@ -152,6 +152,30 @@ function metricChart(m) {
     ${area}<polyline points="${pts}" fill="none" stroke="var(--primary-color)" stroke-width="2"/>
     <text class="ax" x="${L}" y="${H - 5}">${fmtDate(hs[0].date)}</text><text class="ax" text-anchor="end" x="${W - R}" y="${H - 5}">${fmtDate(hs[hs.length - 1].date)}</text></svg>`;
 }
+function dualChart(ec, mo, band) {
+  const rows = new Map();
+  for (const r of ec.history) rows.set(r.date, { ...(rows.get(r.date) || {}), ec: r.value });
+  for (const r of mo.history) rows.set(r.date, { ...(rows.get(r.date) || {}), mo: r.value });
+  const days = [...rows.keys()].sort();
+  if (days.length < 2) return `<div class="mut small">Two days of readings will draw a trend.</div>`;
+  const W = 340, H = 130, L = 34, R = 34, T = 10, B = 20;
+  const ds = days.map((d) => Date.parse(d)), t0 = Math.min(...ds), t1 = Math.max(Math.max(...ds), t0 + 864e5 * 7);
+  const evs = ec.history.map((r) => r.value).concat(band[0], band[1]);
+  const eHi = Math.max(...evs) * 1.15 || 1;
+  const x = (t) => L + ((t - t0) / (t1 - t0)) * (W - L - R);
+  const ye = (v) => T + ((eHi - v) / eHi) * (H - T - B), ym = (v) => T + ((100 - v) / 100) * (H - T - B);
+  const line = (key, fy) => days.filter((d) => rows.get(d)[key] !== undefined).map((d) => `${x(Date.parse(d)).toFixed(1)},${fy(rows.get(d)[key]).toFixed(1)}`).join(" ");
+  const f = (v) => v.toFixed(1);
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Soil EC and moisture over time">
+    <rect x="${L}" y="${ye(band[1]).toFixed(1)}" width="${W - L - R}" height="${(ye(band[0]) - ye(band[1])).toFixed(1)}" fill="var(--ok)" opacity=".15"/>
+    <line x1="${L}" y1="${H - B}" x2="${W - R}" y2="${H - B}" stroke="var(--divider-color)"/>
+    <text class="ax" x="2" y="${T + 8}">${f(eHi)}</text><text class="ax" x="2" y="${H - B - 2}">0</text>
+    <text class="ax" text-anchor="end" x="${W - 2}" y="${T + 8}">100%</text><text class="ax" text-anchor="end" x="${W - 2}" y="${H - B - 2}">0%</text>
+    <polyline points="${line("mo", ym)}" fill="none" stroke="var(--info-color, #4aa3df)" stroke-width="1.6" stroke-dasharray="4 3"/>
+    <polyline points="${line("ec", ye)}" fill="none" stroke="var(--primary-color,#03a9f4)" stroke-width="2"/>
+    <text class="ax" x="${L}" y="${H - 5}">${fmtDate(days[0])}</text><text class="ax" text-anchor="end" x="${W - R}" y="${H - 5}">${fmtDate(days[days.length - 1])}</text></svg>
+    <div class="small mut" style="display:flex;gap:14px;margin-top:2px"><span><b style="color:var(--primary-color)">&#9644;</b> EC (mS/cm, left)</span><span><b style="color:var(--info-color,#4aa3df)">&#9548;</b> Moisture (%, right)</span><span><b style="color:var(--ok)">&#9608;</b> Target</span></div>`;
+}
 const COVER_TEXT = { mowed: "mowed", roll_crimped: "roll-crimped", tarped: "tarped", tilled: "tilled", winterkill: "winterkill", other: "other" };
 const METRIC_ICON = { moisture: "water-percent", ec: "flash", soil_temp: "thermometer" };
 const METRIC_DEC = { moisture: 0, ec: 2, soil_temp: 0 };
@@ -487,10 +511,27 @@ class GardenTrackerCard extends HTMLElement {
     }
     return h + `</div>`;
   }
+  _fertCard(g) {
+    const gid = g.id, f = g.fertility, mo = g.metrics.moisture, ec = g.metrics.ec;
+    const cls = { ok: "ok", feed: "warn", hold: "warn", recheck: "" }[f.action] ?? "";
+    const label = { ok: "No feeding needed", feed: "Consider feeding", hold: "Hold off feeding", recheck: "Check again later" }[f.action];
+    const src = (m) => (m.entities.length ? `${m.entities.length} sensor${m.entities.length === 1 ? "" : "s"}` : "manual");
+    let h = `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("flower")} Moisture and fertility</div><span class="small mut">Top ${f.depth} in</span></div>`;
+    h += f.action ? `<div class="pill ${cls}" style="margin:8px 0">${label}</div><div class="small" style="margin-bottom:8px">${esc(f.advice)}</div>` : `<div class="small mut" style="margin:6px 0">No EC readings yet. Pick sensors or log one by hand.</div>`;
+    h += `<div class="row" style="align-items:baseline;gap:22px;margin:6px 0"><div><span class="ph">${ec.current === null ? "-" : num(ec.current, 2)}</span> <span class="small mut">mS/cm EC</span></div><div><span class="ph">${mo.current === null ? "-" : num(mo.current, 0) + "%"}</span> <span class="small mut">moisture</span></div></div>`;
+    h += `<div class="small mut" style="margin-bottom:6px">Healthy EC ${f.ec_target[0]} to ${f.ec_target[1]}. EC is trusted when moisture is ${f.moisture_band[0]} to ${f.moisture_band[1]}%${f.moisture_state ? `, now ${f.moisture_state === "ok" ? "in that range" : f.moisture_state}` : ""}.${f.ec_change !== null && f.ec_change !== 0 ? ` EC ${f.ec_change < 0 ? "down" : "up"} ${Math.abs(f.ec_change).toFixed(2)} in two weeks.` : ""}${f.last_fed ? ` Last fed ${fmtDate(f.last_fed)}.` : ""}</div>`;
+    h += dualChart(ec, mo, f.ec_target);
+    h += `<div class="small mut" style="margin-top:6px">The probe only reads the top ${f.depth} inches. Deeper roots can see different levels, so use this as a guide for the surface soil.</div>`;
+    h += `<div class="row" style="margin-top:8px;flex-wrap:wrap">${this._btn("form-metric", "plus", "Log EC", `data-g="${gid}" data-s="ec"`)}${this._btn("form-metric", "plus", "Log moisture", `data-g="${gid}" data-s="moisture"`)}${this._btn("form-sensors", "access-point", "EC sensors", `data-g="${gid}" data-s="ec"`)}${this._btn("form-sensors", "access-point", "Moisture sensors", `data-g="${gid}" data-s="moisture"`)}</div>`;
+    h += `<div class="small mut" style="margin-top:4px">EC: ${src(ec)}. Moisture: ${src(mo)}.</div>`;
+    for (const m of [ec, mo]) for (const r of m.history.slice().reverse().filter((x) => x.source === "manual").slice(0, 2)) h += this._logRow(m.key, gid, r.id, `${esc(m.name)} ${num(r.value, METRIC_DEC[m.key])}${m.unit === "%" ? "%" : " " + m.unit}`, `${fmtDate(r.date)}, manual`);
+    return h + `</div>`;
+  }
   _soilCards(g) {
     const gid = g.id;
-    let h = "";
+    let h = this._fertCard(g);
     for (const m of Object.values(g.metrics)) {
+      if (m.key === "moisture" || m.key === "ec") continue;
       const d = METRIC_DEC[m.key], u = m.unit === "%" ? "%" : ` ${m.unit}`;
       const src = m.entities.length ? `${m.entities.length} sensor${m.entities.length === 1 ? "" : "s"}, averaged` : "Manual";
       h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon(METRIC_ICON[m.key])} ${esc(m.name)}</div><span class="small mut">${src}</span></div>`;
@@ -863,12 +904,17 @@ class GardenTrackerCard extends HTMLElement {
         { name: "ph_min", label: "Target pH from", type: "number", step: "0.1", value: g ? g.ph.target[0] : 6.0, span: 3 },
         { name: "ph_max", label: "Target pH to", type: "number", step: "0.1", value: g ? g.ph.target[1] : 6.8, span: 3 },
         ...(g ? [
+          { name: "ec_min", label: "Healthy soil EC from (mS/cm)", type: "number", step: "0.1", value: g.fertility.ec_target[0], span: 3 },
+          { name: "ec_max", label: "Healthy soil EC to (mS/cm)", type: "number", step: "0.1", value: g.fertility.ec_target[1], span: 3 },
+          { name: "moisture_min", label: "Trust EC above moisture (%)", type: "number", step: "1", value: g.fertility.moisture_band[0], span: 3 },
+          { name: "moisture_max", label: "Trust EC below moisture (%)", type: "number", step: "1", value: g.fertility.moisture_band[1], span: 3 },
+          { name: "probe_depth", label: "Probe depth (inches)", type: "number", step: "0.5", value: g.fertility.depth },
           { name: "frost_last", label: "Expected last spring frost", type: "date", value: g.frost.last_date, span: 3 },
           { name: "frost_first", label: "Expected first fall frost", type: "date", value: g.frost.first_date, span: 3 },
           { name: "frost_scope", label: "Apply frost dates to", type: "seg", options: [["garden", "This garden"], ["all", "All gardens"]], value: "garden" },
         ] : []),
       ],
-      note: "Leave the sensor empty to log pH by hand. Frost dates repeat every year, so set the average for your area.",
+      note: "Leave the sensor empty to log pH by hand. EC and moisture ranges set when feeding advice shows. Frost dates repeat every year, so set the average for your area.",
       submit: async (x) => {
         const { frost_last, frost_first, frost_scope, ...rest } = x;
         if (!g) return this._call("add_garden", rest);

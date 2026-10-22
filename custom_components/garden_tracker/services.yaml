@@ -1,7 +1,7 @@
 add_garden:
   fields: {name: {required: true, selector: {text: {}}}, ph_entity: {selector: {entity: {domain: sensor}}}, ph_min: {selector: {number: {min: 3, max: 10, step: 0.1, mode: box}}}, ph_max: {selector: {number: {min: 3, max: 10, step: 0.1, mode: box}}}}
 update_garden:
-  fields: {garden: {required: true, selector: {text: {}}}, name: {selector: {text: {}}}, ph_entity: {selector: {entity: {domain: sensor}}}, ph_min: {selector: {number: {min: 3, max: 10, step: 0.1, mode: box}}}, ph_max: {selector: {number: {min: 3, max: 10, step: 0.1, mode: box}}}}
+  fields: {garden: {required: true, selector: {text: {}}}, name: {selector: {text: {}}}, ph_entity: {selector: {entity: {domain: sensor}}}, ph_min: {selector: {number: {min: 3, max: 10, step: 0.1, mode: box}}}, ph_max: {selector: {number: {min: 3, max: 10, step: 0.1, mode: box}}}, ec_min: {description: "Lowest healthy soil EC (mS/cm)", selector: {number: {min: 0, max: 30, step: 0.1, mode: box}}}, ec_max: {description: "Highest healthy soil EC (mS/cm)", selector: {number: {min: 0, max: 30, step: 0.1, mode: box}}}, moisture_min: {description: "Moisture (%) below which EC readings are not trusted", selector: {number: {min: 0, max: 100, mode: box}}}, moisture_max: {description: "Moisture (%) above which EC readings are not trusted", selector: {number: {min: 0, max: 100, mode: box}}}, probe_depth: {description: "How deep the probe reads, in inches", selector: {number: {min: 1, max: 48, step: 0.5, mode: box}}}}
 remove_garden:
   fields: {garden: {required: true, selector: {text: {}}}}
 add_adjunct_type:

@@ -269,6 +269,43 @@ class FrostSensor(_Base):
                 "last_spring_frost": f["last"], "first_fall_frost": f["first"]}
 
 
+class FertilitySensor(_Base):
+    """Feed / hold / recheck / ok, from soil EC read together with moisture."""
+
+    _attr_name = "Soil fertility"
+    _attr_icon = "mdi:flower"
+    _attr_device_class = SensorDeviceClass.ENUM
+    _attr_options = ["ok", "feed", "hold", "recheck"]
+
+    def __init__(self, mgr, known, gid: str, g: dict) -> None:
+        super().__init__(mgr, known, f"{gid}_fertility", f"garden:{gid}", g["name"], "Garden")
+        self._gid = gid
+
+    def _f(self):
+        g = self._mgr.index()["g"].get(self._gid)
+        return g["fertility"] if g else None
+
+    @property
+    def available(self) -> bool:
+        f = self._f()
+        return f is not None and f["action"] is not None
+
+    @property
+    def native_value(self):
+        f = self._f()
+        return f["action"] if f else None
+
+    @property
+    def extra_state_attributes(self):
+        f = self._f()
+        if not f:
+            return None
+        return {"advice": f["advice"], "ec": f["ec"], "ec_level": f["level"], "moisture": f["moisture"],
+                "moisture_state": f["moisture_state"], "ec_target": f["ec_target"],
+                "moisture_band": f["moisture_band"], "probe_depth_in": f["depth"],
+                "ec_change_14d": f["ec_change"], "last_fed": f["last_fed"]}
+
+
 class AdjunctSensor(_Base):
     _attr_device_class = SensorDeviceClass.DURATION
     _attr_native_unit_of_measurement = UnitOfTime.DAYS
@@ -305,6 +342,8 @@ def _build(mgr: GardenManager, known: set) -> list:
             ents.append(GardenPhSensor(mgr, known, g["id"], g))
         if f"{g['id']}_frost" not in known:
             ents.append(FrostSensor(mgr, known, g["id"], g))
+        if f"{g['id']}_fertility" not in known:
+            ents.append(FertilitySensor(mgr, known, g["id"], g))
         if f"{g['id']}_cover_wait" not in known:
             ents.append(CoverWaitSensor(mgr, known, g["id"], g))
         for metric in g["metrics"]:
