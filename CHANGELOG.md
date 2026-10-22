@@ -4,6 +4,11 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.9.1 - 2026-10-22
+
+### Fixed
+- The Moisture and fertility card said "No EC readings yet" above a current EC reading whenever feeding advice was hidden. It now only says that when there really is no EC reading.
+
 ## 0.9.0 - 2026-10-22
 
 ### Added
