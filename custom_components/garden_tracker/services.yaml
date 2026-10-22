@@ -38,6 +38,8 @@ restore_plants:
   fields: {plant: {required: true, selector: {text: {}}}, count: {required: true, selector: {number: {min: 1, max: 1000, mode: box}}}, status: {selector: {select: {options: [dead, pulled]}}}, reason: {selector: {select: {options: [disease, pests, frost, heat, water, animal_damage, other]}}}, date: {selector: {date: {}}}}
 set_garden_sensors:
   fields: {garden: {required: true, selector: {text: {}}}, metric: {required: true, selector: {select: {options: [moisture, ec, soil_temp]}}}, entities: {required: true, example: "sensor.bed_1_moisture, sensor.bed_2_moisture", selector: {entity: {multiple: true, domain: sensor}}}}
+set_soil_sensors_paused:
+  fields: {garden: {required: true, selector: {text: {}}}, paused: {required: true, description: "True while the soil probes are out of the ground, so their readings are ignored", selector: {boolean: {}}}}
 log_garden_reading:
   fields: {garden: {required: true, selector: {text: {}}}, metric: {required: true, selector: {select: {options: [moisture, ec, soil_temp]}}}, value: {required: true, selector: {number: {step: 0.1, mode: box}}}, date: {selector: {date: {}}}}
 add_cover_crop:

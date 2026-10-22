@@ -517,11 +517,12 @@ class GardenTrackerCard extends HTMLElement {
     const label = { ok: "No feeding needed", feed: "Consider feeding", hold: "Hold off feeding", recheck: "Check again later" }[f.action];
     const src = (m) => (m.entities.length ? `${m.entities.length} sensor${m.entities.length === 1 ? "" : "s"}` : "manual");
     let h = `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("flower")} Moisture and fertility</div><span class="small mut">Top ${f.depth} in</span></div>`;
+    if (g.sensors_paused) h += `<div class="pill" style="margin:8px 0">Sensors out of the ground. New readings are ignored. Showing the last ones.</div>`;
     h += f.paused ? "" : f.action ? `<div class="pill ${cls}" style="margin:8px 0">${label}</div><div class="small" style="margin-bottom:8px">${esc(f.advice)}</div>` : `<div class="small mut" style="margin:6px 0">No EC readings yet. Pick sensors or log one by hand.</div>`;
     h += `<div class="row" style="align-items:baseline;gap:22px;margin:6px 0"><div><span class="ph">${ec.current === null ? "-" : num(ec.current, 2)}</span> <span class="small mut">mS/cm EC</span></div><div><span class="ph">${mo.current === null ? "-" : num(mo.current, 0) + "%"}</span> <span class="small mut">moisture</span></div></div>`;
     h += `<div class="small mut" style="margin-bottom:6px">Healthy EC ${f.ec_target[0]} to ${f.ec_target[1]}. EC is trusted when moisture is ${f.moisture_band[0]} to ${f.moisture_band[1]}%${f.moisture_state ? `, now ${f.moisture_state === "ok" ? "in that range" : f.moisture_state}` : ""}.${f.ec_change !== null && f.ec_change !== 0 ? ` EC ${f.ec_change < 0 ? "down" : "up"} ${Math.abs(f.ec_change).toFixed(2)} in two weeks.` : ""}${f.last_fed ? ` Last fed ${fmtDate(f.last_fed)}.` : ""}</div>`;
     h += dualChart(ec, mo, f.ec_target);
-    h += `<div class="row" style="margin-top:8px;flex-wrap:wrap">${this._btn("form-metric", "plus", "Log EC", `data-g="${gid}" data-s="ec"`)}${this._btn("form-metric", "plus", "Log moisture", `data-g="${gid}" data-s="moisture"`)}${this._btn("form-sensors", "access-point", "EC sensors", `data-g="${gid}" data-s="ec"`)}${this._btn("form-sensors", "access-point", "Moisture sensors", `data-g="${gid}" data-s="moisture"`)}</div>`;
+    h += `<div class="row" style="margin-top:8px;flex-wrap:wrap">${this._btn("form-metric", "plus", "Log EC", `data-g="${gid}" data-s="ec"`)}${this._btn("form-metric", "plus", "Log moisture", `data-g="${gid}" data-s="moisture"`)}${this._btn("form-sensors", "access-point", "EC sensors", `data-g="${gid}" data-s="ec"`)}${this._btn("form-sensors", "access-point", "Moisture sensors", `data-g="${gid}" data-s="moisture"`)}${this._btn("toggle-probes", g.sensors_paused ? "play" : "pause", g.sensors_paused ? "Resume sensors" : "Sensors out", `data-g="${gid}" data-p="${g.sensors_paused ? "0" : "1"}"`)}</div>`;
     h += `<div class="small mut" style="margin-top:4px">EC: ${src(ec)}. Moisture: ${src(mo)}.</div>`;
     for (const m of [ec, mo]) for (const r of m.history.slice().reverse().filter((x) => x.source === "manual").slice(0, 2)) h += this._logRow(m.key, gid, r.id, `${esc(m.name)} ${num(r.value, METRIC_DEC[m.key])}${m.unit === "%" ? "%" : " " + m.unit}`, `${fmtDate(r.date)}, manual`);
     return h + `</div>`;
@@ -539,6 +540,7 @@ class GardenTrackerCard extends HTMLElement {
         h += `<div class="small mut" style="margin-bottom:8px">${m.source === "sensor" ? "Sensor" : "Manual reading"}, ${fmtDate(m.date)}</div>`;
       } else h += `<div class="small mut" style="margin:6px 0">No readings yet. Pick sensors or log one by hand.</div>`;
       h += metricChart(m);
+      if (g.sensors_paused) h += `<div class="small mut" style="margin-bottom:6px">Sensors out of the ground. New readings are ignored.</div>`;
       if (m.key === "soil_temp" && g.planting) {
         h += `<div class="small mut" style="margin:8px 0 4px">Planting guide, using the average of the last ${g.planting.days} night low${g.planting.days === 1 ? "" : "s"} (${num(g.planting.basis, 0)}°F)</div><div>${g.planting.crops.map((c) => `<span class="pill ${c.ready ? "ok" : "none"}" style="margin:2px 4px 2px 0">${esc(c.name)} ${c.min_f}°${c.ready ? "" : ", not yet"}</span>`).join("")}</div>`;
       }
@@ -611,6 +613,7 @@ class GardenTrackerCard extends HTMLElement {
       case "form-endseason": return this._open(this._fEndSeason(this._garden(d.g)));
       case "form-cover": return this._open(this._fCover(this._garden(d.g)));
       case "form-terminate": return this._open(this._fTerminate(this._garden(d.g), d.e));
+      case "toggle-probes": return this._act("set_soil_sensors_paused", { garden: d.g, paused: d.p === "1" });
       case "reopen-cover": return this._act("reopen_cover_crop", { garden: d.g, cover: d.e });
       case "form-metric": return this._open(this._fMetric(this._garden(d.g), d.s));
       case "form-sensors": return this._open(this._fSensors(this._garden(d.g), d.s));

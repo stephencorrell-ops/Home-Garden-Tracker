@@ -95,6 +95,8 @@ SERVICES: dict[str, tuple[dict, Handler]] = {
     "set_garden_sensors": ({R("garden"): cv.string, R("metric"): vol.In(["moisture", "ec", "soil_temp"]),
                             R("entities"): vol.All(cv.ensure_list, [cv.string])},
                            lambda m, c: m.set_sensors(c["garden"], c["metric"], c["entities"])),
+    "set_soil_sensors_paused": ({R("garden"): cv.string, R("paused"): cv.boolean},
+                                lambda m, c: m.set_sensors_paused(c["garden"], c["paused"])),
     "log_garden_reading": ({R("garden"): cv.string, R("metric"): vol.In(["moisture", "ec", "soil_temp"]),
                             R("value"): NUM, O("date"): cv.date},
                            lambda m, c: m.log_metric(c["garden"], c["metric"], c["value"], c.get("date"))),

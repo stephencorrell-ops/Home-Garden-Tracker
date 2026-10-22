@@ -4,6 +4,12 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.9.0 - 2026-10-22
+
+### Added
+- A "Sensors out" button on each garden's Moisture and fertility card for when you pull the soil probes out of the ground. While it is on, new moisture, EC and soil temperature readings from the sensors are ignored, so a probe lying on the surface does not log false data. The card shows the last readings with a notice, and feeding advice is hidden. Tap "Resume sensors" to start logging again; the current sensor values are read straight away. Manual readings still work, and soil pH is not affected.
+- A set_soil_sensors_paused service for the same switch.
+
 ## 0.8.2 - 2026-10-22
 
 ### Changed
