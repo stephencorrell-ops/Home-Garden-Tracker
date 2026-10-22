@@ -314,17 +314,28 @@ class GardenTrackerCard extends HTMLElement {
     const filters = [["all", `All ${vs.length}`], ["spray", `Spray due ${cnt("spray")}`], ["hold", `Harvest hold ${cnt("hold")}`], ["ok", `On track ${cnt("ok")}`]];
     if (vs.length) h += `<div class="chips">${filters.map(([k, t]) => `<button class="chip ${this._filter === k ? "on" : ""}" data-act="filter" data-s="${k}">${t}</button>`).join("")}</div>`;
     const shown = vs.filter((v) => this._filter === "all" || v.status.level === this._filter);
-    if (!vs.length) h += `<div class="msg">No plants yet. Tap Add plant.</div>`;
-    else if (!shown.length) h += `<div class="msg">Nothing matches this filter.</div>`;
+    const covers = (g) => (this._filter === "all" ? g.cover.items.filter((i) => i.state !== "done") : []);
+    const anyCover = gs.some((g) => covers(g).length);
+    if (!vs.length && !gs.some((g) => g.cover.items.some((i) => i.state !== "done"))) h += `<div class="msg">No plants yet. Tap Add plant.</div>`;
+    else if (!shown.length && !anyCover) h += `<div class="msg">Nothing matches this filter.</div>`;
     for (const g of gs) {
-      const mine = shown.filter((v) => v.garden === g.id);
-      if (!mine.length) continue;
+      const mine = shown.filter((v) => v.garden === g.id), cov = covers(g);
+      if (!mine.length && !cov.length) continue;
       if (gs.length > 1) h += `<div class="sec">${esc(g.name)}</div>`;
       h += mine.map((v) => this._tile(v)).join("");
+      h += cov.map((i) => this._coverTile(g, i)).join("");
     }
     const past = this._vars(true).length;
     if (past) h += `<button style="width:100%" data-act="open-archive">${this._icon("archive")} Past plants (${past})</button>`;
     return h;
+  }
+  _coverTile(g, i) {
+    const growing = i.state === "growing";
+    const c = growing ? "var(--ok)" : "var(--spray)";
+    const stats = growing
+      ? [["In the ground", `${i.days_in_ground} d`], ["Sown", fmtDate(i.sown)]]
+      : [["Plant in", `${i.days_left} d`], ["Ready", fmtDate(i.ready_date)]];
+    return `<div class="card tile" data-act="open-g" data-g="${g.id}"><div class="row"><div class="pic" style="background:color-mix(in srgb,${c} 18%,transparent);color:${c}"><ha-icon icon="mdi:grass" style="--mdc-icon-size:34px"></ha-icon></div><div class="grow"><div style="font-size:15px;font-weight:500">${esc(i.crop)}</div><div class="sub">Winter cover crop</div><span class="pill ${growing ? "ok" : "warn"}" style="margin:4px 0 0">${growing ? "Growing" : `Waiting, day ${i.days_since_term} of ${i.wait_days}`}</span></div></div>${this._statGrid(stats)}${growing ? `<div class="row" style="margin-top:10px">${this._btn("form-terminate", "scissors-cutting", "Terminate", `data-g="${g.id}" data-e="${i.id}"`, "grow")}</div>` : ""}</div>`;
   }
   _tile(v) {
     const tree = v.kind === "tree";

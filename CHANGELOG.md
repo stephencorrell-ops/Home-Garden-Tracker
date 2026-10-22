@@ -4,6 +4,11 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.10.0 - 2026-10-22
+
+### Added
+- Cover crops now show on the main Garden page, under each garden's plants. Each card shows the crop, whether it is growing (with days in the ground and the sown date) or in its waiting period (days until you can plant and the ready date), and a Terminate button while it is growing. Tap a card to open the garden. Finished cover crops are hidden here but stay in the garden's history. The cards are hidden when you filter by spray due, harvest hold or on track.
+
 ## 0.9.2 - 2026-10-22
 
 ### Added
