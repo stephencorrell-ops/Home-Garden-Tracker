@@ -4,6 +4,25 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.12.0 - 2026-10-22
+
+### Added
+- Two new kinds of place besides gardens: a **seedling rack** and a **greenhouse**. Add them with "+ Location" on the main page. They don't have soil, pH, EC, fertilizer or cover crops. Each tracks:
+  - Air temperature from one or more Home Assistant sensors (averaged) or manual readings, with daily lows and highs and a chart. The seedling rack can also track light (PAR) from a sensor.
+  - Watering: a "Water" button, days since last watered, and an optional "water every N days" reminder that shows Water now. A "Days since watered" sensor for each place.
+  - How many 10x20 trays are in use, with minus and plus buttons, and a "10x20 trays in use" sensor.
+  - A "Sensors out" button for each sensor type, the same as on gardens.
+- **Moving plants.** Plants in the rack or greenhouse have Move and Up-pot buttons on their card. Move takes a number of plants, so half a tray can go now and the rest later (the rest stay as their own planting). Moving into a garden marks them as in the ground and warns if a cover crop is still growing or waiting there. Each planting keeps a history of where it has been.
+- **Pot and tray sizes** for seedlings: 6-cell tray, 4-cell tray, 3.3 in pot and 5 in pot, or type your own. Set it when you add a plant, change it by up-potting (which logs the date) or in the plant's Edit form. Pot sizes are hidden once plants are in a garden.
+- **Power use by day and month.** On a greenhouse (heating and cooling) or seedling rack (lights and power), pick energy sensors (kWh, Wh) or power sensors (W, kW) in the place's Edit form. A Power use card then shows kWh today, this month, a 30 day chart, previous months, and the split between heating and cooling. Garden Tracker adds up the readings once a minute and keeps about 18 months of days. A meter that resets to zero is handled. If you don't choose any sensors, the card is not shown at all. "Energy today" and "Energy this month" sensors are added for Home Assistant too, only when sensors are chosen.
+- **Dollar cost of power use.** Tap "Set rate" on the Power use card and enter your price in cents per kWh (for example 5.15). The card then shows dollars for today and this month (kWh in smaller print), the cost of heating and cooling separately, each previous month, and the cost of each day when you touch its bar. "Energy cost today" and "Energy cost this month" sensors are added for Home Assistant, in your Home Assistant currency. One rate is used everywhere and applies to past days too, so changing it re-prices history. Without a rate the card shows kWh only.
+- **How many trays your plants fill.** Garden Tracker knows how many of each Bootstrap Farmer size fit in one 10x20 tray (72 six-cell, 32 four-cell, 18 of the 3.3 in pots, 8 of the 5 in pots) and shows "Your plants fill about N trays" with a Use N button to set the tray count.
+- **Greenhouse thermostat.** A greenhouse gets a Home Assistant climate entity with a heat set point and a cool set point, so it works with the standard thermostat card. You choose its heaters and coolers (switches, fans, input booleans or climate devices). Garden Tracker turns heaters on below the heat set point and coolers on above the cool set point, and turns them off 1 degree past it, checking on every temperature change and once a minute. Turning control off switches the devices off. If the temperature sensors stop reporting or are set to Sensors out, everything is switched off. The set points must be at least 3 degrees apart and a device can't be both a heater and a cooler.
+- New services: set_trays, log_watering, set_water_interval, move_plants, up_pot and set_greenhouse_climate (with heat_min_run, heat_max_run and heat_rest) set_power_sensors and set_power_rate. add_garden takes a kind, and add_variety and update_variety take a container.
+
+### Changed
+- "Add garden" is now "Add location". Existing gardens are unchanged.
+
 ## 0.11.0 - 2026-10-22
 
 ### Added

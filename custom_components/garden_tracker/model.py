@@ -1,6 +1,7 @@
 """Pure data model and business logic. No Home Assistant imports, so it can be unit tested."""
 from __future__ import annotations
 
+import copy
 import re
 import uuid
 from datetime import date, timedelta
@@ -31,7 +32,21 @@ METRICS = {
     "moisture": {"name": "Soil moisture", "unit": "%", "lo": 0, "hi": 100},
     "ec": {"name": "Soil EC", "unit": "mS/cm", "lo": 0, "hi": 30},
     "soil_temp": {"name": "Soil temperature", "unit": "°F", "lo": -40, "hi": 160},
+    "air_temp": {"name": "Temperature", "unit": "°F", "lo": -40, "hi": 160},
+    "par": {"name": "Light (PAR)", "unit": "µmol/m²/s", "lo": 0, "hi": 4000},
 }
+# Places plants live. A garden has soil; the seedling rack and greenhouse are indoor, so they track
+# air temperature (and light on the rack), watering and 10x20 trays instead of soil and fertilizer.
+LOCATION_KINDS = {"garden": "Garden", "rack": "Seedling rack", "greenhouse": "Greenhouse"}
+METRIC_SETS = {"garden": ("moisture", "ec", "soil_temp"), "rack": ("air_temp", "par"), "greenhouse": ("air_temp",)}
+DEFAULT_CONTAINERS = ["6-cell tray", "4-cell tray", "3.3 in pot", "5 in pot"]
+# How many fit in one 10x20 tray (Bootstrap Farmer sizes): 12 six-cell inserts, 8 four-cell inserts, and the pot inserts.
+CONTAINER_PER_TRAY = {"6-cell tray": 72, "4-cell tray": 32, "3.3 in pot": 18, "5 in pot": 8}
+POWER_GROUPS = {"greenhouse": {"heat": "Heating", "cool": "Cooling"}, "rack": {"power": "Lights and power"}}
+DEFAULT_CLIMATE = {"enabled": False, "heat_set": 60.0, "cool_set": 80.0, "heaters": [], "coolers": [],
+                   "heat_min_run": 0, "heat_max_run": 0, "heat_rest": 10}
+CLIMATE_MIN_GAP = 3.0  # degrees F between the heat and cool set points
+
 COVER_CROPS = ["Winter rye", "Cereal rye", "Hairy vetch", "Winter wheat", "Austrian winter peas",
                "Crimson clover", "Snow peas"]
 COVER_METHODS = ["mowed", "roll_crimped", "tarped", "tilled", "winterkill", "other"]
@@ -51,7 +66,8 @@ KINDS = {  # entry kind -> (parent type, list key)
     "review": ("v", "reviews"), "upotted": ("v", "upotted"),
     "adjunct": ("g", "adjuncts"), "ph": ("g", "ph_readings"),
     "moisture": ("g", "moisture"), "ec": ("g", "ec"), "soil_temp": ("g", "soil_temp"),
-    "cover": ("g", "cover_crops"),
+    "cover": ("g", "cover_crops"), "water": ("g", "watering"),
+    "air_temp": ("g", "air_temp"), "par": ("g", "par"),
 }
 EDITABLE = {
     "harvest": ("lbs", "date", "notes"),
@@ -60,6 +76,7 @@ EDITABLE = {
     "review": ("notes", "year"), "upotted": ("date",),
     "adjunct": ("type", "product", "amount", "date", "notes"), "ph": ("value", "date"),
     "moisture": ("value", "date"), "ec": ("value", "date"), "soil_temp": ("value", "date"),
+    "air_temp": ("value", "date"), "par": ("value", "date"), "water": ("date", "notes"),
     "cover": ("crop", "sown", "terminated", "method", "notes", "wait_days", "amount_lbs"),
 }
 
@@ -93,6 +110,7 @@ class GardenModel:
         self._today_fn = today_fn
         self._notify = notify or (lambda: None)
         self._structure = structure or (lambda: None)
+        self.climate_state: dict[str, dict] = {}  # runtime only: what the thermostat is doing now
         self._rev = 0
         self._cache: tuple | None = None
         self._trash: dict | None = None
@@ -114,6 +132,15 @@ class GardenModel:
         g.setdefault("sensors", {})
         g.setdefault("cover_crops", [])
         g.setdefault("frost", {})
+        g.setdefault("kind", "garden")
+        g.setdefault("trays", 0)
+        g.setdefault("watering", [])
+        g.setdefault("water_every", None)
+        g.setdefault("power_sensors", {})
+        g.setdefault("energy", {})
+        g.setdefault("energy_last", {})
+        if g["kind"] == "greenhouse":
+            g["climate"] = {**DEFAULT_CLIMATE, **(g.get("climate") or {})}
         g.setdefault("ec_target", list(DEFAULT_EC_TARGET))
         g.setdefault("moisture_band", list(DEFAULT_MOISTURE_BAND))
         g.setdefault("probe_depth", DEFAULT_PROBE_DEPTH)
@@ -183,11 +210,13 @@ class GardenModel:
 
     # ---- gardens ----------------------------------------------------------
     def add_garden(self, name: str, ph_entity: str | None = None,
-                   ph_min: float = 6.0, ph_max: float = 6.8) -> str:
+                   ph_min: float = 6.0, ph_max: float = 6.8, kind: str = "garden") -> str:
+        if kind not in LOCATION_KINDS:
+            raise GardenError("Type must be garden, rack or greenhouse")
         gid = self._unique(slug(name), self.data["gardens"])
         self.data["gardens"][gid] = {
-            "id": gid, "name": name, "ph_entity": ph_entity or None, "ph_target": [ph_min, ph_max],
-            "adjunct_types": {a["key"]: dict(a) for a in DEFAULT_ADJUNCTS},
+            "id": gid, "name": name, "kind": kind, "ph_entity": ph_entity or None, "ph_target": [ph_min, ph_max],
+            "adjunct_types": {a["key"]: dict(a) for a in DEFAULT_ADJUNCTS} if kind == "garden" else {},
             "adjuncts": [], "ph_readings": []}
         self._ensure_garden(self.data["gardens"][gid])
         self._touch(True)
@@ -402,7 +431,215 @@ class GardenModel:
         g["sensors"][metric] = clean
         self._touch(True)
 
-    PAUSE_GROUPS = {"moisture_ec": ("moisture", "ec"), "soil_temp": ("soil_temp",), "all": tuple(METRICS)}
+    # ---- seedling rack and greenhouse -------------------------------------------
+    def _location(self, ref: str) -> dict:
+        g = self.find_garden(ref)
+        self._ensure_garden(g)
+        if g["kind"] == "garden":
+            raise GardenError(f"{g['name']} is a garden. This only works for a seedling rack or greenhouse")
+        return g
+
+    def set_trays(self, garden: str, trays: int) -> None:
+        g = self._location(garden)
+        if trays < 0 or trays > 500:
+            raise GardenError("Trays must be between 0 and 500")
+        g["trays"] = int(trays)
+        self._touch()
+
+    def log_watering(self, garden: str, when: Any = None, notes: str | None = None) -> None:
+        g = self._location(garden)
+        g["watering"].append({"id": new_id(), "date": iso(when) or self.today().isoformat(), "notes": notes or ""})
+        self._touch()
+
+    def set_water_interval(self, garden: str, days: int | None) -> None:
+        g = self._location(garden)
+        if days is not None and not 1 <= int(days) <= 60:
+            raise GardenError("Water every must be between 1 and 60 days")
+        g["water_every"] = int(days) if days else None
+        self._touch()
+
+    def set_climate(self, garden: str, enabled: bool | None = None, heat_set: float | None = None,
+                    cool_set: float | None = None, heaters: list[str] | None = None,
+                    coolers: list[str] | None = None, heat_min_run: int | None = None,
+                    heat_max_run: int | None = None, heat_rest: int | None = None) -> None:
+        g = self._location(garden)
+        if g["kind"] != "greenhouse":
+            raise GardenError("Heating and cooling control is for a greenhouse")
+        c = g["climate"]
+        heat = c["heat_set"] if heat_set is None else float(heat_set)
+        cool = c["cool_set"] if cool_set is None else float(cool_set)
+        if not 30 <= heat <= 110 or not 30 <= cool <= 130:
+            raise GardenError("Set points must be between 30 and 130 °F")
+        if cool - heat < CLIMATE_MIN_GAP:
+            raise GardenError(f"The cool set point must be at least {CLIMATE_MIN_GAP:g} degrees above the heat set point")
+
+        def clean(items):
+            out: list[str] = []
+            for e in items or []:
+                e = str(e).strip()
+                if e and e not in out:
+                    out.append(e)
+            return out
+        if heaters is not None:
+            c["heaters"] = clean(heaters)
+        if coolers is not None:
+            c["coolers"] = clean(coolers)
+        if set(c["heaters"]) & set(c["coolers"]):
+            raise GardenError("A device can't be both the heater and the cooler")
+        mn = c.get("heat_min_run", 0) if heat_min_run is None else int(heat_min_run)
+        mx = c.get("heat_max_run", 0) if heat_max_run is None else int(heat_max_run)
+        rest = c.get("heat_rest", 10) if heat_rest is None else int(heat_rest)
+        if not (0 <= mn <= 720 and 0 <= mx <= 720 and 0 <= rest <= 720):
+            raise GardenError("Run times must be between 0 and 720 minutes")
+        if mn and mx and mn > mx:
+            raise GardenError("The minimum heater run time can't be longer than the maximum")
+        c["heat_min_run"], c["heat_max_run"], c["heat_rest"] = mn, mx, rest
+        c["heat_set"], c["cool_set"] = heat, cool
+        if enabled is not None:
+            c["enabled"] = bool(enabled)
+        self._touch(True)
+
+    def set_power_sensors(self, garden: str, group: str, entities: list[str]) -> None:
+        g = self._location(garden)
+        groups = POWER_GROUPS.get(g["kind"], {})
+        if group not in groups:
+            raise GardenError("Group must be " + ", ".join(groups))
+        clean: list[str] = []
+        for e in entities or []:
+            e = str(e).strip()
+            if e and e not in clean:
+                clean.append(e)
+        if clean:
+            g["power_sensors"][group] = clean
+        else:
+            g["power_sensors"].pop(group, None)
+        for e in list(g["energy_last"]):
+            if not any(e in v for v in g["power_sensors"].values()):
+                del g["energy_last"][e]
+        self._touch(True)
+        self._power_changed()
+
+    def set_power_rate(self, cents: float | None) -> None:
+        """Price of electricity in cents per kWh, used to put a dollar figure on power use. 0 clears it."""
+        if cents is not None and not 0 <= cents <= 1000:
+            raise GardenError("Rate must be between 0 and 1000 cents per kWh")
+        self.data["settings"]["rate_cents"] = round(float(cents), 4) if cents else None
+        self._touch(True)
+
+    def _power_changed(self) -> None:
+        """Hook for the manager: sample the power sensors now."""
+
+    def record_energy(self, g: dict, group: str, kwh: float) -> None:
+        """Add energy used (kWh) to today's total for a place. Keeps about a year and a half of days."""
+        if kwh <= 0:
+            return
+        day = self.today().isoformat()
+        bucket = g["energy"].setdefault(group, {})
+        bucket[day] = round(bucket.get(day, 0.0) + kwh, 4)
+        if len(bucket) > 550:
+            for old in sorted(bucket)[:-550]:
+                del bucket[old]
+
+    def _power_view(self, g: dict, today: date) -> dict | None:
+        groups = POWER_GROUPS.get(g.get("kind"), {})
+        sensors = g.get("power_sensors", {})
+        if not any(sensors.get(k) for k in groups):
+            return None
+        day, month = today.isoformat(), today.isoformat()[:7]
+        rows, total_days = [], {}
+        for key, name in groups.items():
+            if not sensors.get(key):
+                continue
+            b = g.get("energy", {}).get(key, {})
+            rows.append({"key": key, "name": name, "entities": list(sensors[key]),
+                         "today": round(b.get(day, 0.0), 2),
+                         "month": round(sum(v for d, v in b.items() if d.startswith(month)), 2)})
+            for d, v in b.items():
+                total_days[d] = total_days.get(d, 0.0) + v
+        days = [{"date": (today - timedelta(days=i)).isoformat(),
+                 "kwh": round(total_days.get((today - timedelta(days=i)).isoformat(), 0.0), 2)} for i in range(29, -1, -1)]
+        months: dict[str, float] = {}
+        for d, v in total_days.items():
+            months[d[:7]] = months.get(d[:7], 0.0) + v
+        rate = self.data["settings"].get("rate_cents")
+
+        def cost(kwh: float) -> float | None:
+            return None if not rate else round(kwh * rate / 100, 2)
+        for r in rows:
+            r["today_cost"], r["month_cost"] = cost(r["today"]), cost(r["month"])
+        total_today, total_month = sum(r["today"] for r in rows), sum(r["month"] for r in rows)
+        for d in days:
+            d["cost"] = cost(d["kwh"])
+        return {"unit": "kWh", "groups": rows, "today": round(total_today, 2), "month": round(total_month, 2),
+                "rate": rate, "today_cost": cost(total_today), "month_cost": cost(total_month), "days": days,
+                "months": [{"month": m, "kwh": round(v, 1), "cost": cost(v)} for m, v in sorted(months.items())[-12:]]}
+
+    def _trays_calc(self, g: dict) -> dict:
+        """How many 10x20 trays the plants here would fill, from each pot or tray size."""
+        counts: dict[str, int] = {}
+        unknown = 0
+        for v in self.data["varieties"].values():
+            if v["garden"] != g["id"] or v.get("archived") or v["kind"] == "tree":
+                continue
+            alive = sum(1 for p in v["plants"] if p["status"] == "alive")
+            c = v.get("container")
+            if c in CONTAINER_PER_TRAY:
+                counts[c] = counts.get(c, 0) + alive
+            else:
+                unknown += alive
+        rows = [{"container": c, "plants": n, "per_tray": CONTAINER_PER_TRAY[c], "trays": -(-n // CONTAINER_PER_TRAY[c])}
+                for c, n in counts.items() if n]
+        return {"total": sum(r["trays"] for r in rows), "rows": rows, "unknown": unknown}
+
+    def up_pot(self, ref: str, container: str, when: Any = None) -> None:
+        v = self.find_variety(ref)
+        container = (container or "").strip()
+        if not container:
+            raise GardenError("Pick the new pot or tray")
+        v["upotted"].append({"id": new_id(), "date": iso(when) or self.today().isoformat(),
+                             "container": container, "from": v.get("container")})
+        v["container"] = container
+        self._touch()
+
+    def move_plants(self, ref: str, to: str, count: int | None = None, when: Any = None) -> str:
+        """Move a planting, or some of its living plants, to another garden, rack or greenhouse.
+
+        Moving only some plants splits them into a new planting with the same history."""
+        v = self.find_variety(ref)
+        dest = self.find_garden(to)
+        if dest["id"] == v["garden"]:
+            raise GardenError("Those plants are already there")
+        src = self.data["gardens"].get(v["garden"]) or {}
+        day = iso(when) or self.today().isoformat()
+        alive = [p for p in v["plants"] if p["status"] == "alive"]
+        if not alive:
+            raise GardenError("No living plants to move")
+        n = len(alive) if count is None else int(count)
+        if n < 1:
+            raise GardenError("Move at least one plant")
+        if n > len(alive):
+            raise GardenError(f"Only {len(alive)} living plants to move")
+        move = {"id": new_id(), "date": day, "from": src.get("name", v["garden"]), "to": dest["name"], "count": n}
+        target = v
+        if n < len(alive):
+            moving = alive[-n:]
+            ids = {p["id"] for p in moving}
+            nid = self._unique(slug(v["name"]), self.data["varieties"])
+            clone = copy.deepcopy(v)
+            clone.update(id=nid, plants=moving, harvests=[], fertilizations=[], sprays=[], reviews=[],
+                         upotted=copy.deepcopy(v["upotted"]), moves=copy.deepcopy(v.get("moves", [])))
+            v["plants"] = [p for p in v["plants"] if p["id"] not in ids]
+            self.data["varieties"][nid] = clone
+            target = clone
+        target["garden"] = dest["id"]
+        target.setdefault("moves", []).append(move)
+        if dest.get("kind", "garden") == "garden" and not target.get("in_ground"):
+            target["in_ground"] = day
+        self._touch(True)
+        return target["id"]
+
+    PAUSE_GROUPS = {"moisture_ec": ("moisture", "ec"), "soil_temp": ("soil_temp",),
+                    "air_temp": ("air_temp",), "par": ("par",), "all": tuple(METRICS)}
 
     def set_sensors_paused(self, garden: str, paused: bool, group: str = "all") -> None:
         """Ignore sensor readings while the probes are out of the ground.
@@ -411,7 +648,7 @@ class GardenModel:
         g = self.find_garden(garden)
         self._ensure_garden(g)
         if group not in self.PAUSE_GROUPS:
-            raise GardenError("Group must be moisture_ec, soil_temp or all")
+            raise GardenError("Group must be moisture_ec, soil_temp, air_temp, par or all")
         for k in self.PAUSE_GROUPS[group]:
             g["sensors_paused"][k] = bool(paused)
         self._touch(True)
@@ -453,7 +690,7 @@ class GardenModel:
                     days_to_harvest: int | None = None, expected_harvest: Any = None,
                     expected_yield: float | None = None, notes: str = "",
                     kind: str | None = None, single_harvest: bool | None = None,
-                    multi_year: bool | None = None) -> str:
+                    multi_year: bool | None = None, container: str | None = None) -> str:
         g = self.find_garden(garden)
         skey = slug(species)
         sp = self.get_species(skey)
@@ -477,6 +714,7 @@ class GardenModel:
             "id": vid, "name": variety or species, "species": skey,
             "species_name": sp["name"] if sp else species, "kind": vkind, "garden": g["id"],
             "origin": origin, "planted": planted_d, "in_ground": iso(in_ground), "upotted": [],
+            "container": (container or "").strip() or None, "moves": [],
             "days_to_harvest": days_to_harvest, "expected_harvest": harvest, "expected_auto": auto,
             "expected_yield": expected_yield, "notes": notes or "", "expected_rule": use_rule,
             "multi_year": ((bool(sp.get("multi_year")) if sp else False) or bool(multi_year)) if vkind != "tree" else False,
@@ -493,8 +731,11 @@ class GardenModel:
                        planted: Any = None, in_ground: Any = None, days_to_harvest: int | None = None,
                        expected_harvest: Any = None, expected_yield: float | None = None,
                        notes: str | None = None, add_plants: int | None = None,
-                       single_harvest: bool | None = None, multi_year: bool | None = None) -> None:
+                       single_harvest: bool | None = None, multi_year: bool | None = None,
+                       container: str | None = None) -> None:
         v = self.find_variety(ref)
+        if container is not None:
+            v["container"] = container.strip() or None
         if multi_year is not None and v["kind"] != "tree":
             v["multi_year"] = bool(multi_year)
         if single_harvest is not None and v["kind"] != "tree":
@@ -849,6 +1090,7 @@ class GardenModel:
         varieties.sort(key=lambda x: (x["archived"] is not None, x["garden"], x["kind"], x["name"].lower()))
         return {"today": today.isoformat(), "species": species, "gardens": gardens,
                 "varieties": varieties, "can_undo": self._trash is not None,
+                "containers": list(DEFAULT_CONTAINERS), "container_per_tray": dict(CONTAINER_PER_TRAY),
                 "reasons": REASONS}
 
     def _garden_view(self, g: dict, today: date) -> dict:
@@ -860,20 +1102,44 @@ class GardenModel:
             level = "ok" if lo <= cur["value"] <= hi else ("low" if cur["value"] < lo else "high")
         names = {k: t["name"] for k, t in g["adjunct_types"].items()}
         log = sorted(g["adjuncts"], key=lambda e: (e["date"], e["id"]), reverse=True)
-        metrics = {k: self._metric_view(g, k) for k in METRICS}
+        kind = g.get("kind", "garden")
+        metrics = {k: self._metric_view(g, k) for k in METRIC_SETS[kind]}
+        soil = kind == "garden"
         return {
-            "id": g["id"], "name": g["name"], "metrics": metrics,
-            "planting": self._planting_view(metrics["soil_temp"]),
+            "id": g["id"], "name": g["name"], "kind": kind, "kind_name": LOCATION_KINDS[kind], "metrics": metrics,
+            "planting": self._planting_view(metrics["soil_temp"]) if soil else None,
             "cover": self._cover_view(g, today),
             "frost": self._frost_view(g, today),
             "paused": {k: bool(g.get("sensors_paused", {}).get(k)) for k in METRICS},
-            "fertility": self._fertility_view(g, metrics, today),
+            "fertility": self._fertility_view(g, metrics, today) if soil else None,
+            "trays": g.get("trays", 0), "water": self._water_view(g, today),
+            "trays_calc": self._trays_calc(g) if kind != "garden" else None,
+            "power": self._power_view(g, today) if kind != "garden" else None,
+            "power_groups": POWER_GROUPS.get(kind, {}), "power_sensors": {k: list(v) for k, v in g.get("power_sensors", {}).items()},
+            "climate": self._climate_view(g, metrics) if kind == "greenhouse" else None,
             "ph": {"entity": g.get("ph_entity"), "current": cur and cur["value"], "date": cur and cur["date"],
                    "source": cur and cur["source"], "target": [lo, hi], "level": level,
                    "first": first and {"date": first["date"], "value": first["value"]}, "history": hist},
             "adjuncts": [calc.adjunct_status(t, g["adjuncts"], today) for t in g["adjunct_types"].values()],
             "adjunct_log": [{**e, "type_name": names.get(e["type"], e["type"])} for e in log],
         }
+
+    @staticmethod
+    def _water_view(g: dict, today: date) -> dict:
+        log = sorted(g.get("watering", []), key=lambda e: (e["date"], e["id"]), reverse=True)
+        last = log[0]["date"] if log else None
+        since = calc.days_since(last, today)
+        every = g.get("water_every")
+        level = None
+        if every:
+            level = "none" if since is None else ("due" if since >= every else ("soon" if since >= every - 1 else "ok"))
+        return {"last": last, "days_since": since, "every": every, "level": level, "log": log[:60]}
+
+    def _climate_view(self, g: dict, metrics: dict) -> dict:
+        c = g.get("climate") or dict(DEFAULT_CLIMATE)
+        st = self.climate_state.get(g["id"], {})
+        return {**c, "temp": metrics["air_temp"]["current"], "state": st.get("state", "off" if not c["enabled"] else "idle"),
+                "gap": CLIMATE_MIN_GAP}
 
     def _fertility_view(self, g: dict, metrics: dict, today: date) -> dict:
         """Judge soil EC (fertility) together with moisture, for the top few inches the probe can see."""
@@ -1069,6 +1335,8 @@ class GardenModel:
             "garden_name": g["name"] if g else (v.get("archived") or {}).get("garden_name", v.get("garden_name", "")),
             "origin": v["origin"], "planted": v["planted"], "in_ground": v.get("in_ground"),
             "upotted": sorted(v["upotted"], key=lambda u: u["date"], reverse=True),
+            "container": v.get("container"), "moves": sorted(v.get("moves", []), key=lambda m: (m["date"], m["id"]), reverse=True),
+            "location_kind": (g or {}).get("kind", "garden"),
             "days_to_harvest": v.get("days_to_harvest"), "expected_harvest": v.get("expected_harvest"),
             "expected_yield": v.get("expected_yield"), "notes": v["notes"],
             "age_years": round((today - planted_d).days / 365.25, 1), "days": days, "days_to_expected": dh, "multi_year": self._multi(v),

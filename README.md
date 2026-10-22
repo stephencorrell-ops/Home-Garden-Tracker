@@ -24,6 +24,8 @@ Optional card option: `garden: Raised beds` limits the card to one garden.
 - Orchard trees with spray, pre-harvest and degree-day tracking.
 - Winter cover crops with days in the ground, termination, and a 3 week wait before planting.
 - Frost countdowns (last spring frost, then first fall frost) with dates you set for your area.
+- A seedling rack and a greenhouse for starting seeds: air temperature (and light on the rack), watering with days since and an optional reminder, 10x20 trays in use, pot and tray sizes with up-potting, and moving a number of plants from the rack to the greenhouse to the garden.
+- A greenhouse thermostat that holds the air between a heat and a cool set point by switching your heaters and coolers, with minimum and maximum heater run times. Power use by day and month when you pick energy or power sensors.
 - End of season: archive a whole garden's plantings at once and keep the history for next year.
 
 ## Concepts
