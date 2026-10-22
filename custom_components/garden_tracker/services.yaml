@@ -39,7 +39,7 @@ restore_plants:
 set_garden_sensors:
   fields: {garden: {required: true, selector: {text: {}}}, metric: {required: true, selector: {select: {options: [moisture, ec, soil_temp]}}}, entities: {required: true, example: "sensor.bed_1_moisture, sensor.bed_2_moisture", selector: {entity: {multiple: true, domain: sensor}}}}
 set_soil_sensors_paused:
-  fields: {garden: {required: true, selector: {text: {}}}, paused: {required: true, description: "True while the soil probes are out of the ground, so their readings are ignored", selector: {boolean: {}}}}
+  fields: {garden: {required: true, selector: {text: {}}}, paused: {required: true, description: "True while the soil probes are out of the ground, so their readings are ignored", selector: {boolean: {}}}, group: {description: "Which probes: moisture_ec, soil_temp or all (default)", selector: {select: {options: [moisture_ec, soil_temp, all]}}}}
 log_garden_reading:
   fields: {garden: {required: true, selector: {text: {}}}, metric: {required: true, selector: {select: {options: [moisture, ec, soil_temp]}}}, value: {required: true, selector: {number: {step: 0.1, mode: box}}}, date: {selector: {date: {}}}}
 add_cover_crop:

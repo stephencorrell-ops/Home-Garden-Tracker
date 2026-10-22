@@ -117,7 +117,8 @@ class GardenModel:
         g.setdefault("ec_target", list(DEFAULT_EC_TARGET))
         g.setdefault("moisture_band", list(DEFAULT_MOISTURE_BAND))
         g.setdefault("probe_depth", DEFAULT_PROBE_DEPTH)
-        g.setdefault("sensors_paused", False)
+        if not isinstance(g.get("sensors_paused"), dict):  # older versions stored one switch for everything
+            g["sensors_paused"] = {k: True for k in METRICS} if g.get("sensors_paused") else {}
 
     def today(self) -> date:
         return self._today_fn()
@@ -398,11 +399,18 @@ class GardenModel:
         g["sensors"][metric] = clean
         self._touch(True)
 
-    def set_sensors_paused(self, garden: str, paused: bool) -> None:
-        """Ignore the soil sensors (moisture, EC, temperature) while the probes are out of the ground."""
+    PAUSE_GROUPS = {"moisture_ec": ("moisture", "ec"), "soil_temp": ("soil_temp",), "all": tuple(METRICS)}
+
+    def set_sensors_paused(self, garden: str, paused: bool, group: str = "all") -> None:
+        """Ignore sensor readings while the probes are out of the ground.
+
+        Groups: moisture_ec (the moisture and EC probe), soil_temp, or all."""
         g = self.find_garden(garden)
         self._ensure_garden(g)
-        g["sensors_paused"] = bool(paused)
+        if group not in self.PAUSE_GROUPS:
+            raise GardenError("Group must be moisture_ec, soil_temp or all")
+        for k in self.PAUSE_GROUPS[group]:
+            g["sensors_paused"][k] = bool(paused)
         self._touch(True)
 
     def log_metric(self, garden: str, metric: str, value: float, when: Any = None) -> None:
@@ -418,7 +426,7 @@ class GardenModel:
         """Fold one averaged sensor reading into today's entry (mean, last, min, max)."""
         g = self.data["gardens"].get(gid)
         spec = METRICS.get(metric)
-        if not g or not spec or g.get("sensors_paused") or not spec["lo"] <= value <= spec["hi"]:
+        if not g or not spec or g.get("sensors_paused", {}).get(metric) or not spec["lo"] <= value <= spec["hi"]:
             return
         today = self.today().isoformat()
         value = round(value, 2)
@@ -851,7 +859,7 @@ class GardenModel:
             "planting": self._planting_view(metrics["soil_temp"]),
             "cover": self._cover_view(g, today),
             "frost": self._frost_view(g, today),
-            "sensors_paused": bool(g.get("sensors_paused")),
+            "paused": {k: bool(g.get("sensors_paused", {}).get(k)) for k in METRICS},
             "fertility": self._fertility_view(g, metrics, today),
             "ph": {"entity": g.get("ph_entity"), "current": cur and cur["value"], "date": cur and cur["date"],
                    "source": cur and cur["source"], "target": [lo, hi], "level": level,
@@ -871,7 +879,7 @@ class GardenModel:
         fed = [f["date"] for v in self.data["varieties"].values() if v["garden"] == g["id"]
                and not v.get("archived") for f in v.get("fertilizations", [])]
         out["last_fed"] = max(fed) if fed else None
-        out["probes_out"] = bool(g.get("sensors_paused"))
+        out["probes_out"] = bool(g.get("sensors_paused", {}).get("ec") or g.get("sensors_paused", {}).get("moisture"))
         out["paused"] = out["probes_out"] or any(not c.get("terminated") for c in g.get("cover_crops", []))
         if ec["current"] is None:
             return out

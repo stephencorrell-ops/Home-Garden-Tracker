@@ -4,6 +4,12 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.9.2 - 2026-10-22
+
+### Added
+- The Soil temperature card has its own "Sensors out" / "Resume sensors" button, so the temperature probe can be pulled without stopping moisture and EC, and the other way around. The Moisture and fertility card's button now only covers moisture and EC. If you already pressed the old single button, it is carried over to all three.
+- The set_soil_sensors_paused service takes a group: moisture_ec, soil_temp or all.
+
 ## 0.9.1 - 2026-10-22
 
 ### Fixed
