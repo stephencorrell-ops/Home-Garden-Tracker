@@ -4,6 +4,11 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.8.2 - 2026-10-22
+
+### Changed
+- While a cover crop is growing in a garden, the feed, hold and check-again advice is hidden and the "Soil fertility" sensor shows unavailable. Moisture and EC are still logged and charted. The advice returns when the cover crop is terminated.
+
 ## 0.8.1 - 2026-10-22
 
 ### Fixed

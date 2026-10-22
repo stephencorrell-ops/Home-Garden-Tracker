@@ -862,6 +862,7 @@ class GardenModel:
         fed = [f["date"] for v in self.data["varieties"].values() if v["garden"] == g["id"]
                and not v.get("archived") for f in v.get("fertilizations", [])]
         out["last_fed"] = max(fed) if fed else None
+        out["paused"] = any(not c.get("terminated") for c in g.get("cover_crops", []))
         if ec["current"] is None:
             return out
         e = ec["current"]
@@ -876,6 +877,8 @@ class GardenModel:
         if len(week) >= 2:
             out["ec_change"] = round(e - week[0]["value"], 2)
         lvl = out["level"]
+        if out["paused"]:
+            return out  # a cover crop is growing, so there is no feeding or watering advice
         if lvl == "ok":
             out["action"], out["advice"] = "ok", f"Fertility is in range in the top {depth} in. No feeding needed."
         elif lvl == "low":
