@@ -11,7 +11,7 @@ remove_adjunct_type:
 log_adjunct:
   fields: {garden: {required: true, selector: {text: {}}}, adjunct: {required: true, example: sulfur, selector: {text: {}}}, date: {selector: {date: {}}}, product: {selector: {text: {}}}, amount: {selector: {text: {}}}, notes: {selector: {text: {}}}}
 log_ph:
-  fields: {garden: {required: true, selector: {text: {}}}, value: {required: true, selector: {number: {min: 3, max: 10, step: 0.1, mode: box}}}, date: {selector: {date: {}}}}
+  fields: {garden: {required: true, selector: {text: {}}}, value: {required: true, selector: {number: {min: 3, max: 10, step: 0.01, mode: box}}}, date: {selector: {date: {}}}}
 add_variety:
   fields: {multi_year: {description: "Show the harvest countdown in years, months and days", selector: {boolean: {}}}, single_harvest: {description: "Pulled when harvested (root crops)", selector: {boolean: {}}}, garden: {required: true, selector: {text: {}}}, species: {required: true, example: tomato, selector: {text: {}}}, variety: {required: true, example: Sungold, selector: {text: {}}}, plants: {selector: {number: {min: 1, max: 1000, mode: box}}}, origin: {selector: {select: {options: [seed, start]}}}, planted_date: {selector: {date: {}}}, in_ground_date: {selector: {date: {}}}, days_to_harvest: {selector: {number: {min: 0, max: 3650, mode: box}}}, expected_harvest_date: {selector: {date: {}}}, expected_yield: {description: Pounds per plant, selector: {number: {min: 0, mode: box}}}, notes: {selector: {text: {multiline: true}}}, kind: {selector: {select: {options: [plant, tree]}}}}
 update_variety:

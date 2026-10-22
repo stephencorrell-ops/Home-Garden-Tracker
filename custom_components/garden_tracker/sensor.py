@@ -135,6 +135,7 @@ class PestSensor(VarietySensor):
 class GardenPhSensor(_Base):
     _attr_device_class = SensorDeviceClass.PH
     _attr_name = "Soil pH"
+    _attr_suggested_display_precision = 2
 
     def __init__(self, mgr, known, gid: str, g: dict) -> None:
         super().__init__(mgr, known, f"{gid}_ph", f"garden:{gid}", g["name"], "Garden")

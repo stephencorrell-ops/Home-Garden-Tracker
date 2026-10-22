@@ -467,13 +467,13 @@ class GardenTrackerCard extends HTMLElement {
     h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">Soil pH</div>${ph.level ? `<span class="pill ${ph.level === "ok" ? "ok" : "warn"}" style="margin:0">${ph.level === "ok" ? "In range" : ph.level === "low" ? "Below target" : "Above target"}</span>` : ""}</div>`;
     if (ph.current !== null) {
       const d = ph.first && ph.first.date !== ph.date ? ph.current - ph.first.value : null;
-      h += `<div class="row" style="align-items:baseline;margin:6px 0"><span class="ph">${num(ph.current, 1)}</span><span class="small mut">target ${ph.target[0]} to ${ph.target[1]}${d !== null ? `, ${d < 0 ? "down" : "up"} ${Math.abs(d).toFixed(1)} since ${fmtDate(ph.first.date)}` : ""}</span></div>`;
+      h += `<div class="row" style="align-items:baseline;margin:6px 0"><span class="ph">${num(ph.current, 2)}</span><span class="small mut">target ${ph.target[0]} to ${ph.target[1]}${d !== null ? `, ${d < 0 ? "down" : "up"} ${num(Math.abs(d), 2)} since ${fmtDate(ph.first.date)}` : ""}</span></div>`;
       h += `<div class="small mut" style="margin-bottom:8px">${ph.source === "sensor" ? "Sensor" : "Manual reading"}, ${fmtDate(ph.date)}</div>`;
     } else h += `<div class="small mut" style="margin:6px 0">No readings yet. Pick a sensor in settings or log one by hand.</div>`;
     h += phChart(ph, g.adjunct_log);
     h += `<div class="row" style="margin-top:8px">${this._btn("form-ph", "plus", "Log reading", `data-g="${gid}"`)}</div>`;
     const recent = ph.history.slice().reverse().slice(0, 5);
-    for (const r of recent) h += this._logRow("ph", gid, r.id, `pH ${num(r.value, 1)}`, `${fmtDate(r.date)}, ${r.source}`);
+    for (const r of recent) h += this._logRow("ph", gid, r.id, `pH ${num(r.value, 2)}`, `${fmtDate(r.date)}, ${r.source}`);
     h += `</div>${this._soilCards(g)}${this._coverCard(g)}<div class="card"><div class="row"><div class="sec grow" style="margin:0">Soil adjuncts this season</div>${this._btn("form-adj", "plus", "Log something else", `data-g="${gid}" data-s="__new__"`)}${this._btn("form-atype", "calendar-plus", "Schedule", `data-g="${gid}"`)}</div>`;
     for (const a of g.adjuncts) {
       const per = a.per_year || 0;
@@ -953,7 +953,7 @@ class GardenTrackerCard extends HTMLElement {
     return {
       title: `Log pH: ${g.name}`, submitLabel: "Log",
       fields: [
-        { name: "value", label: "pH", type: "number", step: "0.1", req: true, span: 3 },
+        { name: "value", label: "pH", type: "number", step: "0.01", req: true, span: 3 },
         { name: "date", label: "Date", type: "date", value: this._snap.today, span: 3 },
       ],
       note: "From a test kit or lab report.",

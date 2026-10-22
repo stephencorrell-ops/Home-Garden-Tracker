@@ -4,6 +4,11 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.8.1 - 2026-10-22
+
+### Fixed
+- Soil pH is now shown to two decimals. A reading of 7.15 was saved correctly but displayed as 7.2. The latest reading, the change since your first reading and the log entries all show the full value, and the pH form and sensor accept two decimals.
+
 ## 0.8.0 - 2026-10-22
 
 ### Added
