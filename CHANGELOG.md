@@ -4,6 +4,12 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.11.0 - 2026-10-22
+
+### Added
+- Seed amount (pounds) for each cover crop, in the Add cover crop and Edit forms. When two or more crops with amounts are in the ground together, Garden Tracker shows the mix ratio, for example "10 lb Winter rye (67%), 5 lb Snow peas (33%)", on the main Garden page card and at the top of the garden's cover crop card. Each crop also shows its share of the mix. Amounts are optional; set one to 0 in Edit to clear it.
+- The add_cover_crop and edit_entry services accept amount_lbs.
+
 ## 0.10.1 - 2026-10-22
 
 ### Changed

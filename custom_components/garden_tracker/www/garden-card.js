@@ -329,6 +329,10 @@ class GardenTrackerCard extends HTMLElement {
     if (past) h += `<button style="width:100%" data-act="open-archive">${this._icon("archive")} Past plants (${past})</button>`;
     return h;
   }
+  _mixText(g) {
+    const m = g.cover.mix;
+    return m ? `${m.parts.map((p) => `${num(p.lbs, 2)} lb ${esc(p.crop)} (${p.pct}%)`).join(", ")}` : "";
+  }
   _coverTile(g, list) {
     const growing = list.some((i) => i.state === "growing");
     const names = list.map((i) => i.crop).join(" + ");
@@ -347,7 +351,7 @@ class GardenTrackerCard extends HTMLElement {
     const stats = growing
       ? [["In the ground", `${i.days_in_ground} d`], ["Sown", fmtDate(i.sown)]]
       : [["Plant in", `${i.days_left} d`], ["Ready", fmtDate(i.ready_date)]];
-    return `<div class="card tile" data-act="open-g" data-g="${g.id}"><div class="row"><div class="pic" style="background:color-mix(in srgb,${c} 18%,transparent);color:${c}"><ha-icon icon="mdi:grass" style="--mdc-icon-size:34px"></ha-icon></div><div class="grow"><div style="font-size:15px;font-weight:500">${esc(i.crop)}</div><div class="sub">Winter cover crop${list.length > 1 ? " mix" : ""}</div><span class="pill ${growing ? "ok" : "warn"}" style="margin:4px 0 0">${growing ? (wt.length ? `Growing, ${wt.map((x) => x.crop).join(" + ")} terminated` : "Growing") : `Waiting, day ${i.days_since_term} of ${i.wait_days}`}</span></div></div>${this._statGrid(stats)}${growing ? `<div class="row" style="margin-top:10px">${this._btn("form-terminate", "scissors-cutting", gr.length > 1 ? "Terminate all" : "Terminate", `data-g="${g.id}" data-e="${gr.length > 1 ? "__all__" : gr[0].id}"`, "grow")}</div>` : ""}</div>`;
+    return `<div class="card tile" data-act="open-g" data-g="${g.id}"><div class="row"><div class="pic" style="background:color-mix(in srgb,${c} 18%,transparent);color:${c}"><ha-icon icon="mdi:grass" style="--mdc-icon-size:34px"></ha-icon></div><div class="grow"><div style="font-size:15px;font-weight:500">${esc(i.crop)}</div><div class="sub">Winter cover crop${list.length > 1 ? " mix" : ""}</div>${g.cover.mix ? `<div class="small mut">${this._mixText(g)}</div>` : ""}<span class="pill ${growing ? "ok" : "warn"}" style="margin:4px 0 0">${growing ? (wt.length ? `Growing, ${wt.map((x) => x.crop).join(" + ")} terminated` : "Growing") : `Waiting, day ${i.days_since_term} of ${i.wait_days}`}</span></div></div>${this._statGrid(stats)}${growing ? `<div class="row" style="margin-top:10px">${this._btn("form-terminate", "scissors-cutting", gr.length > 1 ? "Terminate all" : "Terminate", `data-g="${g.id}" data-e="${gr.length > 1 ? "__all__" : gr[0].id}"`, "grow")}</div>` : ""}</div>`;
   }
   _tile(v) {
     const tree = v.kind === "tree";
@@ -523,10 +527,11 @@ class GardenTrackerCard extends HTMLElement {
         ? `<div class="pill warn" style="margin:8px 0">Cover crop growing. Terminate it, then wait ${(c.items.find((i) => i.state === "growing") || {}).wait_days || 21} days before planting.</div>`
         : `<div class="pill warn" style="margin:8px 0">Wait ${b.days_left} more day${b.days_left === 1 ? "" : "s"} before planting. Ready ${fmtDate(b.date, true)}.</div>`;
     } else if (c.items.length) h += `<div class="pill ok" style="margin:8px 0">Waiting period is over. Garden plants can go in.</div>`;
+    if (c.mix) h += `<div class="small" style="margin:6px 0">Seed mix, ${num(c.mix.total_lbs, 2)} lb: ${this._mixText(g)}</div>`;
     if (!c.items.length) h += `<div class="small mut" style="margin:6px 0">Nothing sown yet. Add rye, vetch, clover, winter wheat or peas to track days in the ground and the wait after you terminate it.</div>`;
     for (const i of c.items) {
       const pct = i.state === "growing" ? 0 : Math.min(100, Math.round(((i.wait_days - i.days_left) / Math.max(1, i.wait_days)) * 100));
-      h += `<div class="plant"><div class="row"><div class="grow"><b style="font-weight:500">${esc(i.crop)}</b><div class="small mut">Sown ${fmtDate(i.sown)}, ${i.days_in_ground} day${i.days_in_ground === 1 ? "" : "s"} in the ground${i.terminated ? `, terminated ${fmtDate(i.terminated)}${i.method ? " (" + esc(COVER_TEXT[i.method] || i.method) + ")" : ""}` : ""}</div></div><span class="pill ${i.state === "growing" ? "ok" : i.state === "waiting" ? "warn" : "none"}" style="margin:0">${i.state === "growing" ? "Growing" : i.state === "waiting" ? `${i.days_left} d to plant` : "Ready"}</span></div>`;
+      h += `<div class="plant"><div class="row"><div class="grow"><b style="font-weight:500">${esc(i.crop)}</b><div class="small mut">${i.amount_lbs ? `${num(i.amount_lbs, 2)} lb seed${i.mix_pct !== undefined ? ` (${i.mix_pct}% of the mix)` : ""}. ` : ""}Sown ${fmtDate(i.sown)}, ${i.days_in_ground} day${i.days_in_ground === 1 ? "" : "s"} in the ground${i.terminated ? `, terminated ${fmtDate(i.terminated)}${i.method ? " (" + esc(COVER_TEXT[i.method] || i.method) + ")" : ""}` : ""}</div></div><span class="pill ${i.state === "growing" ? "ok" : i.state === "waiting" ? "warn" : "none"}" style="margin:0">${i.state === "growing" ? "Growing" : i.state === "waiting" ? `${i.days_left} d to plant` : "Ready"}</span></div>`;
       if (i.terminated) h += `<div class="bar" title="Waiting period"><i style="width:${pct}%"></i></div><div class="small mut">${i.state === "waiting" ? `Day ${i.days_since_term} of ${i.wait_days} waiting` : `${i.wait_days} day wait finished`}</div>`;
       h += `<div class="row" style="margin-top:6px">${i.terminated ? `<button data-act="reopen-cover" data-g="${gid}" data-e="${i.id}">Undo terminate</button>` : this._btn("form-terminate", "scissors-cutting", "Terminate", `data-g="${gid}" data-e="${i.id}"`, "primary")}<span class="grow"></span>${this._acts("cover", gid, i.id)}</div>`;
       if (this._confirm === `cover:${i.id}`) h += `<div class="conf">Remove this cover crop record?<div class="row"><button data-act="cancel-del">Keep</button><button class="danger" data-act="do-del" data-k="cover" data-p="${gid}" data-e="${i.id}">Remove</button></div></div>`;
@@ -1009,8 +1014,9 @@ class GardenTrackerCard extends HTMLElement {
         { name: "pick", label: "Cover crop", type: "select", options: [...presets.map((p) => [p, p]), ["__other__", "Other..."]], value: presets[0] },
         { name: "custom", label: "Name", type: "text", req: true, show: (v) => v.pick === "__other__", placeholder: "Daikon radish, oats" },
         { name: "sown_date", label: "Sown", type: "date", value: this._snap.today, span: 3 },
+        { name: "amount_lbs", label: "Seed (lb), for mix ratio", type: "number", step: "0.1", span: 3 },
         { name: "wait_days", label: "Wait after terminating (days)", type: "number", step: "1", value: 21, span: 3 },
-        { name: "notes", label: "Notes", type: "text", placeholder: "Seeding rate, mix, bed" },
+        { name: "notes", label: "Notes", type: "text", placeholder: "Seeding rate, bed" },
       ],
       note: "The wait is how long to leave the bed alone after terminating before planting. Three weeks is the usual rule.",
       submit: (x) => { const { pick, custom, ...rest } = x; return this._call("add_cover_crop", { garden: g.id, ...rest, crop: pick === "__other__" ? custom : pick }); },
@@ -1082,7 +1088,7 @@ class GardenTrackerCard extends HTMLElement {
       upotted: [{ name: "date", label: "Date", type: "date", value: e.date }],
       adjunct: [{ name: "type", label: "Adjunct", type: "select", options: g ? g.adjuncts.map((a) => [a.key, a.name]) : [], value: e.type }, { name: "date", label: "Date", type: "date", value: e.date, span: 3 }, { name: "amount", label: "Amount", type: "text", value: e.amount, span: 3 }, { name: "product", label: "Product", type: "text", value: e.product }, { name: "notes", label: "Notes", type: "text", value: e.notes }],
       ph: [{ name: "value", label: "pH", type: "number", step: "0.1", value: e.value, req: true, span: 3 }, { name: "date", label: "Date", type: "date", value: e.date, span: 3 }],
-      cover: [{ name: "crop", label: "Cover crop", type: "text", value: e.crop, req: true }, { name: "sown", label: "Sown", type: "date", value: e.sown, span: 3 }, { name: "terminated", label: "Terminated", type: "date", value: e.terminated, span: 3 }, { name: "method", label: "How terminated", type: "chips", options: Object.entries(COVER_TEXT), value: e.method }, { name: "wait_days", label: "Wait after terminating (days)", type: "number", step: "1", value: e.wait_days, span: 3 }, { name: "notes", label: "Notes", type: "text", value: e.notes }],
+      cover: [{ name: "crop", label: "Cover crop", type: "text", value: e.crop, req: true }, { name: "amount_lbs", label: "Seed (lb)", type: "number", step: "0.1", value: e.amount_lbs }, { name: "sown", label: "Sown", type: "date", value: e.sown, span: 3 }, { name: "terminated", label: "Terminated", type: "date", value: e.terminated, span: 3 }, { name: "method", label: "How terminated", type: "chips", options: Object.entries(COVER_TEXT), value: e.method }, { name: "wait_days", label: "Wait after terminating (days)", type: "number", step: "1", value: e.wait_days, span: 3 }, { name: "notes", label: "Notes", type: "text", value: e.notes }],
       ...Object.fromEntries(["moisture", "ec", "soil_temp"].map((k) => [k, [{ name: "value", label: g && g.metrics[k] ? `${g.metrics[k].name} (${g.metrics[k].unit})` : "Value", type: "number", step: "0.01", value: e.value, req: true, span: 3 }, { name: "date", label: "Date", type: "date", value: e.date, span: 3 }]])),
     }[kind];
     return {

@@ -60,7 +60,7 @@ EDITABLE = {
     "review": ("notes", "year"), "upotted": ("date",),
     "adjunct": ("type", "product", "amount", "date", "notes"), "ph": ("value", "date"),
     "moisture": ("value", "date"), "ec": ("value", "date"), "soil_temp": ("value", "date"),
-    "cover": ("crop", "sown", "terminated", "method", "notes", "wait_days"),
+    "cover": ("crop", "sown", "terminated", "method", "notes", "wait_days", "amount_lbs"),
 }
 
 
@@ -350,14 +350,17 @@ class GardenModel:
 
     # ---- winter cover crops -----------------------------------------------------
     def add_cover_crop(self, garden: str, crop: str, sown: Any = None, notes: str | None = None,
-                       wait_days: int | None = None) -> str:
+                       wait_days: int | None = None, amount_lbs: float | None = None) -> str:
         g = self.find_garden(garden)
         crop = (crop or "").strip()
         if not crop:
             raise GardenError("Enter the cover crop")
+        if amount_lbs is not None and amount_lbs <= 0:
+            raise GardenError("Seed amount must be above zero")
         cid = new_id()
         g["cover_crops"].append({"id": cid, "crop": crop, "sown": iso(sown) or self.today().isoformat(),
                                  "terminated": None, "method": None, "notes": notes or "",
+                                 "amount_lbs": round(amount_lbs, 2) if amount_lbs else None,
                                  "wait_days": int(wait_days) if wait_days is not None else COVER_WAIT_DAYS})
         self._touch()
         return cid
@@ -742,6 +745,10 @@ class GardenModel:
                 e[key] = iso(val)
             elif kind == "cover" and key == "wait_days":
                 e[key] = int(val)
+            elif kind == "cover" and key == "amount_lbs":
+                if val < 0:
+                    raise GardenError("Seed amount can't be negative")
+                e[key] = round(val, 2) if val else None
             elif key == "value" and kind in METRICS:
                 spec = METRICS[kind]
                 if not spec["lo"] <= val <= spec["hi"]:
@@ -957,7 +964,18 @@ class GardenModel:
         elif waiting:
             w = max(waiting, key=lambda x: x["days_left"])
             blocked = {"reason": "waiting", "days_left": w["days_left"], "date": w["ready_date"]}
-        return {"items": live + done, "blocked": blocked, "presets": COVER_CROPS, "methods": COVER_METHODS}
+        # Seed mix: share of the pounds sown when more than one crop with an amount is in the ground together.
+        parts = [i for i in live if i.get("amount_lbs")]
+        total = sum(i["amount_lbs"] for i in parts)
+        mix = None
+        if len(parts) >= 2:
+            mix = {"total_lbs": round(total, 2),
+                   "parts": [{"id": i["id"], "crop": i["crop"], "lbs": i["amount_lbs"],
+                              "pct": round(100 * i["amount_lbs"] / total)} for i in parts]}
+            for p in mix["parts"]:
+                next(i for i in items if i["id"] == p["id"])["mix_pct"] = p["pct"]
+        return {"items": live + done, "blocked": blocked, "presets": COVER_CROPS, "methods": COVER_METHODS,
+                "mix": mix}
 
     @staticmethod
     def _planting_view(temp: dict) -> dict | None:
