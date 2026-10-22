@@ -46,6 +46,14 @@ set_water_interval:
   fields: {garden: {required: true, selector: {text: {}}}, days: {description: "Remind to water every N days (0 turns it off)", selector: {number: {min: 0, max: 60, mode: box}}}}
 set_greenhouse_climate:
   fields: {garden: {required: true, selector: {text: {}}}, enabled: {selector: {boolean: {}}}, heat_set: {description: "Heat when the air falls below this (°F)", selector: {number: {min: 30, max: 110, step: 1, mode: box}}}, cool_set: {description: "Cool when the air rises above this (°F)", selector: {number: {min: 30, max: 130, step: 1, mode: box}}}, heaters: {selector: {entity: {multiple: true}}}, coolers: {selector: {entity: {multiple: true}}}, heat_min_run: {description: "Once the heater starts, keep it on at least this many minutes (0 = off)", selector: {number: {min: 0, max: 720, mode: box}}}, heat_max_run: {description: "Stop the heater after this many minutes running (0 = no limit)", selector: {number: {min: 0, max: 720, mode: box}}}, heat_rest: {description: "Minutes to rest after a maximum run before heating again", selector: {number: {min: 0, max: 720, mode: box}}}}
+set_temp_alarm:
+  fields: {garden: {required: true, selector: {text: {}}}, enabled: {description: "Turn the alarm on or off. Turning it off clears any alarm.", selector: {boolean: {}}}, high: {description: "Alarm when the air rises above this (°F). Leave empty to remove.", selector: {number: {min: -20, max: 150, step: 1, mode: box}}}, low: {description: "Alarm when the air falls below this (°F). Leave empty to remove.", selector: {number: {min: -20, max: 150, step: 1, mode: box}}}}
+ack_temp_alarm:
+  fields: {garden: {required: true, selector: {text: {}}}, kind: {description: "high or low (default both)", selector: {select: {options: [high, low]}}}}
+set_sensor_alarm:
+  fields: {garden: {required: true, selector: {text: {}}}, enabled: {required: true, description: "Warn when a sensor in use reports nothing for an hour. Off clears any warning.", selector: {boolean: {}}}}
+ack_sensor_alarm:
+  fields: {garden: {required: true, selector: {text: {}}}, entity: {description: "One sensor (default all)", selector: {entity: {}}}}
 set_power_rate:
   fields: {cents: {required: true, description: "Price of electricity in cents per kWh (0 clears it)", example: 5.15, selector: {number: {min: 0, max: 1000, step: 0.01, mode: box}}}}
 set_power_sensors:

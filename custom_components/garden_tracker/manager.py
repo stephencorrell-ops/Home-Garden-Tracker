@@ -50,8 +50,39 @@ class GardenManager(GardenModel):
         if self._ready:
             self.sample_power()
 
+    def _alarm_changed(self) -> None:
+        if self._ready:
+            self.check_alarms()
+
+    @callback
+    def check_alarms(self) -> None:
+        """Compare each rack and greenhouse temperature with its alarm limits."""
+        if not self._ready:
+            return
+        now, changed = dt_util.utcnow(), False
+        for g in list(self.data["gardens"].values()):
+            if g["sensor_alarm"]["enabled"]:
+                status = {}
+                for ent, metric in self.sensors_in_use(g).items():
+                    st = self.hass.states.get(ent)
+                    try:
+                        ok = st is not None and st.state not in (STATE_UNKNOWN, STATE_UNAVAILABLE) and float(st.state) == float(st.state)
+                    except (TypeError, ValueError):
+                        ok = False
+                    status[ent] = (metric, ok)
+                if self.update_sensor_alarm(g["id"], status, now):
+                    changed = True
+            if g.get("kind") == "garden" or not g["alarm"]["enabled"]:
+                continue
+            temp = self._air_temp_now(g)
+            if temp is not None and self.update_alarm(g["id"], temp, now):
+                changed = True
+        if changed:
+            self._touch()
+
     @callback
     def _tick(self, _now) -> None:
+        self.check_alarms()
         self.run_climate()
         self.sample_power()
 

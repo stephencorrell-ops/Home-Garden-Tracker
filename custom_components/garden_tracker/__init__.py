@@ -20,7 +20,7 @@ from .const import CARD_URL, CONF_TEMP_ENTITY, DOMAIN, SIGNAL_STRUCTURE, SIGNAL_
 from .manager import GardenManager
 from .services import async_register_services
 
-PLATFORMS = [Platform.SENSOR, Platform.CLIMATE]
+PLATFORMS = [Platform.SENSOR, Platform.CLIMATE, Platform.BINARY_SENSOR]
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -28,7 +28,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     websocket.async_register(hass)
     card = Path(__file__).parent / "www" / "garden-card.js"
     await hass.http.async_register_static_paths([StaticPathConfig(CARD_URL, str(card), False)])
-    add_extra_js_url(hass, f"{CARD_URL}?v=0.12.1")
+    add_extra_js_url(hass, f"{CARD_URL}?v=0.13.0")
     return True
 
 
