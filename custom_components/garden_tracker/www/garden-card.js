@@ -439,8 +439,11 @@ class GardenTrackerCard extends HTMLElement {
   }
   _climatePill(c) {
     if (!c) return "";
-    const m = { heating: ["warn", "Heating"], cooling: ["info", "Cooling"], idle: ["ok", "Holding"], resting: ["info", "Resting (max run reached)"], no_sensor: ["warn", "No temperature, devices off"], off: ["none", "Climate control off"] }[c.state] || ["none", c.state];
-    return `<span class="pill ${m[0]}" style="margin:4px 6px 0 0">${m[1]}</span>`;
+    const m = { heating: ["warn", "Heating"], cooling: ["info", "Fan on (too warm)"], idle: ["ok", "Holding"], resting: ["info", "Resting (max run reached)"], no_sensor: ["warn", "No temperature, heaters off"], off: ["none", "Thermostat off"] }[c.state] || ["none", c.state];
+    let h = `<span class="pill ${m[0]}" style="margin:4px 6px 0 0">${m[1]}</span>`;
+    if (c.fan_on && c.state !== "cooling") h += `<span class="pill info" style="margin:4px 6px 0 0">Fan running (schedule)</span>`;
+    if (c.light_sched) h += `<span class="pill ${c.lights_on ? "spray" : "none"}" style="margin:4px 6px 0 0">Lights ${c.lights_on ? "on" : "off"}</span>`;
+    return h;
   }
   _placeView(g) {
     const gid = g.id, mine = this._vars().filter((v) => v.garden === gid);
@@ -484,17 +487,32 @@ class GardenTrackerCard extends HTMLElement {
     for (const e of w.log.slice(0, 5)) h += this._logRow("water", gid, e.id, "Watered", `${fmtDate(e.date)}${e.notes ? " · " + esc(e.notes) : ""}`);
     return h + `</div>`;
   }
+  _clock(hhmm, addHours = 0) {
+    const [h, m] = hhmm.split(":").map(Number), t = (h * 60 + m + Math.round(addHours * 60)) % 1440;
+    return new Date(2000, 0, 1, Math.floor(t / 60), t % 60).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  }
+  _fanText(c) {
+    if (!c.fan_sched) return "";
+    const every = c.fan_every === 1 ? "hour" : `${num(c.fan_every, 1)} hours`;
+    return `Fans also run ${c.fan_minutes} min every ${every}${c.fan_lights_only && c.light_sched ? ", only while the lights are on" : ""}.`;
+  }
   _climateCard(g) {
-    const c = g.climate, gid = g.id, st = (this._hass && this._hass.states) || {};
+    const c = g.climate, gid = g.id, rack = g.kind === "rack", st = (this._hass && this._hass.states) || {};
     const nm = (id) => ((st[id] && st[id].attributes && st[id].attributes.friendly_name) || id);
-    let h = `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("thermostat")} Heating and cooling</div>${this._btn("toggle-climate", c.enabled ? "power" : "power", c.enabled ? "Turn off" : "Turn on", `data-g="${gid}" data-p="${c.enabled ? "0" : "1"}"`, c.enabled ? "" : "primary")}</div>`;
+    const list = (a) => (a.length ? a.map((e) => esc(nm(e))).join(", ") : "none chosen");
+    let h = `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("thermostat")} ${rack ? "Heat mats, fans and lights" : "Heating and fans"}</div>${this._btn("toggle-climate", "power", c.enabled ? "Turn off" : "Turn on", `data-g="${gid}" data-p="${c.enabled ? "0" : "1"}"`, c.enabled ? "" : "primary")}</div>`;
     h += `<div style="margin:6px 0">${this._climatePill(c)}</div>`;
-    h += `<div class="row" style="align-items:baseline;gap:22px;margin:6px 0"><div><span class="ph">${c.temp === null ? "–" : num(c.temp, 0) + "°"}</span> <span class="small mut">now</span></div><div class="small">Heat below <b>${num(c.heat_set, 0)}°F</b><br>Cool above <b>${num(c.cool_set, 0)}°F</b></div></div>`;
+    h += `<div class="row" style="align-items:baseline;gap:22px;margin:6px 0"><div><span class="ph">${c.temp === null ? "–" : num(c.temp, 0) + "°"}</span> <span class="small mut">now</span></div><div class="small">${rack ? "Heat mats on" : "Heat"} below <b>${num(c.heat_set, 0)}°F</b><br>Fans on above <b>${num(c.cool_set, 0)}°F</b></div></div>`;
     const lim = [c.heat_min_run ? `at least ${c.heat_min_run} min` : "", c.heat_max_run ? `at most ${c.heat_max_run} min, then rests ${c.heat_rest} min` : ""].filter(Boolean);
     if (lim.length) h += `<div class="small mut" style="margin-bottom:4px">Each heater run: ${lim.join(", ")}.</div>`;
-    h += `<div class="small mut">Heaters: ${c.heaters.length ? c.heaters.map((e) => esc(nm(e))).join(", ") : "none chosen"}<br>Coolers: ${c.coolers.length ? c.coolers.map((e) => esc(nm(e))).join(", ") : "none chosen"}</div>`;
-    if (c.enabled && !c.heaters.length && !c.coolers.length) h += `<div class="pill warn" style="margin:8px 0">Pick a heater or cooler under Set up.</div>`;
-    if (c.enabled && !g.metrics.air_temp.entities.length) h += `<div class="pill warn" style="margin:8px 0">Pick a temperature sensor below. Without one the devices stay off.</div>`;
+    if (c.light_sched) h += `<div class="small" style="margin-bottom:4px">${this._icon("lightbulb-on-outline")} Lights ${c.light_hours === 24 ? "on all day" : `${num(c.light_hours, 1)} h a day, ${this._clock(c.light_on)} to ${this._clock(c.light_on, c.light_hours)}`}${c.lights_on ? " (on now)" : " (off now)"}.</div>`;
+    const fan = this._fanText(c);
+    if (fan) h += `<div class="small" style="margin-bottom:4px">${this._icon("fan")} ${fan}</div>`;
+    h += `<div class="small mut">${rack ? "Heat mats" : "Heaters"}: ${list(c.heaters)}<br>Fans: ${list(c.coolers)}${rack ? `<br>Lights: ${list(c.lights)}` : ""}</div>`;
+    if (c.enabled && !c.heaters.length && !c.coolers.length) h += `<div class="pill warn" style="margin:8px 0">Pick ${rack ? "a heat mat or fan" : "a heater or fan"} under Set up.</div>`;
+    if (c.light_sched && !c.lights.length) h += `<div class="pill warn" style="margin:8px 0">The light schedule is on but no lights are chosen. Pick them under Set up.</div>`;
+    if (c.fan_sched && !c.coolers.length) h += `<div class="pill warn" style="margin:8px 0">The fan schedule is on but no fans are chosen. Pick them under Set up.</div>`;
+    if (c.enabled && !g.metrics.air_temp.entities.length) h += `<div class="pill warn" style="margin:8px 0">Pick a temperature sensor below. Without one the heaters and thermostat fans stay off. The light and fan schedules don't need it.</div>`;
     h += `<div class="row" style="margin-top:8px">${this._btn("form-climate", "cog", "Set up", `data-g="${gid}"`)}</div></div>`;
     return h;
   }
@@ -1192,34 +1210,53 @@ class GardenTrackerCard extends HTMLElement {
       submit: (x) => this._call("move_plants", { plant: v.id, to: x.to, ...(x.count && x.count < v.alive ? { count: x.count } : {}), date: x.date }),
     };
   }
-  _deviceCandidates(selected) {
+  _deviceCandidates(selected, lights = false) {
     const st = (this._hass && this._hass.states) || {};
     const out = [];
+    const re = lights ? /^(switch|light|fan|input_boolean)\./ : /^(switch|fan|input_boolean|climate)\./;
     for (const [id, s2] of Object.entries(st)) {
-      if (!/^(switch|fan|input_boolean|climate)\./.test(id)) continue;
+      if (!re.test(id)) continue;
       const a = s2.attributes || {};
-      if (a.heaters && a.coolers) continue; // this integration's own thermostat
+      if (a.heaters && (a.coolers || a.fans)) continue; // this integration's own thermostat
       out.push([id, a.friendly_name || id]);
     }
     for (const id of selected) if (!out.some((o) => o[0] === id)) out.push([id, id]);
     return out.sort((p, q) => p[1].localeCompare(q[1]));
   }
   _fClimate(g) {
-    const c = g.climate;
+    const c = g.climate, rack = g.kind === "rack", yn = [["true", "On"], ["false", "Off"]];
+    const csv = (x) => String(x || "").split(",").filter(Boolean);
+    const fields = [
+      { name: "heat_set", label: rack ? "Heat mats on below (°F)" : "Heat when below (°F)", type: "number", step: "1", value: c.heat_set, req: true, span: 3 },
+      { name: "cool_set", label: "Fans on above (°F)", type: "number", step: "1", value: c.cool_set, req: true, span: 3 },
+      { name: "heaters", label: rack ? "Heat mats (tap to include)" : "Heaters (tap to include)", type: "multi", options: this._deviceCandidates(c.heaters), value: c.heaters.join(",") },
+      { name: "coolers", label: "Fans (tap to include)", type: "multi", options: this._deviceCandidates(c.coolers), value: c.coolers.join(",") },
+    ];
+    if (!rack) fields.push(
+      { name: "heat_min_run", label: "Heater minimum run (min)", type: "number", step: "1", value: c.heat_min_run, span: 2 },
+      { name: "heat_max_run", label: "Heater maximum run (min)", type: "number", step: "1", value: c.heat_max_run, span: 2 },
+      { name: "heat_rest", label: "Rest after maximum (min)", type: "number", step: "1", value: c.heat_rest, span: 2 });
+    fields.push({ name: "enabled", label: "Thermostat (heat and too-warm fans)", type: "seg", options: yn, value: String(c.enabled) });
+    if (rack) fields.push(
+      { name: "lights", label: "Grow lights (tap to include)", type: "multi", options: this._deviceCandidates(c.lights, true), value: c.lights.join(",") },
+      { name: "light_sched", label: "Light schedule", type: "seg", options: yn, value: String(c.light_sched) },
+      { name: "light_on", label: "Lights come on at", type: "time", value: c.light_on, span: 3, show: (v) => v.light_sched === "true" },
+      { name: "light_hours", label: "Hours on per day", type: "number", step: "0.5", value: c.light_hours, span: 3, show: (v) => v.light_sched === "true" });
+    fields.push(
+      { name: "fan_sched", label: "Fan schedule", type: "seg", options: yn, value: String(c.fan_sched) },
+      { name: "fan_minutes", label: "Fans run (min)", type: "number", step: "1", value: c.fan_minutes, span: 3, show: (v) => v.fan_sched === "true" },
+      { name: "fan_every", label: "Every (hours)", type: "number", step: "0.5", value: c.fan_every, span: 3, show: (v) => v.fan_sched === "true" });
+    if (rack) fields.push({ name: "fan_lights_only", label: "Scheduled fans run", type: "seg", options: [["true", "Only with lights on"], ["false", "Any time"]], value: String(c.fan_lights_only), show: (v) => v.fan_sched === "true" && v.light_sched === "true" });
     return {
-      title: `Heating and cooling: ${g.name}`, submitLabel: "Save",
-      fields: [
-        { name: "heat_set", label: "Heat when below (°F)", type: "number", step: "1", value: c.heat_set, req: true, span: 3 },
-        { name: "cool_set", label: "Cool when above (°F)", type: "number", step: "1", value: c.cool_set, req: true, span: 3 },
-        { name: "heaters", label: "Heaters (tap to include)", type: "multi", options: this._deviceCandidates(c.heaters), value: c.heaters.join(",") },
-        { name: "coolers", label: "Coolers or fans (tap to include)", type: "multi", options: this._deviceCandidates(c.coolers), value: c.coolers.join(",") },
-        { name: "heat_min_run", label: "Heater minimum run (min)", type: "number", step: "1", value: c.heat_min_run, span: 2 },
-        { name: "heat_max_run", label: "Heater maximum run (min)", type: "number", step: "1", value: c.heat_max_run, span: 2 },
-        { name: "heat_rest", label: "Rest after maximum (min)", type: "number", step: "1", value: c.heat_rest, span: 2 },
-        { name: "enabled", label: "Control", type: "seg", options: [["true", "On"], ["false", "Off"]], value: String(c.enabled) },
-      ],
-      note: `Garden Tracker switches your heater and cooler on and off to keep the air between the two points, with ${num(c.gap, 0)} degrees minimum between them. A heater or cooler that is a climate device is set to heat, cool or off. It uses this greenhouse's temperature sensors. If they stop reporting, it switches everything off, so keep the heater's own safety thermostat as a backup. Minimum run keeps the heater on for at least that long once it starts. Maximum run turns it off after that long, then it rests before it can start again. Use 0 to turn either off. Below 36°F the maximum run never holds the heater off.`,
-      submit: (x) => this._call("set_greenhouse_climate", { garden: g.id, heat_set: x.heat_set, cool_set: x.cool_set, enabled: x.enabled === "true", heaters: String(x.heaters || "").split(",").filter(Boolean), coolers: String(x.coolers || "").split(",").filter(Boolean), heat_min_run: x.heat_min_run ?? 0, heat_max_run: x.heat_max_run ?? 0, heat_rest: x.heat_rest ?? 10 }),
+      title: `${rack ? "Heat mats, fans and lights" : "Heating and fans"}: ${g.name}`, submitLabel: "Save",
+      fields,
+      note: `The thermostat switches ${rack ? "heat mats" : "heaters"} on below the first temperature and fans on above the second, with ${num(c.gap, 0)} degrees minimum between them. A device that is a climate device is set to heat, cool or off. It uses this ${g.kind_name.toLowerCase()}'s temperature sensors. If they stop reporting, the heaters switch off, so keep their own safety thermostat as a backup.${rack ? "" : " Minimum run keeps the heater on for at least that long once it starts. Maximum run turns it off after that long, then it rests before it can start again. Use 0 to turn either off. Below 36°F the maximum run never holds the heater off."}${rack ? " The light schedule switches the lights on at the time you choose for that many hours a day, for example 16 hours on and 8 off." : ""} The fan schedule runs the fans for a few minutes every so many hours${rack ? ", counted from the time the lights come on (or midnight with no light schedule)" : ", counted from midnight"}. Fans also run whenever it gets too warm, even between scheduled runs. Schedules work even if the thermostat is off.`,
+      submit: (x) => this._call("set_greenhouse_climate", {
+        garden: g.id, heat_set: x.heat_set, cool_set: x.cool_set, enabled: x.enabled === "true", heaters: csv(x.heaters), coolers: csv(x.coolers),
+        ...(rack ? { lights: csv(x.lights), light_sched: x.light_sched === "true", ...(x.light_sched === "true" ? { light_on: x.light_on, light_hours: x.light_hours } : {}), fan_lights_only: x.fan_lights_only !== "false" }
+          : { heat_min_run: x.heat_min_run ?? 0, heat_max_run: x.heat_max_run ?? 0, heat_rest: x.heat_rest ?? 10 }),
+        fan_sched: x.fan_sched === "true", ...(x.fan_sched === "true" ? { fan_minutes: x.fan_minutes, fan_every: x.fan_every } : {}),
+      }),
     };
   }
   _energyCandidates(selected) {
