@@ -216,9 +216,10 @@ class GardenManager(GardenModel):
                 state = "no_sensor"  # fail safe: never leave a heater running without a temperature
             else:
                 heating, cooling = prev == "heating", prev == "cooling"
+                heat_off = c["heat_off"] if c.get("heat_off") is not None else c["heat_set"] + CLIMATE_HYSTERESIS
                 if temp < c["heat_set"]:
                     heating, cooling = True, False
-                elif heating and temp >= c["heat_set"] + CLIMATE_HYSTERESIS:
+                elif heating and temp >= heat_off:
                     heating = False
                 if temp > c["cool_set"]:
                     cooling, heating = True, False
@@ -244,7 +245,7 @@ class GardenManager(GardenModel):
                 elif cooling:
                     state = "cooling"
                     new["csince"] = old["csince"] if prev == "cooling" and old.get("csince") else now
-                elif resting_until and now < resting_until and temp < c["heat_set"] + CLIMATE_HYSTERESIS:
+                elif resting_until and now < resting_until and temp < heat_off:
                     state = "resting"
                     new["rest_until"] = resting_until
                 else:
