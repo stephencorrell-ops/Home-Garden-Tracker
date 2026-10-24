@@ -16,7 +16,7 @@ from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .const import SIGNAL_STRUCTURE, SIGNAL_UPDATE, STORAGE_KEY, STORAGE_VERSION
-from .model import CLIMATE_KINDS, METRIC_SETS, METRICS, GardenModel, fan_on_at, lights_on_at
+from .core.model import CLIMATE_KINDS, METRIC_SETS, METRICS, GardenModel, fan_on_at, lights_on_at
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -45,7 +45,7 @@ class GardenManager(GardenModel):
 
     async def async_load(self) -> None:
         self.load(await self._store.async_load())
-        path = Path(__file__).parent / "species.json"
+        path = Path(__file__).parent / "core" / "species.json"
         text = await self.hass.async_add_executor_job(path.read_text, "utf-8")
         self.presets = {k: v for k, v in json.loads(text).items() if not k.startswith("_")}
         self._ready = True

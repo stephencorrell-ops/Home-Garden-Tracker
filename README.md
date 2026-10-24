@@ -47,3 +47,6 @@ Each garden and active plant record becomes a device: harvest total, plants aliv
 - Degree days are built from daily highs and lows recorded from your temperature source, starting when the integration is installed (average method with horizontal cutoffs, degrees F). Projections that use degree days need a full season of recorded data first, and fall back to calendar dates until then.
 - `species.json` thresholds and feeding focus are **starter values**. Check them against your extension service and the product label. Pre-harvest and reapply intervals always come from you, per label.
 - Projected harvest dates need at least one past season of logged harvests for that variety.
+
+## For developers
+The garden logic (plants, sprays, frost, zone, weather history) lives in `custom_components/garden_tracker/core`. It is plain Python with no Home Assistant code, so other apps can reuse it. The files beside it are the Home Assistant side: sensors, services, climate control and the card. Run the core's tests with `python -m unittest discover -s tests -t .`.

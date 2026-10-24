@@ -10,7 +10,7 @@ from homeassistant.helpers import config_validation as cv
 
 from .const import DOMAIN
 from .manager import GardenManager
-from .model import (ARCHIVE_REASONS, COVER_METHODS, EDITABLE, KINDS, LOCATION_KINDS, METRICS, REASONS, UNSET,
+from .core.model import (ARCHIVE_REASONS, COVER_METHODS, EDITABLE, KINDS, LOCATION_KINDS, METRICS, REASONS, UNSET,
                     GardenError)
 
 R, O = vol.Required, vol.Optional
