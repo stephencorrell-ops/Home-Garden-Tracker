@@ -36,12 +36,14 @@ METRICS = {
     "ec": {"name": "Soil EC", "unit": "mS/cm", "lo": 0, "hi": 30},
     "soil_temp": {"name": "Soil temperature", "unit": "°F", "lo": -40, "hi": 160},
     "air_temp": {"name": "Temperature", "unit": "°F", "lo": -40, "hi": 160},
+    "out_temp": {"name": "Outside temperature", "unit": "°F", "lo": -60, "hi": 150},
     "par": {"name": "Light (PAR)", "unit": "µmol/m²/s", "lo": 0, "hi": 4000},
 }
 # Places plants live. A garden has soil; the seedling rack and greenhouse are indoor, so they track
 # air temperature (and light on the rack), watering and 10x20 trays instead of soil and fertilizer.
 LOCATION_KINDS = {"garden": "Garden", "rack": "Seedling rack", "greenhouse": "Greenhouse"}
-METRIC_SETS = {"garden": ("moisture", "ec", "soil_temp"), "rack": ("air_temp", "par"), "greenhouse": ("air_temp",)}
+METRIC_SETS = {"garden": ("moisture", "ec", "soil_temp", "out_temp"), "rack": ("air_temp", "par"),
+               "greenhouse": ("air_temp", "out_temp")}
 DEFAULT_CONTAINERS = ["6-cell tray", "4-cell tray", "3.3 in pot", "5 in pot"]
 # How many fit in one 10x20 tray (Bootstrap Farmer sizes): 12 six-cell inserts, 8 four-cell inserts, and the pot inserts.
 CONTAINER_PER_TRAY = {"6-cell tray": 72, "4-cell tray": 32, "3.3 in pot": 18, "5 in pot": 8}
@@ -89,10 +91,10 @@ COVER_WAIT_DAYS = 21
 DEFAULT_EC_TARGET = [0.8, 1.8]
 DEFAULT_MOISTURE_BAND = [25, 60]
 DEFAULT_PROBE_DEPTH = 4
-# Rule-of-thumb minimum soil temperatures (°F) for sowing or transplanting.
-PLANTING_TEMPS = [
-    ("Peas, spinach, lettuce", 40), ("Carrots, beets, onions", 45), ("Potatoes", 45),
-    ("Corn, beans", 60), ("Tomatoes", 60), ("Peppers, squash, cucumbers", 65), ("Melons", 70),
+# Rule-of-thumb minimum soil temperatures (°F) for sowing or transplanting, and how long each takes to grow.
+PLANTING_TEMPS = [  # (crops, minimum soil °F, days from planting to harvest)
+    ("Peas, spinach, lettuce", 40, 50), ("Carrots, beets, onions", 45, 75), ("Potatoes", 45, 90),
+    ("Corn, beans", 60, 70), ("Tomatoes", 60, 75), ("Peppers, squash, cucumbers", 65, 70), ("Melons", 70, 85),
 ]
 KINDS = {  # entry kind -> (parent type, list key)
     "harvest": ("v", "harvests"), "fertilizer": ("v", "fertilizations"), "spray": ("v", "sprays"),
@@ -100,7 +102,7 @@ KINDS = {  # entry kind -> (parent type, list key)
     "adjunct": ("g", "adjuncts"), "ph": ("g", "ph_readings"),
     "moisture": ("g", "moisture"), "ec": ("g", "ec"), "soil_temp": ("g", "soil_temp"),
     "cover": ("g", "cover_crops"), "water": ("g", "watering"),
-    "air_temp": ("g", "air_temp"), "par": ("g", "par"),
+    "air_temp": ("g", "air_temp"), "par": ("g", "par"), "out_temp": ("g", "out_temp"),
 }
 EDITABLE = {
     "harvest": ("lbs", "date", "notes"),
@@ -109,7 +111,7 @@ EDITABLE = {
     "review": ("notes", "year"), "upotted": ("date",),
     "adjunct": ("type", "product", "amount", "date", "notes"), "ph": ("value", "date"),
     "moisture": ("value", "date"), "ec": ("value", "date"), "soil_temp": ("value", "date"),
-    "air_temp": ("value", "date"), "par": ("value", "date"), "water": ("date", "notes"),
+    "air_temp": ("value", "date"), "par": ("value", "date"), "out_temp": ("value", "date"), "water": ("date", "notes"),
     "cover": ("crop", "sown", "terminated", "method", "notes", "wait_days", "amount_lbs"),
 }
 
@@ -140,6 +142,7 @@ class GardenModel:
         self.data: dict[str, Any] = {"gardens": {}, "varieties": {}, "species": {}, "daily": {},
                                     "settings": dict(DEFAULT_SETTINGS)}
         self.presets = presets
+        self.outdoor_entity: str | None = None  # the main outdoor temperature sensor, used when a place has none of its own
         self._today_fn = today_fn
         self._notify = notify or (lambda: None)
         self._structure = structure or (lambda: None)
@@ -459,9 +462,15 @@ class GardenModel:
             raise GardenError("Metric must be one of: " + ", ".join(METRICS))
         return METRICS[metric]
 
+    def _metric_for(self, g: dict, metric: str) -> dict:
+        spec = self._metric(metric)
+        if metric not in METRIC_SETS[g.get("kind", "garden")]:
+            raise GardenError(f"{g['name']} doesn't track {spec['name'].lower()}")
+        return spec
+
     def set_sensors(self, garden: str, metric: str, entities: list[str]) -> None:
         g = self.find_garden(garden)
-        self._metric(metric)
+        self._metric_for(g, metric)
         clean: list[str] = []
         for e in entities:
             e = str(e).strip()
@@ -900,7 +909,7 @@ class GardenModel:
         return target["id"]
 
     PAUSE_GROUPS = {"moisture_ec": ("moisture", "ec"), "soil_temp": ("soil_temp",),
-                    "air_temp": ("air_temp",), "par": ("par",), "all": tuple(METRICS)}
+                    "air_temp": ("air_temp",), "par": ("par",), "out_temp": ("out_temp",), "all": tuple(METRICS)}
 
     def set_sensors_paused(self, garden: str, paused: bool, group: str = "all") -> None:
         """Ignore sensor readings while the probes are out of the ground.
@@ -909,14 +918,14 @@ class GardenModel:
         g = self.find_garden(garden)
         self._ensure_garden(g)
         if group not in self.PAUSE_GROUPS:
-            raise GardenError("Group must be moisture_ec, soil_temp, air_temp, par or all")
+            raise GardenError("Group must be moisture_ec, soil_temp, air_temp, out_temp, par or all")
         for k in self.PAUSE_GROUPS[group]:
             g["sensors_paused"][k] = bool(paused)
         self._touch(True)
 
     def log_metric(self, garden: str, metric: str, value: float, when: Any = None) -> None:
         g = self.find_garden(garden)
-        spec = self._metric(metric)
+        spec = self._metric_for(g, metric)
         if not spec["lo"] <= value <= spec["hi"]:
             raise GardenError(f"{spec['name']} must be between {spec['lo']} and {spec['hi']} {spec['unit']}")
         g[metric].append({"id": new_id(), "date": iso(when) or self.today().isoformat(),
@@ -1365,10 +1374,12 @@ class GardenModel:
         log = sorted(g["adjuncts"], key=lambda e: (e["date"], e["id"]), reverse=True)
         kind = g.get("kind", "garden")
         metrics = {k: self._metric_view(g, k) for k in METRIC_SETS[kind]}
+        if "out_temp" in metrics:  # with no sensor of its own it follows the main outdoor sensor
+            metrics["out_temp"]["fallback"] = bool(not metrics["out_temp"]["entities"] and self.outdoor_entity)
         soil = kind == "garden"
         return {
             "id": g["id"], "name": g["name"], "kind": kind, "kind_name": LOCATION_KINDS[kind], "metrics": metrics,
-            "planting": self._planting_view(metrics["soil_temp"]) if soil else None,
+            "planting": self._planting_view(metrics["soil_temp"], g, today) if soil else None,
             "cover": self._cover_view(g, today),
             "frost": self._frost_view(g, today),
             "paused": {k: bool(g.get("sensors_paused", {}).get(k)) for k in METRICS},
@@ -1507,15 +1518,19 @@ class GardenModel:
         return {"items": live + done, "blocked": blocked, "presets": COVER_CROPS, "methods": COVER_METHODS,
                 "mix": mix}
 
-    @staticmethod
-    def _planting_view(temp: dict) -> dict | None:
-        """Is the soil warm enough? Uses the average of the last 3 daily lows (or readings)."""
+    def _planting_view(self, temp: dict, g: dict, today: date) -> dict | None:
+        """Is the soil warm enough? Uses the average of the last 3 daily lows (or readings). A crop is left
+        out once there are fewer days before this year's first frost than it needs to grow, which hides the
+        whole guide through the fall and winter, until it counts toward the next frost on January 1."""
         hist = temp["history"][-3:]
         if not hist:
             return None
         basis = round(sum(r.get("min", r["value"]) for r in hist) / len(hist), 1)
-        return {"basis": basis, "days": len(hist),
-                "crops": [{"name": n, "min_f": t, "ready": basis >= t} for n, t in PLANTING_TEMPS]}
+        left = (calc.md_date(self._first_frost(g), today.year) - today).days
+        crops = [{"name": n, "min_f": t, "ready": basis >= t} for n, t, need in PLANTING_TEMPS if left >= need]
+        if not crops:
+            return None
+        return {"basis": basis, "days": len(hist), "frost_in": left, "crops": crops}
 
     def _variety_view(self, v: dict, today: date, daily: dict) -> dict:
         self._refresh_rule(v)

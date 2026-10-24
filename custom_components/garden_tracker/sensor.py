@@ -163,11 +163,11 @@ class GardenMetricSensor(_Base):
     """Soil moisture, EC or temperature for a garden (averaged across its sensors)."""
 
     _UNITS = {"moisture": PERCENTAGE, "ec": "mS/cm", "soil_temp": UnitOfTemperature.FAHRENHEIT,
-              "air_temp": UnitOfTemperature.FAHRENHEIT, "par": "µmol/m²/s"}
+              "air_temp": UnitOfTemperature.FAHRENHEIT, "out_temp": UnitOfTemperature.FAHRENHEIT, "par": "µmol/m²/s"}
     _CLASS = {"moisture": SensorDeviceClass.MOISTURE, "ec": None, "soil_temp": SensorDeviceClass.TEMPERATURE,
-              "air_temp": SensorDeviceClass.TEMPERATURE, "par": None}
+              "air_temp": SensorDeviceClass.TEMPERATURE, "out_temp": SensorDeviceClass.TEMPERATURE, "par": None}
     _ICON = {"moisture": "mdi:water-percent", "ec": "mdi:flash", "soil_temp": "mdi:thermometer",
-             "air_temp": "mdi:thermometer", "par": "mdi:white-balance-sunny"}
+             "air_temp": "mdi:thermometer", "out_temp": "mdi:weather-partly-cloudy", "par": "mdi:white-balance-sunny"}
 
     def __init__(self, mgr, known, gid: str, g: dict, metric: str) -> None:
         super().__init__(mgr, known, f"{gid}_{metric}", f"garden:{gid}", g["name"], g["kind_name"])

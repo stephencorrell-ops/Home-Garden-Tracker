@@ -194,10 +194,10 @@ function barChart(days) {
   return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Energy used per day"><line x1="${L}" y1="${H - B}" x2="${W - 4}" y2="${H - B}" stroke="var(--divider-color)"/><text class="ax" x="2" y="${T + 8}">${max.toFixed(max < 10 ? 1 : 0)}</text><text class="ax" x="2" y="${H - B - 2}">0</text>${bars}<text class="ax" x="${L}" y="${H - 3}">${fmtDate(days[0].date)}</text><text class="ax" text-anchor="end" x="${W - 4}" y="${H - 3}">${fmtDate(days[n - 1].date)}</text></svg>`;
 }
 const COVER_TEXT = { mowed: "mowed", roll_crimped: "roll-crimped", tarped: "tarped", tilled: "tilled", winterkill: "winterkill", other: "other" };
-const METRIC_ICON = { moisture: "water-percent", ec: "flash", soil_temp: "thermometer", air_temp: "thermometer", par: "white-balance-sunny" };
+const METRIC_ICON = { moisture: "water-percent", ec: "flash", soil_temp: "thermometer", air_temp: "thermometer", out_temp: "weather-partly-cloudy", par: "white-balance-sunny" };
 const KIND_ICON = { garden: "flower", rack: "table-furniture", greenhouse: "greenhouse" };
 const KIND_ORDER = { rack: 0, greenhouse: 1, garden: 2 };
-const METRIC_DEC = { moisture: 0, ec: 2, soil_temp: 0, air_temp: 1, par: 0 };
+const METRIC_DEC = { moisture: 0, ec: 2, soil_temp: 0, air_temp: 1, out_temp: 1, par: 0 };
 
 class GardenTrackerCard extends HTMLElement {
   setConfig(config) {
@@ -403,7 +403,7 @@ class GardenTrackerCard extends HTMLElement {
     const a = g.sensor_alarm;
     if (!a || !a.enabled) return "";
     const st = (this._hass && this._hass.states) || {};
-    const WHAT = { moisture: "soil moisture", ec: "soil EC", soil_temp: "soil temperature", air_temp: "air temperature", par: "light", ph: "pH", power: "power" };
+    const WHAT = { moisture: "soil moisture", ec: "soil EC", soil_temp: "soil temperature", air_temp: "air temperature", out_temp: "outside temperature", par: "light", ph: "pH", power: "power" };
     return a.alerts.map((x) => {
       const name = (st[x.entity] && st[x.entity].attributes && st[x.entity].attributes.friendly_name) || x.entity;
       const t0 = new Date(x.since).getTime(), t1 = x.end ? new Date(x.end).getTime() : Date.now();
@@ -433,7 +433,8 @@ class GardenTrackerCard extends HTMLElement {
   }
   _placeSummary(g) {
     const t = g.metrics.air_temp, w = g.water, c = g.climate, par = g.metrics.par;
-    const stats = [["Temperature", t.current === null ? "–" : `${num(t.current, 0)}°F`], ["Watered", w.days_since === null ? "Never" : w.days_since === 0 ? "Today" : `${w.days_since} d ago`]];
+    const out = g.metrics.out_temp;
+    const stats = [["Temperature", t.current === null ? "–" : `${num(t.current, 0)}°F`], ...(out ? [["Outside", out.current === null ? "–" : `${num(out.current, 0)}°F`]] : []), ["Watered", w.days_since === null ? "Never" : w.days_since === 0 ? "Today" : `${w.days_since} d ago`]];
     if (par) stats.push(["Light", par.current === null ? "–" : `${num(par.current, 0)} PAR`]);
     return `<div class="card tile" data-act="open-g" data-g="${g.id}">${this._alarmBanner(g)}<div class="row"><div class="pic" style="background:color-mix(in srgb,var(--info) 18%,transparent);color:var(--info)"><ha-icon icon="mdi:${KIND_ICON[g.kind]}" style="--mdc-icon-size:34px"></ha-icon></div><div class="grow"><div style="font-size:15px;font-weight:500">${esc(g.name)}</div><div class="sub">${esc(g.kind_name)}</div>${this._climatePill(c)}${this._waterPill(g)}</div></div>${this._statGrid(stats)}<div style="margin-top:8px">${this._trayRow(g)}</div><div class="row" style="margin-top:10px">${this._btn("log-water", "watering-can", "Water", `data-g="${g.id}"`, "grow")}</div></div>`;
   }
@@ -737,7 +738,7 @@ class GardenTrackerCard extends HTMLElement {
     for (const m of Object.values(g.metrics)) {
       if (m.key === "moisture" || m.key === "ec") continue;
       const d = METRIC_DEC[m.key], u = m.unit === "%" ? "%" : ` ${m.unit}`;
-      const src = m.entities.length ? `${m.entities.length} sensor${m.entities.length === 1 ? "" : "s"}, averaged` : "Manual";
+      const src = m.entities.length ? `${m.entities.length} sensor${m.entities.length === 1 ? "" : "s"}, averaged` : m.fallback ? "Main outdoor sensor" : "Manual";
       h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon(METRIC_ICON[m.key])} ${esc(m.name)}</div><span class="small mut">${src}</span></div>`;
       if (m.current !== null) {
         h += `<div class="row" style="align-items:baseline;margin:6px 0"><span class="ph">${num(m.current, d)}${m.unit === "%" ? "%" : ""}</span><span class="small mut">${m.unit === "%" ? "" : esc(m.unit) + " "}${m.min !== null && m.min !== undefined ? `today ${num(m.min, d)} to ${num(m.max, d)}${m.unit === "%" ? "%" : ""}` : ""}</span></div>`;
@@ -1392,7 +1393,7 @@ class GardenTrackerCard extends HTMLElement {
         { name: "value", label: `${m.name} (${u})`, type: "number", step: key === "ec" ? "0.01" : key === "par" ? "1" : "0.1", req: true, span: 3 },
         { name: "date", label: "Date", type: "date", value: this._snap.today, span: 3 },
       ],
-      note: key === "ec" ? "EC in mS/cm (same as dS/m)." : key === "soil_temp" ? "Soil temperature in °F." : key === "air_temp" ? "Air temperature in °F." : key === "par" ? "Light in µmol/m²/s." : "",
+      note: key === "ec" ? "EC in mS/cm (same as dS/m)." : key === "soil_temp" ? "Soil temperature in °F." : key === "air_temp" ? "Air temperature in °F." : key === "out_temp" ? "Outside air temperature in °F." : key === "par" ? "Light in µmol/m²/s." : "",
       submit: (x) => this._call("log_garden_reading", { garden: g.id, metric: key, ...x }),
     };
   }
@@ -1403,7 +1404,7 @@ class GardenTrackerCard extends HTMLElement {
       if (!id.startsWith("sensor.")) continue;
       const a = s.attributes || {}, dc = a.device_class, unit = String(a.unit_of_measurement || "").toLowerCase();
       const ok = key === "par" ? dc === "illuminance" || /par|ppfd|photosynth|micromol|µmol/.test(id + unit)
-        : key === "soil_temp" || key === "air_temp" ? dc === "temperature" || /^°?[cf]$/.test(unit) || /soil.*temp|temp.*soil/.test(id)
+        : key === "soil_temp" || key === "air_temp" || key === "out_temp" ? dc === "temperature" || /^°?[cf]$/.test(unit) || /soil.*temp|temp.*soil/.test(id)
         : key === "ec" ? dc === "conductivity" || /s\/cm|ds\/m|s\/m/.test(unit) || /(^|_)ec(_|$)|conductiv/.test(id)
         : dc === "moisture" || /moisture/.test(id);
       if (ok || selected.includes(id)) out.push([id, `${a.friendly_name || id}${s.state && s.state !== "unknown" ? ` (${s.state}${a.unit_of_measurement ? " " + a.unit_of_measurement : ""})` : ""}`]);
@@ -1418,7 +1419,7 @@ class GardenTrackerCard extends HTMLElement {
         { name: "pick", label: "Tap every sensor to include", type: "multi", options: this._sensorCandidates(key, m.entities), value: m.entities.join(",") },
         { name: "extra", label: "Other entity ids (comma separated)", type: "text", placeholder: "sensor.bed_3_moisture" },
       ],
-      note: "With several sensors, the garden uses their average. Leave all empty to log by hand. Today's low and high are tracked as readings come in.",
+      note: key === "out_temp" ? "Pick a sensor out in the open, in the shade, for the outside air. With several, Garden Tracker uses their average. Leave all empty to use your main outdoor temperature sensor from the integration's settings." : "With several sensors, the garden uses their average. Leave all empty to log by hand. Today's low and high are tracked as readings come in.",
       submit: (x) => this._call("set_garden_sensors", { garden: g.id, metric: key, entities: [...String(x.pick || "").split(","), ...String(x.extra || "").split(",")].map((e) => e.trim()).filter(Boolean) }),
     };
   }
@@ -1440,7 +1441,7 @@ class GardenTrackerCard extends HTMLElement {
       ph: [{ name: "value", label: "pH", type: "number", step: "0.1", value: e.value, req: true, span: 3 }, { name: "date", label: "Date", type: "date", value: e.date, span: 3 }],
       cover: [{ name: "crop", label: "Cover crop", type: "text", value: e.crop, req: true }, { name: "amount_lbs", label: "Seed (lb)", type: "number", step: "0.1", value: e.amount_lbs }, { name: "sown", label: "Sown", type: "date", value: e.sown, span: 3 }, { name: "terminated", label: "Terminated", type: "date", value: e.terminated, span: 3 }, { name: "method", label: "How terminated", type: "chips", options: Object.entries(COVER_TEXT), value: e.method }, { name: "wait_days", label: "Wait after terminating (days)", type: "number", step: "1", value: e.wait_days, span: 3 }, { name: "notes", label: "Notes", type: "text", value: e.notes }],
       water: [{ name: "date", label: "Date", type: "date", value: e.date }, { name: "notes", label: "Notes", type: "text", value: e.notes }],
-      ...Object.fromEntries(["moisture", "ec", "soil_temp", "air_temp", "par"].map((k) => [k, [{ name: "value", label: g && g.metrics[k] ? `${g.metrics[k].name} (${g.metrics[k].unit})` : "Value", type: "number", step: "0.01", value: e.value, req: true, span: 3 }, { name: "date", label: "Date", type: "date", value: e.date, span: 3 }]])),
+      ...Object.fromEntries(["moisture", "ec", "soil_temp", "air_temp", "out_temp", "par"].map((k) => [k, [{ name: "value", label: g && g.metrics[k] ? `${g.metrics[k].name} (${g.metrics[k].unit})` : "Value", type: "number", step: "0.01", value: e.value, req: true, span: 3 }, { name: "date", label: "Date", type: "date", value: e.date, span: 3 }]])),
     }[kind];
     return {
       title: "Edit entry", fields: F,

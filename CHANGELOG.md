@@ -4,6 +4,15 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.15.0 - 2026-10-24
+
+### Added
+- **Outside temperature** for every garden and greenhouse. Each has an "Outside temperature" card with the current reading, today's low and high and a chart. Tap Sensors to pick the outdoor sensors for that place (several are averaged), or leave it empty and the place uses your main outdoor temperature sensor from the integration's settings (a weather entity works too). Log reading, Sensors out and the "Outside" figure on the greenhouse's card on the main page work like the other temperatures. Home Assistant gets an "Outside temperature" sensor for each.
+
+### Changed
+- **The planting guide now drops crops that can't finish before the first fall frost.** Each group of crops in the "Planting guide" on a garden's soil temperature card shows only while there are enough days left before that garden's first frost date for the crop to grow (for example 50 days for peas, 75 for carrots, 85 for melons). Once none fit, which is the case from early September, the guide is hidden for the rest of the year. On January 1 it comes back, counting toward next fall's frost.
+- Logging a reading or choosing sensors for a kind of measurement a place doesn't track (soil moisture on a greenhouse, say) now gives a clear message instead of being saved silently.
+
 ## 0.14.0 - 2026-10-22
 
 ### Added

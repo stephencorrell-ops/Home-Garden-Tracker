@@ -28,7 +28,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     websocket.async_register(hass)
     card = Path(__file__).parent / "www" / "garden-card.js"
     await hass.http.async_register_static_paths([StaticPathConfig(CARD_URL, str(card), False)])
-    add_extra_js_url(hass, f"{CARD_URL}?v=0.14.0")
+    add_extra_js_url(hass, f"{CARD_URL}?v=0.15.0")
     return True
 
 
@@ -49,9 +49,10 @@ def _ingest(hass: HomeAssistant, mgr: GardenManager, state: State | None) -> Non
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     mgr = GardenManager(hass)
+    source = entry.options.get(CONF_TEMP_ENTITY, entry.data[CONF_TEMP_ENTITY])
+    mgr.outdoor_entity = source
     await mgr.async_load()
     hass.data[DOMAIN] = mgr
-    source = entry.options.get(CONF_TEMP_ENTITY, entry.data[CONF_TEMP_ENTITY])
 
     @callback
     def _on_temp(event: Event) -> None:

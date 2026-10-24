@@ -16,7 +16,7 @@ from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import TemperatureConverter
 
 from .const import SIGNAL_STRUCTURE, SIGNAL_UPDATE, STORAGE_KEY, STORAGE_VERSION
-from .model import CLIMATE_KINDS, METRICS, GardenModel, fan_on_at, lights_on_at
+from .model import CLIMATE_KINDS, METRIC_SETS, METRICS, GardenModel, fan_on_at, lights_on_at
 
 
 _LOGGER = logging.getLogger(__name__)
@@ -120,6 +120,8 @@ class GardenManager(GardenModel):
             for metric, ents in g.get("sensors", {}).items():
                 for ent in ents:
                     by_entity.setdefault(ent, set()).add((g["id"], metric))
+            if self.outdoor_entity and "out_temp" in METRIC_SETS[g.get("kind", "garden")] and not g.get("sensors", {}).get("out_temp"):
+                by_entity.setdefault(self.outdoor_entity, set()).add((g["id"], "out_temp"))
         if not by_entity:
             self.run_climate()
             return
@@ -140,15 +142,17 @@ class GardenManager(GardenModel):
     def _convert(self, metric: str, state) -> float | None:
         if state is None or state.state in (STATE_UNKNOWN, STATE_UNAVAILABLE):
             return None
+        weather = state.entity_id.split(".")[0] == "weather" if getattr(state, "entity_id", None) else False
         try:
-            val = float(state.state)
-        except ValueError:
+            val = float(state.attributes.get("temperature") if weather else state.state)
+        except (TypeError, ValueError):
             return None
         unit = (state.attributes.get("unit_of_measurement") or "").replace("μ", "µ").lower()
-        if metric in ("soil_temp", "air_temp"):
+        if metric in ("soil_temp", "air_temp", "out_temp"):
             try:
                 return TemperatureConverter.convert(
-                    val, state.attributes.get("unit_of_measurement") or self.hass.config.units.temperature_unit,
+                    val, (state.attributes.get("temperature_unit") if weather else state.attributes.get("unit_of_measurement"))
+                    or self.hass.config.units.temperature_unit,
                     UnitOfTemperature.FAHRENHEIT)
             except HomeAssistantError:
                 return None
@@ -325,8 +329,10 @@ class GardenManager(GardenModel):
                 except ValueError:
                     pass
             return
-        vals = [v for v in (self._convert(metric, self.hass.states.get(e))
-                            for e in g.get("sensors", {}).get(metric, [])) if v is not None]
+        ents = g.get("sensors", {}).get(metric, [])
+        if metric == "out_temp" and not ents and self.outdoor_entity:
+            ents = [self.outdoor_entity]
+        vals = [v for v in (self._convert(metric, self.hass.states.get(e)) for e in ents) if v is not None]
         if vals:
             avg = sum(vals) / len(vals)
             spec = METRICS.get(metric)
