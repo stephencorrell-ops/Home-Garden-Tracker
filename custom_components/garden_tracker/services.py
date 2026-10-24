@@ -147,7 +147,7 @@ SERVICES: dict[str, tuple[dict, Handler]] = {
                           O("temp_entities"): vol.Any(None, cv.ensure_list), O("rain_entities"): vol.Any(None, cv.ensure_list),
                           O("humidity_entities"): vol.Any(None, cv.ensure_list),
                           O("solar_entities"): vol.Any(None, cv.ensure_list),
-                          O("air_entities"): vol.Any(None, {O(k): cv.ensure_list for k in ("pm1", "pm25", "nox", "voc")})},
+                          O("air_entities"): vol.Any(None, {O(k): cv.ensure_list for k in ("pm1", "pm25", "pm10", "nox", "voc")})},
                          lambda m, c: m.set_microclimate(c.get("usda_zone", UNSET), c.get("frost_f"),
                                                          c.get("temp_entities", UNSET), c.get("rain_entities", UNSET),
                                                          c.get("humidity_entities", UNSET), c.get("solar_entities", UNSET),

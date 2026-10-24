@@ -478,7 +478,7 @@ MICRO = [
                 attr_fn=lambda mc_, m=m: {"now": mc_["air"]["metrics"][m]["current"],
                                           "week_high": mc_["air"]["metrics"][m]["max"]["week"],
                                           "month_high": mc_["air"]["metrics"][m]["max"]["month"]})
-      for m, (nm, unit) in {"pm1": ("PM1", "µg/m³"), "pm25": ("PM2.5", "µg/m³"), "nox": ("NOx index", ""),
+      for m, (nm, unit) in {"pm1": ("PM1", "µg/m³"), "pm25": ("PM2.5", "µg/m³"), "pm10": ("PM10", "µg/m³"), "nox": ("NOx index", ""),
                             "voc": ("VOC index", "")}.items()],
     *[_rain(k, n) for k, n in (("day", "today"), ("week", "this week"), ("month", "this month"), ("year", "this year"))],
     *[_temp(k, n, w) for k, n in (("day", "today"), ("week", "this week"), ("month", "this month"), ("year", "this year"))

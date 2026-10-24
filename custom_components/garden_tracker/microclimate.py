@@ -7,7 +7,7 @@ from typing import Any
 
 FROST_F = 32.0
 MIN_WINTER_DAYS = 60  # recorded days between December and February for a winter to count toward the zone
-AIR = {"pm1": ("PM1", "µg/m³"), "pm25": ("PM2.5", "µg/m³"), "nox": ("NOx index", ""), "voc": ("VOC index", "")}
+AIR = {"pm1": ("PM1", "µg/m³"), "pm25": ("PM2.5", "µg/m³"), "pm10": ("PM10", "µg/m³"), "nox": ("NOx index", ""), "voc": ("VOC index", "")}
 SOIL_AIR_DAYS = 10    # soil is expected to follow the average of this many days of air temperature
 
 

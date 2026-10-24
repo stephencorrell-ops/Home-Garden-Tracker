@@ -62,7 +62,7 @@ set_microclimate:
     rain_entities: {description: "Rainfall total sensors (daily, weekly or yearly rain, not the rain rate), averaged", selector: {entity: {domain: sensor, multiple: true}}}
     humidity_entities: {description: "Outside humidity sensors, averaged", selector: {entity: {domain: sensor, multiple: true}}}
     solar_entities: {description: "Solar radiation sensors in W/m², averaged", selector: {entity: {domain: sensor, multiple: true}}}
-    air_entities: {description: "Air quality sensors as lists under pm1, pm25, nox and voc, averaged for each", example: "{pm25: [sensor.outside_pm2_5], voc: [sensor.outside_voc]}", selector: {object: {}}}
+    air_entities: {description: "Air quality sensors as lists under pm1, pm25, pm10, nox and voc, averaged for each", example: "{pm25: [sensor.outside_pm2_5], voc: [sensor.outside_voc]}", selector: {object: {}}}
 set_power_rate:
   fields: {cents: {required: true, description: "Price of electricity in cents per kWh (0 clears it)", example: 5.15, selector: {number: {min: 0, max: 1000, step: 0.01, mode: box}}}}
 set_power_sensors:

@@ -15,7 +15,7 @@ from . import microclimate as mc
 DEFAULT_SETTINGS = {"frost_last": "04-25", "frost_first": "10-15",  # Ephrata, WA averages
                     "usda_zone": "7a (6b on the 2012 map)", "frost_f": mc.FROST_F,
                     "temp_entities": [], "rain_entities": [], "humidity_entities": [], "solar_entities": [],
-                    "air_entities": {"pm1": [], "pm25": [], "nox": [], "voc": []}}
+                    "air_entities": {"pm1": [], "pm25": [], "pm10": [], "nox": [], "voc": []}}
 SENSOR_ALARM_AFTER = timedelta(hours=1)  # how long an in-use sensor may report nothing before it alarms
 ALARM_BACK_F = 1.0  # the air must come back this far inside a limit before an alarm counts as over
 UNSET: Any = object()
