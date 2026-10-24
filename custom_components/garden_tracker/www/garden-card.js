@@ -440,7 +440,7 @@ class GardenTrackerCard extends HTMLElement {
     else h += `<table class="tbl"><tr><th></th><th>Rain</th></tr>${P.map(([k, n]) => `<tr><td>${n}</td><td>${num(m.rain[k], 2)} in</td></tr>`).join("")}</table>`;
     h += `</div>`;
     if (m.humidity.sensors.length) h += `<div class="card"><div class="sec">Humidity</div><table class="tbl"><tr><th></th><th>High</th><th>Low</th></tr>${P.map(([k, n]) => { const t = m.humidity[k]; return `<tr><td>${n}</td><td>${t.high === null ? "-" : num(t.high, 0) + "%"}</td><td>${t.low === null ? "-" : num(t.low, 0) + "%"}</td></tr>`; }).join("")}</table></div>`;
-    if (m.solar.sensors.length) h += `<div class="card"><div class="sec">Sun</div><table class="tbl"><tr><th></th><th>Peak</th><th>Energy</th></tr>${P.map(([k, n]) => { const t = m.solar[k]; return `<tr><td>${n}</td><td>${t.peak === null ? "-" : num(t.peak, 0) + " W/m²"}</td><td>${t.days ? num(t.kwh, 1) + " kWh/m²" : "-"}</td></tr>`; }).join("")}</table><div class="small mut" style="margin-top:6px">Energy is the sunlight that landed on each square metre. A clear summer day is about 7 to 8 kWh/m².</div></div>`;
+    if (m.solar.sensors.length) h += `<div class="card"><div class="sec">Sun</div><table class="tbl"><tr><th></th><th>Average</th><th>Energy</th></tr>${P.map(([k, n]) => { const t = m.solar[k]; return `<tr><td>${n}</td><td>${t.avg === null ? "-" : num(t.avg, 0) + " W/m²"}</td><td>${t.days ? num(t.kwh, 1) + " kWh/m²" : "-"}</td></tr>`; }).join("")}</table><div class="small mut" style="margin-top:6px">Average is over the whole 24 hours, night included. Energy is the sunlight that landed on each square metre. A clear summer day is about 7 to 8 kWh/m².</div></div>`;
     return h;
   }
   _weatherCandidates(selected, test) {

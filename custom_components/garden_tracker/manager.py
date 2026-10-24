@@ -172,10 +172,10 @@ class GardenManager(GardenModel):
         if w is None:
             return
         prev, self._solar_t = self._solar_t, (now, w)
-        wh = 0.0
+        wh = secs = 0.0
         if prev and 0 < now - prev[0] <= 3600:  # energy that fell since the last reading, at the last level
-            wh = prev[1] * (now - prev[0]) / 3600
-        self.record_solar(w, wh)
+            wh, secs = prev[1] * (now - prev[0]) / 3600, now - prev[0]
+        self.record_solar(w, wh, secs)
 
     async def async_backfill(self) -> None:
         """Read long-term statistics so frost dates, extremes, the local zone, rain, humidity and sun don't start

@@ -284,11 +284,12 @@ class GardenModel:
             self._touch()
         return changed
 
-    def record_solar(self, w_m2: float, wh: float = 0.0) -> None:
-        """Today's brightest reading, and the energy (Wh/m2) that fell since the last one."""
+    def record_solar(self, w_m2: float, wh: float = 0.0, secs: float = 0.0) -> None:
+        """Today's brightest reading, the energy (Wh/m2) that fell since the last one, and the time it covers."""
         key = self.today().isoformat()
-        cur = self.data["solar"].get(key) or [0.0, 0.0]
-        new = [max(cur[0], round(w_m2, 1)), round(cur[1] + max(wh, 0.0), 2)]
+        cur = list(self.data["solar"].get(key) or [0.0, 0.0, 0.0])
+        cur += [0.0] * (3 - len(cur))
+        new = [max(cur[0], round(w_m2, 1)), round(cur[1] + max(wh, 0.0), 2), round(cur[2] + max(secs, 0.0))]
         if new != cur:
             self.data["solar"][key] = new
             self._touch()
@@ -296,8 +297,13 @@ class GardenModel:
     def merge_solar(self, rows: dict[str, tuple[float, float]]) -> bool:
         changed = False
         for k, (peak, wh) in rows.items():
+            if k >= self.today().isoformat():  # today is measured live, a part-day statistic would skew it
+                continue
             cur = self.data["solar"].get(k)
-            new = [round(peak, 1), round(wh, 1)] if cur is None else [max(cur[0], round(peak, 1)), max(cur[1], round(wh, 1))]
+            new = [round(peak, 1), round(wh, 1), 86400] if cur is None else [
+                max(cur[0], round(peak, 1)), max(cur[1], round(wh, 1)), max(cur[2] if len(cur) > 2 else 86400, 86400)]
+            if cur is not None and cur[1] >= round(wh, 1):  # what was measured live is kept as it is
+                new = cur
             if new != cur:
                 self.data["solar"][k] = new
                 changed = True

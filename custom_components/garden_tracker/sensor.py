@@ -463,9 +463,10 @@ MICRO = [
                 value_fn=lambda m, k=k, w=w: m["humidity"][k][w])
       for k, n in (("day", "today"), ("week", "this week"), ("month", "this month"), ("year", "this year"))
       for w in ("high", "low")],
-    *[MicroDesc(key=f"solar_peak_{k}", name=f"Peak sun {n}", device_class=SensorDeviceClass.IRRADIANCE,
+    *[MicroDesc(key=f"solar_avg_{k}", name=f"Average sun {n}", device_class=SensorDeviceClass.IRRADIANCE,
                 native_unit_of_measurement="W/m²", state_class=SensorStateClass.MEASUREMENT,
-                value_fn=lambda m, k=k: m["solar"][k]["peak"])
+                value_fn=lambda m, k=k: m["solar"][k]["avg"],
+                attr_fn=lambda m, k=k: {"peak": m["solar"][k]["peak"]})
       for k, n in (("day", "today"), ("week", "this week"), ("month", "this month"), ("year", "this year"))],
     *[MicroDesc(key=f"solar_energy_{k}", name=f"Sun energy {n}", native_unit_of_measurement="kWh/m²",
                 icon="mdi:white-balance-sunny", state_class=SensorStateClass.MEASUREMENT,

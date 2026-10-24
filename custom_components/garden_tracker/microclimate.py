@@ -99,18 +99,21 @@ def rain_total(rain: dict, start: date, end: date) -> float:
 
 
 def solar_total(solar: dict, start: date, end: date) -> dict:
-    """Peak sun and the energy that fell between two dates: solar holds [peak W/m2, Wh/m2] for each day."""
-    peak, wh, days, pk = None, 0.0, 0, None
+    """Sun between two dates: solar holds [peak W/m2, Wh/m2, seconds measured] for each day. The average level is
+    the energy over the time that was measured, so a day that is only half over still gives a true average."""
+    peak, wh, days, pk, secs = None, 0.0, 0, None, 0.0
     d = start
     while d <= end:
         r = solar.get(d.isoformat())
         if r:
             days += 1
             wh += r[1]
+            secs += r[2] if len(r) > 2 else 86400
             if peak is None or r[0] > peak:
                 peak, pk = r[0], d.isoformat()
         d += timedelta(days=1)
-    return {"peak": peak and round(peak), "peak_date": pk, "kwh": round(wh / 1000, 2),
+    return {"avg": round(wh / (secs / 3600)) if secs else None, "peak": peak and round(peak), "peak_date": pk,
+            "kwh": round(wh / 1000, 2),
             "avg_kwh": round(wh / 1000 / days, 2) if days else None, "days": days}
 
 
