@@ -163,6 +163,34 @@ function metricChart(m) {
     ${area}<polyline points="${pts}" fill="none" stroke="var(--primary-color)" stroke-width="2"/>
     <text class="ax" x="${L}" y="${H - 5}">${fmtDate(hs[0].date)}</text><text class="ax" text-anchor="end" x="${W - R}" y="${H - 5}">${fmtDate(hs[hs.length - 1].date)}</text></svg>`;
 }
+// Several temperature histories on one set of axes: [{ name, hist, color }].
+function tempChart(series, label) {
+  series = series.filter((x) => x.hist.length);
+  const pts = series.flatMap((x) => x.hist);
+  const days = new Set(pts.map((r) => r.date));
+  if (days.size < 2) return `<div class="mut small">Two days of readings will draw a trend.</div>`;
+  const W = 340, H = 130, L = 34, R = 8, T = 10, B = 20;
+  const ds = pts.map((r) => Date.parse(r.date)), t0 = Math.min(...ds), t1 = Math.max(Math.max(...ds), t0 + 864e5 * 7);
+  const all = pts.flatMap((r) => [r.value, r.min ?? r.value, r.max ?? r.value]);
+  let lo = Math.min(...all), hi = Math.max(...all);
+  if (hi - lo < 1e-6) { lo -= 1; hi += 1; }
+  const pad = (hi - lo) * 0.1; lo -= pad; hi += pad;
+  const x = (t) => L + ((t - t0) / (t1 - t0)) * (W - L - R);
+  const y = (v) => T + ((hi - v) / (hi - lo)) * (H - T - B);
+  const f = (v) => (Math.abs(hi - lo) < 10 ? v.toFixed(1) : Math.round(v));
+  const dated = (r) => `${x(Date.parse(r.date)).toFixed(1)},`;
+  const body = series.map((sr) => {
+    const band = sr.hist.filter((r) => r.max !== undefined);
+    const area = band.length > 1 ? `<polygon points="${band.map((r) => dated(r) + y(r.max).toFixed(1)).join(" ")} ${band.slice().reverse().map((r) => dated(r) + y(r.min).toFixed(1)).join(" ")}" fill="${sr.color}" opacity="0.14"/>` : "";
+    const last = sr.hist[sr.hist.length - 1];
+    return `${area}<polyline points="${sr.hist.map((r) => dated(r) + y(r.value).toFixed(1)).join(" ")}" fill="none" stroke="${sr.color}" stroke-width="2"/><circle cx="${x(Date.parse(last.date))}" cy="${y(last.value)}" r="3.5" fill="${sr.color}"/>`;
+  }).join("");
+  const first = pts.map((r) => r.date).sort()[0], end = pts.map((r) => r.date).sort().pop();
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${esc(label)} over time">
+    <line x1="${L}" y1="${H - B}" x2="${W - R}" y2="${H - B}" stroke="var(--divider-color)"/>
+    <text class="ax" x="2" y="${T + 8}">${f(hi)}</text><text class="ax" x="2" y="${H - B - 2}">${f(lo)}</text>
+    ${body}<text class="ax" x="${L}" y="${H - 5}">${fmtDate(first)}</text><text class="ax" text-anchor="end" x="${W - R}" y="${H - 5}">${fmtDate(end)}</text></svg>`;
+}
 function dualChart(ec, mo, band) {
   const rows = new Map();
   for (const r of ec.history) rows.set(r.date, { ...(rows.get(r.date) || {}), ec: r.value });
@@ -737,6 +765,8 @@ class GardenTrackerCard extends HTMLElement {
     let h = g.fertility ? this._fertCard(g) : "";
     for (const m of Object.values(g.metrics)) {
       if (m.key === "moisture" || m.key === "ec") continue;
+      if (m.key === "out_temp" && g.metrics.soil_temp) continue;  // drawn together with the soil temperature
+      if (m.key === "soil_temp" && g.metrics.out_temp) { h += this._soilAirCard(g); continue; }
       const d = METRIC_DEC[m.key], u = m.unit === "%" ? "%" : ` ${m.unit}`;
       const src = m.entities.length ? `${m.entities.length} sensor${m.entities.length === 1 ? "" : "s"}, averaged` : m.fallback ? "Main outdoor sensor" : "Manual";
       h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon(METRIC_ICON[m.key])} ${esc(m.name)}</div><span class="small mut">${src}</span></div>`;
@@ -754,6 +784,23 @@ class GardenTrackerCard extends HTMLElement {
       h += `</div>`;
     }
     return h;
+  }
+
+  _soilAirCard(g) {
+    const gid = g.id, soil = g.metrics.soil_temp, out = g.metrics.out_temp, SOIL = "var(--primary-color, #03a9f4)", AIR = "var(--spray, #ffa000)";
+    const src = (m) => (m.entities.length ? `${m.entities.length} sensor${m.entities.length === 1 ? "" : "s"}` : m.fallback ? "main outdoor sensor" : "manual");
+    const col = (m, name, color) => `<div><span class="ph" style="color:${color}">${m.current === null ? "–" : num(m.current, 0) + "°"}</span> <span class="small mut">${name}${m.min !== null && m.min !== undefined ? `, today ${num(m.min, 0)} to ${num(m.max, 0)}` : ""}</span><div class="small mut">${m.current === null ? "No readings yet" : `${m.source === "sensor" ? "Sensor" : "Manual"}, ${fmtDate(m.date)}`} (${src(m)})</div></div>`;
+    let h = `<div class="card"><div class="sec">${this._icon("thermometer")} Soil and outside temperature</div>`;
+    h += `<div class="row" style="align-items:flex-start;gap:22px;margin:6px 0">${col(soil, "soil", SOIL)}${col(out, "outside", AIR)}</div>`;
+    h += tempChart([{ name: soil.name, hist: soil.history, color: SOIL }, { name: out.name, hist: out.history, color: AIR }], "Soil and outside temperature");
+    h += `<div class="small" style="margin:2px 0 6px"><span style="color:${SOIL}">&#9632;</span> Soil &nbsp; <span style="color:${AIR}">&#9632;</span> Outside air</div>`;
+    for (const m of [soil, out]) if (g.paused[m.key]) h += `<div class="pill" style="margin:4px 0">${esc(m.name)}: sensors out. New readings are ignored. Showing the last ones.</div>`;
+    if (g.planting) h += `<div class="small mut" style="margin:8px 0 4px">Planting guide, using the average of the last ${g.planting.days} night low${g.planting.days === 1 ? "" : "s"} (${num(g.planting.basis, 0)}°F)</div><div>${g.planting.crops.map((c) => `<span class="pill ${c.ready ? "ok" : "none"}" style="margin:2px 4px 2px 0">${esc(c.name)} ${c.min_f}°${c.ready ? "" : ", not yet"}</span>`).join("")}</div>`;
+    for (const [m, what] of [[soil, "soil"], [out, "outside"]]) {
+      h += `<div class="row" style="margin-top:8px;flex-wrap:wrap"><span class="small mut" style="min-width:52px">${what[0].toUpperCase() + what.slice(1)}</span>${this._btn("form-metric", "plus", "Log reading", `data-g="${gid}" data-s="${m.key}"`)}${this._btn("form-sensors", "access-point", "Sensors", `data-g="${gid}" data-s="${m.key}"`)}${this._btn("toggle-probes", g.paused[m.key] ? "play" : "pause", g.paused[m.key] ? "Resume sensors" : "Sensors out", `data-g="${gid}" data-grp="${m.key}" data-p="${g.paused[m.key] ? "0" : "1"}"`)}</div>`;
+      for (const r of m.history.slice().reverse().filter((x) => x.source === "manual").slice(0, 3)) h += this._logRow(m.key, gid, r.id, `${esc(m.name)} ${num(r.value, METRIC_DEC[m.key])} ${m.unit}`, `${fmtDate(r.date)}, manual`);
+    }
+    return h + `</div>`;
   }
 
   // ---- past plants -----------------------------------------------------------------------------
