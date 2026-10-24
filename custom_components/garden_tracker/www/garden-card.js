@@ -52,6 +52,7 @@ label{display:block;font-size:12px;color:var(--mut);margin-bottom:4px}
 .ok{--c:var(--ok)}.spray,.warn{--c:var(--spray)}.hold,.bad,.low,.high{--c:var(--hold)}.info{--c:var(--info)}.none{--c:var(--mut)}
 .alarm{background:color-mix(in srgb,var(--hold) 16%,transparent);border:1px solid var(--hold);border-radius:10px;padding:10px 12px;margin:0 0 10px}
 .alarm b{color:var(--hold)}.alarm .row{margin-top:8px}
+.tbl{width:100%;border-collapse:collapse;font-size:13px}.tbl th{text-align:left;font-weight:500;color:var(--secondary-text-color);padding:4px 6px 4px 0}.tbl td{padding:5px 6px 5px 0;border-top:1px solid var(--divider-color)}
 .stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px}
 .stat{background:var(--secondary-background-color);border-radius:8px;padding:8px 10px}
 .stat span{display:block;font-size:11px;color:var(--mut)}.stat b{font-size:16px;font-weight:500}
@@ -329,6 +330,7 @@ class GardenTrackerCard extends HTMLElement {
       if (w === "variety" && v) body = this._varietyView(v);
       else if (w === "garden" && g) body = this._gardenView(g);
       else if (w === "archive") body = this._archiveView();
+      else if (w === "micro" && this._snap.micro) body = this._microView();
       else { this._view = { v: "home" }; body = this._homeView(); }
     }
     const banner = (this._err && this._snap ? `<div class="err">${esc(this._err)}</div>` : "") +
@@ -368,10 +370,94 @@ class GardenTrackerCard extends HTMLElement {
   // ---- home ---------------------------------------------------------------------
   _frostPill(g, named) {
     const n = g.frost && g.frost.next;
-    if (!n) return "";
+    if (!n) {
+      const r = g.frost && g.frost.recorded;
+      if (!r || !(r.last_spring || r.first_fall)) return "";
+      const bits = [r.last_spring ? `last spring frost ${fmtDate(r.last_spring)} (expected ${fmtMd(g.frost.last)})` : "", r.first_fall ? `first fall frost ${fmtDate(r.first_fall)} (expected ${fmtMd(g.frost.first)})` : ""].filter(Boolean);
+      return `<div class="pill info" style="margin:4px 6px 4px 0">${this._icon("snowflake-alert")} ${named ? esc(g.name) + ": " : ""}Recorded by your sensors: ${bits.join(", ")}</div>`;
+    }
     const nm = n.event === "last" ? "Last spring frost" : "First fall frost";
     const soon = n.event === "first" && n.days <= 14;
-    return `<div class="pill ${soon ? "warn" : "info"}" style="margin:4px 6px 4px 0">${this._icon("snowflake-alert")} ${named ? esc(g.name) + ": " : ""}${nm} ${n.days === 0 ? "expected today" : `in ${n.days} day${n.days === 1 ? "" : "s"}`} (${fmtDate(n.date)})</div>`;
+    const r = g.frost.recorded, rec = [];
+    if (r && r.last_spring) rec.push(`last spring frost ${fmtDate(r.last_spring)}${r.spring_final ? "" : " so far"}`);
+    if (r && r.first_fall) rec.push(`first fall frost ${fmtDate(r.first_fall)}`);
+    return `<div class="pill ${soon ? "warn" : "info"}" style="margin:4px 6px 4px 0">${this._icon("snowflake-alert")} ${named ? esc(g.name) + ": " : ""}${nm} ${n.days === 0 ? "expected today" : `in ${n.days} day${n.days === 1 ? "" : "s"}`} (${fmtDate(n.date)})${rec.length ? `<div class="small" style="font-weight:400">Recorded by your sensors this year: ${rec.join(", ")}</div>` : ""}</div>`;
+  }
+  _microTile() {
+    const m = this._snap.micro;
+    if (!m) return "";
+    const z = m.zone, t = m.temps.year;
+    const zt = z.zone ? `Zone ${esc(z.zone)}` : "Zone still being worked out";
+    const sub = [z.usda ? `USDA says ${esc(z.usda)}` : "", t.low !== null ? `year ${num(t.low, 0)}° to ${num(t.high, 0)}°F` : "", m.rain.sensor ? `rain this year ${num(m.rain.year, 1)} in` : ""].filter(Boolean).join(", ");
+    return `<div class="card tile" data-act="open-micro"><div class="row"><div class="pic" style="background:color-mix(in srgb,var(--info) 18%,transparent);color:var(--info)">${this._icon("map-marker-radius")}</div><div class="grow"><div style="font-size:15px;font-weight:500">Microclimate</div><div class="sub">${zt}</div><div class="small mut">${sub || "Your own frost dates, temperatures and rain"}</div></div>${this._icon("chevron-right")}</div></div>`;
+  }
+  _microView() {
+    const m = this._snap.micro;
+    let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="ttl grow">Microclimate</div>${this._btn("form-micro", "cog", "Settings")}</div>`;
+    if (!m.settings.outdoor_entity) h += `<div class="msg">Choose an outside temperature sensor in the card options to start recording frost and temperatures here.</div>`;
+    // zone
+    const z = m.zone;
+    h += `<div class="card"><div class="sec">Hardiness zone</div>`;
+    if (z.zone) {
+      h += `<div class="row"><div class="grow"><div style="font-size:28px;font-weight:600">${esc(z.zone)}</div><div class="sub">From your sensors: average yearly low ${num(z.avg_min, 1)}°F over ${z.count} winter${z.count === 1 ? "" : "s"}</div></div></div>`;
+    } else {
+      h += `<div class="small mut">Needs one full winter of readings. Your sensors have not recorded enough yet${z.so_far ? `, lowest so far this winter is ${num(z.so_far.lowest, 1)}°F on ${fmtDate(z.so_far.date)}` : ""}.</div>`;
+    }
+    if (z.usda) h += `<div class="pill info" style="margin-top:8px">USDA map says ${esc(z.usda)}</div>`;
+    if (z.winters.length) h += `<div class="small mut" style="margin-top:8px">${z.winters.map((w) => `${esc(w.label)}: ${num(w.lowest, 1)}°F${w.complete ? "" : " so far"}`).join(" · ")}</div>`;
+    h += `</div>`;
+    // frost
+    const f = m.frost;
+    h += `<div class="card"><div class="sec">Frost, ${f.threshold}°F or colder</div>`;
+    const yrs = f.years;
+    if (!yrs.length) h += `<div class="small mut">No readings yet.</div>`;
+    else {
+      h += `<table class="tbl"><tr><th></th><th>Last spring</th><th>First fall</th><th>Lowest</th></tr>`;
+      h += `<tr><td>Expected</td><td>${fmtMd(f.expected_last)}</td><td>${fmtMd(f.expected_first)}</td><td></td></tr>`;
+      for (const y of yrs) {
+        const sp = y.last_spring ? fmtDate(y.last_spring) + (y.spring_partial ? "*" : y.spring_final ? "" : " so far") : y.spring_partial ? "no data" : "none";
+        h += `<tr><td>${y.year}</td><td>${sp}</td><td>${y.first_fall ? fmtDate(y.first_fall) : "none"}</td><td>${num(y.lowest, 0)}°F</td></tr>`;
+      }
+      h += `</table>`;
+      if (yrs.some((y) => y.spring_partial)) h += `<div class="small mut">* Readings started after the winter, so an earlier frost may have been missed.</div>`;
+    }
+    h += `</div>`;
+    // soil
+    const s2 = m.soil;
+    h += `<div class="card"><div class="sec">Soil temperature</div>`;
+    if (s2.expected === null && s2.actual === null) h += `<div class="small mut">Needs a few days of outside readings and a soil temperature sensor.</div>`;
+    else {
+      h += this._statGrid([["Expected", s2.expected === null ? "n/a" : `${num(s2.expected, 1)}°F`], ["Actual", s2.actual === null ? "n/a" : `${num(s2.actual, 1)}°F`], ["Last year", s2.last_year === null ? "n/a" : `${num(s2.last_year, 1)}°F`]]);
+      if (s2.diff !== null) h += `<div class="pill ${Math.abs(s2.diff) >= 5 ? "warn" : "ok"}" style="margin-top:8px">${s2.diff === 0 ? "Right on expected" : `${num(Math.abs(s2.diff), 1)}°F ${s2.diff > 0 ? "warmer" : "colder"} than expected`}</div>`;
+      h += `<div class="small mut" style="margin-top:6px">Expected is the average of the last 10 days of outside air temperature. Soil follows the air with a delay.</div>`;
+    }
+    h += `</div>`;
+    // temps and rain
+    const P = [["day", "Today"], ["week", "Week"], ["month", "Month"], ["year", "Year"]];
+    h += `<div class="card"><div class="sec">High and low</div><table class="tbl"><tr><th></th><th>High</th><th>Low</th></tr>${P.map(([k, n]) => { const t = m.temps[k]; return `<tr><td>${n}</td><td>${t.high === null ? "-" : num(t.high, 0) + "°F"}</td><td>${t.low === null ? "-" : num(t.low, 0) + "°F"}</td></tr>`; }).join("")}</table></div>`;
+    h += `<div class="card"><div class="sec">Rainfall</div>`;
+    if (!m.rain.sensor) h += `<div class="small mut">Pick a rainfall total sensor in Settings to track rain.</div>`;
+    else h += `<table class="tbl"><tr><th></th><th>Rain</th></tr>${P.map(([k, n]) => `<tr><td>${n}</td><td>${num(m.rain[k], 2)} in</td></tr>`).join("")}</table>`;
+    return h + `</div>`;
+  }
+  _fMicro() {
+    const m = this._snap.micro, st = (this._hass && this._hass.states) || {};
+    const opts = [["", "None"]];
+    for (const [id, s2] of Object.entries(st)) {
+      if (!id.startsWith("sensor.")) continue;
+      const a = s2.attributes || {}, unit = String(a.unit_of_measurement || "").toLowerCase();
+      if (a.device_class === "precipitation" || ["in", "mm", "cm"].includes(unit) || id === m.settings.rain_entity) opts.push([id, `${a.friendly_name || id} (${s2.state} ${a.unit_of_measurement || ""})`]);
+    }
+    return {
+      title: "Microclimate settings", submitLabel: "Save",
+      fields: [
+        { name: "rain_entity", label: "Rainfall total sensor", type: "select", options: opts, value: m.settings.rain_entity || "" },
+        { name: "usda_zone", label: "What USDA says your zone is", type: "text", placeholder: "7a", value: m.settings.usda_zone || "" },
+        { name: "frost_f", label: "Counts as a frost at or below (°F)", type: "number", step: "0.5", value: m.settings.frost_f },
+      ],
+      note: "Use a rain total that counts up through the day, week or year, not a rain rate. Past rain and temperatures are read from Home Assistant's long-term statistics for your outside sensor and rain sensor.",
+      submit: (x) => this._call("set_microclimate", { rain_entity: x.rain_entity || " ", usda_zone: x.usda_zone || " ", frost_f: x.frost_f }),
+    };
   }
   _homeView() {
     const gs = this._gardens(), vs = this._vars();
@@ -401,6 +487,7 @@ class GardenTrackerCard extends HTMLElement {
       h += mine.map((v) => this._tile(v)).join("");
       if (cov.length) h += this._coverTile(g, cov);
     }
+    h += this._microTile();
     const past = this._vars(true).length;
     if (past) h += `<button style="width:100%" data-act="open-archive">${this._icon("archive")} Past plants (${past})</button>`;
     return h;
@@ -859,6 +946,8 @@ class GardenTrackerCard extends HTMLElement {
       case "open-v": return this._go({ v: "variety", id: d.v });
       case "open-g": return this._go({ v: "garden", id: d.g });
       case "open-archive": return this._go({ v: "archive" });
+      case "open-micro": return this._go({ v: "micro" });
+      case "form-micro": return this._open(this._fMicro());
       case "filter": this._filter = d.s; return this._render();
       case "temp-range": this._tempRange = d.s; return this._render();
       case "toggle-log": this._showLog = !this._showLog; return this._render();

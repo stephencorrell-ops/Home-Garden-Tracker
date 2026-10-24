@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, UnitOfTemperature
@@ -24,6 +24,8 @@ CLIMATE_INTERVAL = timedelta(minutes=1)
 FREEZE_GUARD_F = 36.0  # below this the heater is never held off by a maximum run time
 ENERGY_UNITS = {"kwh": 1.0, "wh": 0.001, "mwh": 1000.0}
 POWER_UNITS = {"w": 0.001, "kw": 1.0}
+BACKFILL_DAYS = 3650  # how far back to read Home Assistant's long-term statistics for the outdoor sensor and rain
+RAIN_UNITS = {"in": 1.0, "inch": 1.0, "inches": 1.0, "mm": 1 / 25.4, "cm": 1 / 2.54}
 CLIMATE_HYSTERESIS = 1.0  # degrees F past a set point before a heater or cooler turns off again
 
 
@@ -34,6 +36,8 @@ class GardenManager(GardenModel):
         self.now_fn = lambda: dt_util.utcnow().timestamp()
         self._store: Store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
         self._ph_unsub = None
+        self._rain_unsub = None
+        self._rain_last: float | None = None
         self._climate_unsub = None
         self._power_t: dict[str, object] = {}
         self._ready = False
@@ -45,7 +49,109 @@ class GardenManager(GardenModel):
         self.presets = {k: v for k, v in json.loads(text).items() if not k.startswith("_")}
         self._ready = True
         self.refresh_ph_listeners()
+        self._watch_rain()
         self._climate_unsub = async_track_time_interval(self.hass, self._tick, CLIMATE_INTERVAL)
+        self.hass.async_create_task(self.async_backfill())
+
+    def _micro_changed(self) -> None:
+        if self._ready:
+            self._watch_rain()
+            self.hass.async_create_task(self.async_backfill())
+
+    # ---- rain and long-term statistics ---------------------------------------------------
+    def _rain_inches(self, state) -> float | None:
+        if state is None or state.state in (STATE_UNKNOWN, STATE_UNAVAILABLE):
+            return None
+        try:
+            val = float(state.state)
+        except ValueError:
+            return None
+        unit = (state.attributes.get("unit_of_measurement") or "in").strip().lower()
+        return val * RAIN_UNITS.get(unit, 1.0)
+
+    def _watch_rain(self) -> None:
+        """Count new rain from the chosen rainfall sensor. Works for a total that resets every day, week or year."""
+        if self._rain_unsub:
+            self._rain_unsub()
+            self._rain_unsub = None
+        ent = self.data["settings"].get("rain_entity")
+        self._rain_last = self._rain_inches(self.hass.states.get(ent)) if ent else None
+        if not ent:
+            return
+
+        @callback
+        def _on_rain(event) -> None:
+            v = self._rain_inches(event.data.get("new_state"))
+            if v is None:
+                return
+            last, self._rain_last = self._rain_last, v
+            if last is None:
+                return
+            delta = v - last if v >= last else v  # a drop means the total reset, so what it reads now fell since
+            if 0 < delta <= 5:
+                self.add_rain(delta)
+
+        self._rain_unsub = async_track_state_change_event(self.hass, [ent], _on_rain)
+
+    async def async_backfill(self) -> None:
+        """Read the outdoor sensor's and rain sensor's long-term statistics so frost dates, extremes, the local
+        zone and rainfall don't start from nothing. Quietly does nothing if the recorder can't supply them."""
+        ents = [e for e in (self.outdoor_entity, self.data["settings"].get("rain_entity")) if e and e.startswith("sensor.")]
+        if not ents:
+            return
+        try:
+            from homeassistant.components.recorder import get_instance
+            from homeassistant.components.recorder.statistics import statistics_during_period
+            start = dt_util.utcnow() - timedelta(days=BACKFILL_DAYS)
+            stats = await get_instance(self.hass).async_add_executor_job(
+                statistics_during_period, self.hass, start, None, set(ents), "day", None, {"min", "max", "sum"})
+        except Exception as err:  # the recorder may not be loaded, or may not keep these statistics
+            _LOGGER.debug("Garden Tracker: no long-term statistics to read: %s", err)
+            return
+        if self.outdoor_entity in stats:
+            self._backfill_temps(stats[self.outdoor_entity])
+        rain = self.data["settings"].get("rain_entity")
+        if rain in stats:
+            self._backfill_rain(stats[rain], rain)
+
+    @staticmethod
+    def _stat_day(row) -> str | None:
+        start = row.get("start")
+        if isinstance(start, (int, float)):
+            start = datetime.fromtimestamp(start, tz=dt_util.UTC)
+        return dt_util.as_local(start).date().isoformat() if start else None
+
+    def _backfill_temps(self, rows: list[dict]) -> None:
+        state = self.hass.states.get(self.outdoor_entity)
+        unit = (state.attributes.get("unit_of_measurement") if state else None) or self.hass.config.units.temperature_unit
+        out: dict[str, tuple[float, float]] = {}
+        for r in rows:
+            day = self._stat_day(r)
+            if day is None or r.get("min") is None or r.get("max") is None:
+                continue
+            try:
+                lo = TemperatureConverter.convert(float(r["min"]), unit, UnitOfTemperature.FAHRENHEIT)
+                hi = TemperatureConverter.convert(float(r["max"]), unit, UnitOfTemperature.FAHRENHEIT)
+            except (HomeAssistantError, TypeError, ValueError):
+                continue
+            if -60 <= lo <= hi <= 150:
+                out[day] = (lo, hi)
+        if out:
+            self.merge_daily(out)
+
+    def _backfill_rain(self, rows: list[dict], entity: str) -> None:
+        state = self.hass.states.get(entity)
+        factor = RAIN_UNITS.get(((state.attributes.get("unit_of_measurement") if state else None) or "in").strip().lower(), 1.0)
+        out: dict[str, float] = {}
+        prev = None
+        for r in sorted((r for r in rows if r.get("sum") is not None), key=lambda r: r["start"]):
+            cur = float(r["sum"])
+            day = self._stat_day(r)
+            if prev is not None and day and 0 < cur - prev <= 20 / factor:
+                out[day] = (cur - prev) * factor
+            prev = cur
+        if out:
+            self.merge_rain(out)
 
     def _power_changed(self) -> None:
         if self._ready:
@@ -94,6 +200,9 @@ class GardenManager(GardenModel):
         if self._ph_unsub:
             self._ph_unsub()
             self._ph_unsub = None
+        if self._rain_unsub:
+            self._rain_unsub()
+            self._rain_unsub = None
         await self._store.async_save(self.data)
 
     # ---- model callbacks ------------------------------------------------------

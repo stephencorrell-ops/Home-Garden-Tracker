@@ -9,9 +9,11 @@ from datetime import date, datetime, timedelta
 from typing import Any, Callable
 
 from . import calc
+from . import microclimate as mc
 
 
-DEFAULT_SETTINGS = {"frost_last": "04-25", "frost_first": "10-15"}  # Ephrata, WA averages
+DEFAULT_SETTINGS = {"frost_last": "04-25", "frost_first": "10-15",  # Ephrata, WA averages
+                    "usda_zone": "7a (6b on the 2012 map)", "rain_entity": None, "frost_f": mc.FROST_F}
 SENSOR_ALARM_AFTER = timedelta(hours=1)  # how long an in-use sensor may report nothing before it alarms
 ALARM_BACK_F = 1.0  # the air must come back this far inside a limit before an alarm counts as over
 UNSET: Any = object()
@@ -143,7 +145,7 @@ class GardenModel:
     def __init__(self, presets: dict, today_fn: Callable[[], date],
                  notify: Callable[[], None] | None = None,
                  structure: Callable[[], None] | None = None) -> None:
-        self.data: dict[str, Any] = {"gardens": {}, "varieties": {}, "species": {}, "daily": {},
+        self.data: dict[str, Any] = {"gardens": {}, "varieties": {}, "species": {}, "daily": {}, "rain": {},
                                     "settings": dict(DEFAULT_SETTINGS)}
         self.presets = presets
         self.now_fn: Callable[[], float] = time.time  # seconds since the epoch; the manager sets a Home Assistant clock
@@ -211,6 +213,53 @@ class GardenModel:
         if new != cur:
             self.data["daily"][key] = new
             self._touch()
+
+    def merge_daily(self, rows: dict[str, tuple[float, float]]) -> bool:
+        """Fill in daily lows and highs from Home Assistant's long-term statistics. Live readings are kept."""
+        changed = False
+        for k, (lo, hi) in rows.items():
+            cur = self.data["daily"].get(k)
+            new = [round(lo, 1), round(hi, 1)] if cur is None else [min(cur[0], round(lo, 1)), max(cur[1], round(hi, 1))]
+            if new != cur:
+                self.data["daily"][k] = new
+                changed = True
+        if changed:
+            self._touch()
+        return changed
+
+    def merge_rain(self, rows: dict[str, float]) -> bool:
+        changed = False
+        for k, v in rows.items():
+            if v > 0 and v > self.data["rain"].get(k, 0):
+                self.data["rain"][k] = round(v, 3)
+                changed = True
+        if changed:
+            self._touch()
+        return changed
+
+    def add_rain(self, inches: float) -> None:
+        """Add rain that just fell (inches) to today's total."""
+        if inches <= 0:
+            return
+        key = self.today().isoformat()
+        self.data["rain"][key] = round(self.data["rain"].get(key, 0) + inches, 3)
+        self._touch()
+
+    def set_microclimate(self, usda_zone: Any = UNSET, rain_entity: Any = UNSET, frost_f: float | None = None) -> None:
+        st = self.data["settings"]
+        if usda_zone is not UNSET:
+            st["usda_zone"] = (str(usda_zone).strip()[:40] or None) if usda_zone is not None else None
+        if rain_entity is not UNSET:
+            st["rain_entity"] = (str(rain_entity).strip() or None) if rain_entity is not None else None
+        if frost_f is not None:
+            if not 20 <= float(frost_f) <= 40:
+                raise GardenError("Frost is between 20 and 40 °F")
+            st["frost_f"] = float(frost_f)
+        self._touch(True)
+        self._micro_changed()
+
+    def _micro_changed(self) -> None:
+        """Hook for the manager: watch the rain sensor that was chosen and pull its history."""
 
     # ---- lookups ----------------------------------------------------------
     def find_garden(self, ref: str) -> dict:
@@ -416,11 +465,61 @@ class GardenModel:
         self.find_garden(garden)["frost"] = {}
         self._touch(True)
 
+    def _recorded_frost(self, g: dict, today: date) -> dict:
+        """First and last frost this year as your sensors recorded them: the garden's own outside sensors if it
+        has some, otherwise the main outdoor sensor."""
+        thr = self.data["settings"].get("frost_f", mc.FROST_F)
+        rows, own = self.data["daily"], bool(g.get("sensors", {}).get("out_temp"))
+        if own:
+            rows = {r["date"]: [r.get("min", r["value"]), r.get("max", r["value"])] for r in g.get("out_temp", [])
+                    if r["source"] == "sensor"} or rows
+        yrs = {y["year"]: y for y in mc.frost_years(rows, today, thr)}
+        cur = yrs.get(today.year)
+        prev = yrs.get(today.year - 1)
+        return {"year": today.year, "threshold": thr, "source": "garden" if own and rows is not self.data["daily"] else "main",
+                "last_spring": cur and cur["last_spring"], "spring_final": bool(cur and cur["spring_final"]),
+                "spring_partial": bool(cur and cur["spring_partial"]),
+                "first_fall": cur and cur["first_fall"],
+                "last_year": prev and {"last_spring": prev["last_spring"], "first_fall": prev["first_fall"]}}
+
+    def _micro_view(self, today: date) -> dict:
+        st, daily, rain = self.data["settings"], self.data["daily"], self.data["rain"]
+        thr = st.get("frost_f", mc.FROST_F)
+        per = mc.periods(today)
+        gardens = [g for g in self.data["gardens"].values() if g.get("kind", "garden") == "garden"]
+        actual, last_year = [], []
+        for g in gardens:
+            hist = sorted(g.get("soil_temp", []), key=lambda r: (r["date"], r["id"]))
+            if hist and not g.get("sensors_paused", {}).get("soil_temp"):
+                cur = hist[-1]
+                if (today - date.fromisoformat(cur["date"])).days <= 2:
+                    actual.append(cur.get("last", cur["value"]))
+            ly = mc.soil_last_year(hist, today)
+            if ly is not None:
+                last_year.append(ly)
+        avg = lambda xs: round(sum(xs) / len(xs), 1) if xs else None
+        exp = mc.expected_soil(daily, today)
+        act = avg(actual)
+        zone = mc.local_zone(daily, today)
+        return {
+            "zone": {**zone, "usda": st.get("usda_zone")},
+            "frost": {"threshold": thr, "years": mc.frost_years(daily, today, thr)[:6],
+                      "expected_last": st["frost_last"], "expected_first": st["frost_first"],
+                      "first_data": min(daily) if daily else None},
+            "temps": {k: mc.temp_range(daily, a, b) for k, (a, b) in per.items()},
+            "rain": {"sensor": st.get("rain_entity"), "days_recorded": len(rain),
+                     **{k: mc.rain_total(rain, a, b) for k, (a, b) in per.items()}},
+            "soil": {"actual": act, "expected": exp, "last_year": avg(last_year),
+                     "diff": None if act is None or exp is None else round(act - exp, 1)},
+            "settings": {"usda_zone": st.get("usda_zone"), "rain_entity": st.get("rain_entity"), "frost_f": thr,
+                         "outdoor_entity": self.outdoor_entity},
+        }
+
     def _frost_view(self, g: dict, today: date) -> dict:
         st = self.data["settings"]
         last = g["frost"].get("last") or st["frost_last"]
         first = g["frost"].get("first") or st["frost_first"]
-        return {"last": last, "first": first, "custom": bool(g["frost"]),
+        return {"last": last, "first": first, "custom": bool(g["frost"]), "recorded": self._recorded_frost(g, today),
                 "last_date": calc.md_date(last, today.year).isoformat(),
                 "first_date": calc.md_date(first, today.year).isoformat(),
                 "next": calc.frost_status(last, first, today)}
@@ -1383,7 +1482,7 @@ class GardenModel:
         gardens = [self._garden_view(g, today) for g in self.data["gardens"].values()]
         varieties = [self._variety_view(v, today, daily) for v in self.data["varieties"].values()]
         varieties.sort(key=lambda x: (x["archived"] is not None, x["garden"], x["kind"], x["name"].lower()))
-        return {"today": today.isoformat(), "species": species, "gardens": gardens,
+        return {"today": today.isoformat(), "micro": self._micro_view(today), "species": species, "gardens": gardens,
                 "varieties": varieties, "can_undo": self._trash is not None,
                 "containers": list(DEFAULT_CONTAINERS), "container_per_tray": dict(CONTAINER_PER_TRAY),
                 "reasons": REASONS}

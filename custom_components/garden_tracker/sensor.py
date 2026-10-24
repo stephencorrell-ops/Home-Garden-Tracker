@@ -270,7 +270,10 @@ class FrostSensor(_Base):
             return None
         n = f["next"]
         return {"event": n["event"] if n else None, "date": n["date"] if n else None,
-                "last_spring_frost": f["last"], "first_fall_frost": f["first"]}
+                "last_spring_frost": f["last"], "first_fall_frost": f["first"],
+                "recorded_last_spring_frost": f["recorded"]["last_spring"],
+                "recorded_first_fall_frost": f["recorded"]["first_fall"],
+                "frost_threshold": f["recorded"]["threshold"]}
 
 
 class FertilitySensor(_Base):
@@ -424,6 +427,71 @@ class PlaceEnergyCostSensor(PlaceEnergySensor):
         return {"cents_per_kwh": p["rate"]} if p else None
 
 
+@dataclass(frozen=True, kw_only=True)
+class MicroDesc(SensorEntityDescription):
+    value_fn: Callable[[dict], Any]
+    attr_fn: Callable[[dict], dict] | None = None
+
+
+def _rain(key, name):
+    return MicroDesc(key=f"rain_{key}", name=f"Rain {name}", device_class=SensorDeviceClass.PRECIPITATION,
+                     native_unit_of_measurement="in", state_class=SensorStateClass.MEASUREMENT, icon="mdi:weather-rainy",
+                     value_fn=lambda m, k=key: m["rain"][k])
+
+
+def _temp(key, name, which):
+    return MicroDesc(key=f"temp_{which}_{key}", name=f"{which.title()} {name}", device_class=SensorDeviceClass.TEMPERATURE,
+                     native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT, state_class=SensorStateClass.MEASUREMENT,
+                     value_fn=lambda m, k=key, w=which: m["temps"][k][w])
+
+
+MICRO = [
+    MicroDesc(key="zone", name="Local hardiness zone", icon="mdi:map-marker-radius",
+              value_fn=lambda m: m["zone"]["zone"],
+              attr_fn=lambda m: {"usda_zone": m["zone"]["usda"], "average_yearly_low": m["zone"]["avg_min"],
+                                 "winters_used": m["zone"]["count"], "lowest_this_winter": m["zone"]["so_far"]}),
+    MicroDesc(key="last_spring_frost", name="Last spring frost", device_class=SensorDeviceClass.DATE,
+              value_fn=lambda m: _date(m["frost"]["years"], "last_spring")),
+    MicroDesc(key="first_fall_frost", name="First fall frost", device_class=SensorDeviceClass.DATE,
+              value_fn=lambda m: _date(m["frost"]["years"], "first_fall")),
+    MicroDesc(key="soil_expected", name="Expected soil temperature", device_class=SensorDeviceClass.TEMPERATURE,
+              native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT, value_fn=lambda m: m["soil"]["expected"],
+              attr_fn=lambda m: {"actual": m["soil"]["actual"], "difference": m["soil"]["diff"],
+                                 "last_year": m["soil"]["last_year"]}),
+    *[_rain(k, n) for k, n in (("day", "today"), ("week", "this week"), ("month", "this month"), ("year", "this year"))],
+    *[_temp(k, n, w) for k, n in (("day", "today"), ("week", "this week"), ("month", "this month"), ("year", "this year"))
+      for w in ("high", "low")],
+]
+
+
+def _date(years: list[dict], field: str):
+    from datetime import date
+    cur = years[0] if years and years[0]["year"] == date.today().year else None
+    return date.fromisoformat(cur[field]) if cur and cur[field] else None
+
+
+class MicroSensor(_Base):
+    """Local climate worked out from your own sensors, on one 'Microclimate' device."""
+
+    def __init__(self, mgr, known, desc: MicroDesc) -> None:
+        super().__init__(mgr, known, f"micro_{desc.key}", "microclimate", "Microclimate", "Local climate")
+        self.entity_description = desc
+
+    def _m(self):
+        return self._mgr.snapshot().get("micro")
+
+    @property
+    def native_value(self):
+        m = self._m()
+        return self.entity_description.value_fn(m) if m else None
+
+    @property
+    def extra_state_attributes(self):
+        m = self._m()
+        fn = self.entity_description.attr_fn
+        return fn(m) if m and fn else None
+
+
 class AdjunctSensor(_Base):
     _attr_device_class = SensorDeviceClass.DURATION
     _attr_native_unit_of_measurement = UnitOfTime.DAYS
@@ -455,6 +523,9 @@ class AdjunctSensor(_Base):
 def _build(mgr: GardenManager, known: set) -> list:
     ents: list = []
     snap = mgr.snapshot()
+    for d in MICRO:
+        if f"micro_{d.key}" not in known:
+            ents.append(MicroSensor(mgr, known, d))
     for g in snap["gardens"]:
         if g["kind"] != "garden":
             for uid, cls in (("watered", WateringSensor), ("trays", TraysSensor)):
