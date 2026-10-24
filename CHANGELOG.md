@@ -4,6 +4,14 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.16.0 - 2026-10-24
+
+### Added
+- **A web app for people without Home Assistant** (in the `web` folder, published to GitHub Pages). It is the same card and the same garden logic, running in the browser, and you can install it on a phone from the browser's menu. It works offline after the first load and saves in the browser. **Back up** saves a file with all your data and **Restore** puts it back, in case the browser clears its storage. It reminds you to back up every 14 days. You set your location and it fills in daily temperatures and rain for the last ten years from Open-Meteo, so frost dates, your zone, the planting guide and degree days work with no sensors. Greenhouse and rack controls, alarms and power tracking are left out, because they need Home Assistant devices.
+
+### Changed
+- The garden logic now lives in `custom_components/garden_tracker/core`, plain Python with no Home Assistant code, with its own tests (`python -m unittest discover -s tests -t .`). Adding a location now needs a name.
+
 ## 0.15.0 - 2026-10-24
 
 ### Added

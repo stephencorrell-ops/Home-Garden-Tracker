@@ -1,0 +1,29 @@
+name: Tests
+
+# The garden core is plain Python with no Home Assistant code, so its tests run on their own.
+on:
+  push:
+  pull_request:
+
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m unittest discover -s tests -t . -v
+      - run: node --check custom_components/garden_tracker/www/garden-card.js
+
+  web:
+    # Opens the web app in a real browser with the Python core running in Pyodide, as users get it.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install playwright && playwright install --with-deps chromium
+      - run: python web/build.py --download-pyodide
+      - run: python -m tests.web_e2e --pyodide

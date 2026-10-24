@@ -1,0 +1,136 @@
+"""Opens the web app in a real browser and checks the main paths: add a garden, back up, lose the data, restore,
+and fill in local weather. Run from the repo root: python -m tests.web_e2e [--pyodide]
+
+By default the page talks to the Python core through a test server. With --pyodide it runs the core in the browser
+exactly as users get it (needs web/dist built with Pyodide)."""
+import json
+import sys
+import tempfile
+import threading
+from datetime import date, timedelta
+from pathlib import Path
+
+from playwright.sync_api import sync_playwright
+
+from tests.web_server import serve
+
+ROOT = Path(__file__).resolve().parents[1]
+DIST = ROOT / "web" / "dist"
+SHOTS = Path(sys.argv[sys.argv.index("--shots") + 1]) if "--shots" in sys.argv else None
+PYODIDE = "--pyodide" in sys.argv
+
+
+def weather_json(today: date, years=4):
+    days, lo, hi, rain = [], [], [], []
+    d = today - timedelta(days=365 * years)
+    import math
+    while d < today:
+        doy = d.timetuple().tm_yday
+        mean = 52 - 26 * math.cos((doy - 15) / 365 * 6.2832)
+        l, h = mean - 9, mean + 9
+        if d.month == 1 and d.day in (14, 15, 16):
+            l -= 14
+        days.append(d.isoformat()); lo.append(round(l, 1)); hi.append(round(h, 1)); rain.append(0.2 if d.day % 4 == 0 else 0.0)
+        d += timedelta(days=1)
+    return {"daily": {"time": days, "temperature_2m_min": lo, "temperature_2m_max": hi, "precipitation_sum": rain}}
+
+
+def check(cond, msg):
+    print(("ok   " if cond else "FAIL ") + msg)
+    if not cond:
+        check.failed = True
+check.failed = False
+
+
+def main():
+    server = serve(str(DIST))
+    port = server.server_address[1]
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{port}/index.html" + ("" if PYODIDE else f"?engine=http://127.0.0.1:{port}")
+    today = date.today()
+    with sync_playwright() as p, tempfile.TemporaryDirectory() as tmp:
+        b = p.chromium.launch(executable_path="/opt/pw-browsers/chromium") if Path("/opt/pw-browsers/chromium").exists() else p.chromium.launch()
+        ctx = b.new_context(viewport={"width": 430, "height": 900}, accept_downloads=True)
+        pg = ctx.new_page()
+        errors = []
+        pg.on("pageerror", lambda e: errors.append(str(e)))
+
+        def route(r):
+            u = r.request.url
+            if "geocoding-api" in u:
+                r.fulfill(json={"results": [{"name": "Ephrata", "admin1": "Washington", "country_code": "US", "latitude": 47.32, "longitude": -119.55}]})
+            elif "archive-api" in u or "api.open-meteo.com" in u:
+                r.fulfill(json=weather_json(today))
+            else:
+                r.continue_()
+        ctx.route("**/*open-meteo.com/**", route)
+
+        pg.goto(url)
+        pg.wait_for_selector("garden-tracker-card")
+        card = pg.locator("garden-tracker-card")
+        card.get_by_text("Create your first garden").wait_for(timeout=120000 if PYODIDE else 15000)
+        check(True, "app starts with an empty garden")
+        card.get_by_role("button", name="Add garden").click()
+        card.locator("input").first.fill("Back yard")
+        card.get_by_role("button", name="Save").click() if card.get_by_role("button", name="Save").count() else card.locator("[data-act=form-submit]").click()
+        card.get_by_text("Back yard").first.wait_for()
+        check(True, "a garden can be added")
+        pg.wait_for_timeout(600)  # let the save happen
+        if SHOTS: pg.screenshot(path=str(SHOTS / "home.png"))
+
+        # backup
+        with pg.expect_download() as dl:
+            pg.click("#backup")
+        path = Path(tmp) / "backup.json"
+        dl.value.save_as(path)
+        body = json.loads(path.read_text())
+        check(body["app"] == "garden-tracker" and [g["name"] for g in body["data"]["gardens"].values()] == ["Back yard"], "backup file holds the garden")
+        check(dl.value.suggested_filename.startswith("garden-tracker-backup-"), "backup file is named with the date")
+
+        # wipe the browser's storage and reload
+        pg.evaluate("""() => new Promise((res) => { const r = indexedDB.deleteDatabase('garden-tracker'); r.onsuccess = r.onerror = r.onblocked = () => res(); })""")
+        pg.evaluate("localStorage.clear()")
+        pg.goto(url)
+        card = pg.locator("garden-tracker-card")
+        card.get_by_text("Create your first garden").wait_for(timeout=120000 if PYODIDE else 15000)
+        check(True, "after a wipe the garden is gone")
+
+        # restore
+        pg.set_input_files("#file", str(path))
+        pg.get_by_text("Restore this backup?").wait_for()
+        if SHOTS: pg.screenshot(path=str(SHOTS / "restore.png"))
+        pg.click("#ry")
+        card.get_by_text("Back yard").first.wait_for()
+        check(True, "restoring brings the garden back")
+
+        # a file that is not a backup
+        bad = Path(tmp) / "bad.txt"; bad.write_text("hello")
+        pg.set_input_files("#file", str(bad))
+        pg.get_by_text("isn't a Garden Tracker backup").wait_for()
+        check(True, "a wrong file is refused")
+        pg.click("#ok")
+
+        # weather: set location, open the microclimate page
+        card.get_by_role("button", name="Microclimate").first.click() if card.get_by_role("button", name="Microclimate").count() else card.locator("[data-act=open-micro]").click()
+        card.get_by_text("Set location").first.click()
+        pg.fill("#q", "Ephrata")
+        pg.get_by_role("button", name="Ephrata, Washington, US").click()
+        card.get_by_text("Hardiness zone").wait_for(timeout=20000)
+        pg.wait_for_timeout(500)
+        text = card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText")
+        check("Zone" in text or "zone" in text, "microclimate page shows after location is set")
+        check("Ephrata" in text, "location name shown")
+        snap = pg.evaluate("window.__garden.engine.snapshot()")
+        z = snap["micro"]["zone"]
+        check(z["zone"] is not None and snap["micro"]["frost"]["years"], f"weather filled in zone {z['zone']} and frost years")
+        if SHOTS:
+            card.evaluate("el => el.scrollIntoView()")
+            pg.screenshot(path=str(SHOTS / "micro.png"), full_page=True)
+        check(not errors, f"no page errors {errors[:2]}")
+        b.close()
+    server.shutdown()
+    sys.exit(1 if check.failed else 0)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#2e7d32">
+<title>Garden Tracker</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="bar">
+  <div class="brand"><img src="icon-192.png" alt="" width="28" height="28"> Garden Tracker</div>
+  <div class="grow"></div>
+  <button id="install" hidden>Install</button>
+  <button id="backup">Back up</button>
+  <button id="restore">Restore</button>
+  <input id="file" type="file" accept="application/json,.json" hidden>
+</header>
+<div id="notice" class="notice" hidden></div>
+<main id="root"><div class="splash" id="splash">Loading the garden...</div></main>
+<footer>Weather data by <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0). Your data stays in this browser. Back it up now and then.</footer>
+<dialog id="dlg"></dialog>
+<script src="icons.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>

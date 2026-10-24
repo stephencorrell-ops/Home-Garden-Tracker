@@ -13,7 +13,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, SIGNAL_STRUCTURE, SIGNAL_UPDATE
 from .manager import GardenManager
-from .model import GardenError
+from .core.model import GardenError
 
 _ACTION = {"heating": HVACAction.HEATING, "cooling": HVACAction.COOLING, "idle": HVACAction.IDLE,
            "no_sensor": HVACAction.IDLE, "off": HVACAction.OFF}

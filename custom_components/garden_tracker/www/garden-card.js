@@ -277,6 +277,7 @@ const COVER_TEXT = { mowed: "mowed", roll_crimped: "roll-crimped", tarped: "tarp
 const METRIC_ICON = { moisture: "water-percent", ec: "flash", soil_temp: "thermometer", air_temp: "thermometer", out_temp: "weather-partly-cloudy", par: "white-balance-sunny" };
 const KIND_ICON = { garden: "flower", rack: "table-furniture", greenhouse: "greenhouse" };
 const KIND_ORDER = { rack: 0, greenhouse: 1, garden: 2 };
+const WEB_HIDDEN = new Set(["form-sensors", "toggle-probes", "form-climate", "form-alarm", "form-rate", "toggle-alarm", "toggle-sensor-alarm", "ack-sensor", "ack-alarm"]);
 const METRIC_DEC = { moisture: 0, ec: 2, soil_temp: 0, air_temp: 1, out_temp: 1, par: 0 };
 
 class GardenTrackerCard extends HTMLElement {
@@ -366,7 +367,10 @@ class GardenTrackerCard extends HTMLElement {
   }
 
   _icon(name) { return `<ha-icon icon="mdi:${name}"></ha-icon>`; }
+  // In the web app there are no Home Assistant sensors or devices, so those controls are left out.
+  get _web() { return !!(this._config && this._config.web); }
   _btn(act, icon, label, attrs = "", cls = "") {
+    if (this._web && WEB_HIDDEN.has(act)) return "";
     return `<button class="${cls}" data-act="${act}" ${attrs}>${icon ? this._icon(icon) : ""}${label ? " " + label : ""}</button>`;
   }
   _stats(v) {
@@ -419,8 +423,9 @@ class GardenTrackerCard extends HTMLElement {
   }
   _microView() {
     const m = this._snap.micro;
-    let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="ttl grow">Microclimate</div>${this._btn("form-micro", "cog", "Settings")}</div>`;
-    if (!m.settings.outdoor_entity) h += `<div class="msg">Set an outside temperature sensor in the Garden Tracker integration options to start recording frost and temperatures here.</div>`;
+    let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="ttl grow">Microclimate</div>${this._web ? this._btn("web-location", "map-marker", m.settings.location && m.settings.location.name ? esc(m.settings.location.name) : "Location") : ""}${this._btn("form-micro", "cog", "Settings")}</div>`;
+    if (this._web && !m.settings.location) h += `<div class="msg">Set where your garden is and the app fills in local weather: frost dates, your zone, temperatures and rain.<br><br>${this._btn("web-location", "map-marker", "Set location", "", "primary")}</div>`;
+    else if (!this._web && !m.settings.outdoor_entity) h += `<div class="msg">Set an outside temperature sensor in the Garden Tracker integration options to start recording frost and temperatures here.</div>`;
     // zone
     const z = m.zone;
     h += `<div class="card"><div class="sec">Hardiness zone</div>`;
@@ -489,6 +494,17 @@ class GardenTrackerCard extends HTMLElement {
   }
   _fMicro() {
     const m = this._snap.micro, c = m.settings, W = this._weatherCandidates.bind(this);
+    if (this._web) {
+      return {
+        title: "Microclimate settings", submitLabel: "Save",
+        fields: [
+          { name: "usda_zone", label: "What USDA says your zone is", type: "text", placeholder: "7a", value: c.usda_zone || "" },
+          { name: "frost_f", label: "Counts as a frost at or below (°F)", type: "number", step: "0.5", value: c.frost_f },
+        ],
+        note: "Frost dates, your zone, temperatures and rain come from the weather service for your location.",
+        submit: (x) => this._call("set_microclimate", { usda_zone: x.usda_zone || " ", frost_f: x.frost_f }),
+      };
+    }
     const airMatch = { pm1: /pm[\s_.]?1(?![0-9])/i, pm25: /pm[\s_.]?2[\s_.]?5/i, pm10: /pm[\s_.]?10/i, nox: /nox/i, voc: /voc|volatile/i };
     return {
       title: "Microclimate settings", submitLabel: "Save",
@@ -515,7 +531,7 @@ class GardenTrackerCard extends HTMLElement {
       return h + `<div class="msg">Create your first garden to start adding plants.<br><br>${this._btn("form-garden", "plus", "Add garden", "", "primary")}</div>`;
     }
     h += `<div class="chips">${gs.map((g) => `<button class="chip" data-act="open-g" data-g="${g.id}">${g.kind === "garden" ? "" : this._icon(KIND_ICON[g.kind]) + " "}${esc(g.name)}</button>`).join("")}${this._config.garden ? "" : `<button class="chip" data-act="form-garden">+ Location</button>`}</div>`;
-    h += gs.map((g) => this._sensorBanner(g)).join("");
+    if (!this._web) h += gs.map((g) => this._sensorBanner(g)).join("");
     const frost = gs.filter((g) => g.kind === "garden").map((g) => this._frostPill(g, gs.length > 1)).join("");
     if (frost) h += `<div>${frost}</div>`;
     const cnt = (l) => vs.filter((v) => v.status.level === l).length;
@@ -628,7 +644,7 @@ class GardenTrackerCard extends HTMLElement {
     return `<div class="card tile" data-act="open-g" data-g="${g.id}">${this._alarmBanner(g)}<div class="row"><div class="pic" style="background:color-mix(in srgb,var(--info) 18%,transparent);color:var(--info)"><ha-icon icon="mdi:${KIND_ICON[g.kind]}" style="--mdc-icon-size:34px"></ha-icon></div><div class="grow"><div style="font-size:15px;font-weight:500">${esc(g.name)}</div><div class="sub">${esc(g.kind_name)}</div>${this._climatePill(c)}${this._waterPill(g)}</div></div>${this._statGrid(stats)}<div style="margin-top:8px">${this._trayRow(g)}</div><div class="row" style="margin-top:10px">${this._btn("log-water", "watering-can", "Water", `data-g="${g.id}"`, "grow")}</div></div>`;
   }
   _climatePill(c) {
-    if (!c) return "";
+    if (!c || this._web) return "";
     const m = { heating: ["warn", "Heating"], cooling: ["info", "Fan on (too warm)"], idle: ["ok", "Holding"], resting: ["info", "Resting (max run reached)"], no_sensor: ["warn", "No temperature, heaters off"], off: ["none", "Thermostat off"] }[c.state] || ["none", c.state];
     let h = `<span class="pill ${m[0]}" style="margin:4px 6px 0 0">${m[1]}</span>`;
     if (c.fan_on && c.state !== "cooling") h += `<span class="pill info" style="margin:4px 6px 0 0">Fan running (schedule)</span>`;
@@ -639,15 +655,15 @@ class GardenTrackerCard extends HTMLElement {
     const gid = g.id, mine = this._vars().filter((v) => v.garden === gid);
     let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="grow"><div class="ttl">${esc(g.name)}</div><div class="sub">${esc(g.kind_name)}, ${mine.length} planting${mine.length === 1 ? "" : "s"}</div></div>${this._btn("edit-g", "cog", "", `data-g="${gid}"`, "ic")}</div>`;
     h += this._alarmBanner(g) + this._sensorBanner(g);
-    if (g.climate) h += this._climateCard(g);
-    if (g.alarm) h += this._alarmCard(g);
+    if (g.climate && !this._web) h += this._climateCard(g);
+    if (g.alarm && !this._web) h += this._alarmCard(g);
     h += this._soilCards(g);
     h += this._waterCard(g);
-    if (g.power) h += this._powerCard(g);
+    if (g.power && !this._web) h += this._powerCard(g);
     h += `<div class="card">${this._trayRow(g)}${this._traysCalc(g)}</div>`;
     h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">Plants here</div>${this._btn("form-variety", "plus", "Add plant", `data-g="${gid}"`)}</div>${mine.length ? "" : `<div class="small mut" style="margin:6px 0">None yet.</div>`}</div>`;
     h += mine.map((v) => this._tile(v)).join("");
-    h += this._sensorAlarmCard(g);
+    if (!this._web) h += this._sensorAlarmCard(g);
     if (!mine.length) h += `<div class="card">${this._confirm === "rmg" ? `<div class="conf">Remove ${esc(g.name)}? Its watering and temperature history will be lost.<div class="row"><button data-act="cancel-del">Keep</button><button class="danger" data-act="do-rmg" data-g="${gid}">Remove</button></div></div>` : `<button class="danger" data-act="ask-rmg">Remove ${esc(g.kind_name.toLowerCase())}</button>`}</div>`;
     return h;
   }
@@ -997,6 +1013,7 @@ class GardenTrackerCard extends HTMLElement {
       case "open-archive": return this._go({ v: "archive" });
       case "open-micro": return this._go({ v: "micro" });
       case "form-micro": return this._open(this._fMicro());
+      case "web-location": return this.dispatchEvent(new CustomEvent("garden-location", { bubbles: true, composed: true }));
       case "filter": this._filter = d.s; return this._render();
       case "air-range": this._airRange = d.s; return this._render();
       case "temp-range": this._tempRange = d.s; return this._render();
@@ -1350,11 +1367,11 @@ class GardenTrackerCard extends HTMLElement {
         ...(create ? [{ name: "kind", label: "What is it?", type: "seg", options: [["garden", "Garden"], ["rack", "Seedling rack"], ["greenhouse", "Greenhouse"]], value: "garden" }] : []),
         { name: "name", label: "Name", type: "text", req: true, value: g && g.name },
         ...(isGarden ? [
-          { name: "ph_entity", label: "Soil pH sensor (optional)", type: "text", placeholder: "sensor.garden_soil_ph", value: g && g.ph.entity, show: gOnly },
+          ...(this._web ? [] : [{ name: "ph_entity", label: "Soil pH sensor (optional)", type: "text", placeholder: "sensor.garden_soil_ph", value: g && g.ph.entity, show: gOnly }]),
           { name: "ph_min", label: "Target pH from", type: "number", step: "0.1", value: g ? g.ph.target[0] : 6.0, span: 3, show: gOnly },
           { name: "ph_max", label: "Target pH to", type: "number", step: "0.1", value: g ? g.ph.target[1] : 6.8, span: 3, show: gOnly },
         ] : []),
-        ...(g && !isGarden ? Object.entries(g.power_groups).map(([k, label]) => ({ name: `power_${k}`, label: `${label}: power or energy sensors (tap to include)`, type: "multi", options: this._energyCandidates((g.power_sensors || {})[k] || []), value: ((g.power_sensors || {})[k] || []).join(",") })) : []),
+        ...(g && !isGarden && !this._web ? Object.entries(g.power_groups).map(([k, label]) => ({ name: `power_${k}`, label: `${label}: power or energy sensors (tap to include)`, type: "multi", options: this._energyCandidates((g.power_sensors || {})[k] || []), value: ((g.power_sensors || {})[k] || []).join(",") })) : []),
         ...(g && isGarden ? [
           { name: "ec_min", label: "Healthy soil EC from (mS/cm)", type: "number", step: "0.1", value: g.fertility.ec_target[0], span: 3 },
           { name: "ec_max", label: "Healthy soil EC to (mS/cm)", type: "number", step: "0.1", value: g.fertility.ec_target[1], span: 3 },
