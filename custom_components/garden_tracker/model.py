@@ -1444,6 +1444,11 @@ class GardenModel:
                 "gap": CLIMATE_MIN_GAP, "heat_off_at": c.get("heat_off") if c.get("heat_off") is not None else c["heat_set"] + 1.0,
                 "cool_off_at": c.get("cool_off") if c.get("cool_off") is not None else c["cool_set"] - 1.0, "fan_on": bool(st.get("fan")), "lights_on": bool(st.get("light"))}
 
+    def _feeding_off(self, g: dict, today: date) -> bool:
+        """True from the garden's first fall frost until after its last spring frost, when feeding advice is off."""
+        fr = self._frost_view(g, today)
+        return today >= date.fromisoformat(fr["first_date"]) or today <= date.fromisoformat(fr["last_date"])
+
     def _fertility_view(self, g: dict, metrics: dict, today: date) -> dict:
         """Judge soil EC (fertility) together with moisture, for the top few inches the probe can see."""
         elo, ehi = g.get("ec_target", DEFAULT_EC_TARGET)
@@ -1451,12 +1456,16 @@ class GardenModel:
         ec, mo = metrics["ec"], metrics["moisture"]
         out = {"ec_target": [elo, ehi], "moisture_band": [mlo, mhi], "depth": g.get("probe_depth", DEFAULT_PROBE_DEPTH),
                "ec": ec["current"], "moisture": mo["current"], "level": None, "moisture_state": None,
-               "advice": None, "action": None, "ec_change": None, "last_fed": None}
+               "advice": None, "action": None, "ec_change": None, "last_fed": None, "off_season": False}
         fed = [f["date"] for v in self.data["varieties"].values() if v["garden"] == g["id"]
                and not v.get("archived") for f in v.get("fertilizations", [])]
         out["last_fed"] = max(fed) if fed else None
         out["probes_out"] = bool(g.get("sensors_paused", {}).get("ec") or g.get("sensors_paused", {}).get("moisture"))
         out["paused"] = out["probes_out"] or any(not c.get("terminated") for c in g.get("cover_crops", []))
+        # No feeding advice from the first fall frost until after the last spring frost.
+        fr = self._frost_view(g, today)
+        out["off_season"] = self._feeding_off(g, today)
+        out["season"] = {"from": fr["first"], "until": fr["last"]}
         if ec["current"] is None:
             return out
         e = ec["current"]
@@ -1471,8 +1480,8 @@ class GardenModel:
         if len(week) >= 2:
             out["ec_change"] = round(e - week[0]["value"], 2)
         lvl = out["level"]
-        if out["paused"]:
-            return out  # a cover crop is growing, so there is no feeding or watering advice
+        if out["paused"] or out["off_season"]:
+            return out  # a cover crop is growing or it is the off season, so there is no feeding or watering advice
         if lvl == "ok":
             out["action"], out["advice"] = "ok", f"Fertility is in range in the top {depth} in. No feeding needed."
         elif lvl == "low":
@@ -1625,9 +1634,10 @@ class GardenModel:
                 est = int(-(-st["dd_to_next"] // rate))
             pests.append({"key": pest["key"], "name": pest["name"], "status": st, "est_days": est,
                           "needs_biofix": st is None and not pest.get("default_biofix")})
-        feeding = None
+        feeding, g = None, self.data["gardens"].get(v["garden"])
+        feeding_off = bool(g and g.get("kind", "garden") == "garden" and self._feeding_off(g, today))
         plan = sp.get("feeding_plan")
-        if plan and kind != "tree":
+        if plan and kind != "tree" and not feeding_off:
             ref_day = date.fromisoformat(v["in_ground"]) if v.get("in_ground") else planted_d
             age = (today - ref_day).days
             cur = max((i for i, ph in enumerate(plan) if ph["from_day"] <= age), default=0)
@@ -1635,7 +1645,6 @@ class GardenModel:
         seasons = calc.seasons_for(v, self.data["varieties"], daily, today)
         proj = None if v.get("archived") else calc.project(v, seasons, daily, today, len(alive) or len(allp))
         status = self._status(kind, dh, spray, pests, proj)
-        g = self.data["gardens"].get(v["garden"])
         return {
             "id": v["id"], "name": v["name"], "species": v["species"], "species_name": v["species_name"],
             "kind": kind, "garden": v["garden"],
@@ -1653,7 +1662,7 @@ class GardenModel:
             "harvested": sum(1 for p in allp if p["status"] == "harvested"),
             "total_lbs": round(sum(totals.values()), 2), "harvests": harvests,
             "fertilizations": sorted(v["fertilizations"], key=lambda e: (e["date"], e["id"]), reverse=True),
-            "last_fert": last_f, "feeding": feeding,
+            "last_fert": last_f, "feeding": feeding, "feeding_off": feeding_off,
             "sprays": sorted(v["sprays"], key=lambda e: (e["date"], e["id"]), reverse=True),
             "spray": spray, "pests": pests,
             "reviews": sorted(v["reviews"], key=lambda e: (e["year"], e["id"]), reverse=True),

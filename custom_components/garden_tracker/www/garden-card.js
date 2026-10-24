@@ -7,6 +7,7 @@ const STATUS_TEXT = { alive: "Alive", dead: "Dead", pulled: "Pulled early", harv
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const num = (n, d = 2) => (n === null || n === undefined || n === "" ? "" : String(Math.round(Number(n) * 10 ** d) / 10 ** d));
+const fmtMd = (md) => new Date(2000, Number(md.slice(0, 2)) - 1, Number(md.slice(3))).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 const fmtDate = (iso, withYear) => {
   if (!iso) return "";
   const d = new Date(iso + "T00:00:00");
@@ -697,6 +698,7 @@ class GardenTrackerCard extends HTMLElement {
       return arch ? "" : `<div class="card"><div class="row"><div class="small mut grow">Feeding is optional for trees.</div>${this._btn("form-fert", "sprout", "Log feeding", `data-v="${v.id}"`)}</div></div>`;
     }
     let h = `<div class="card"><div class="row"><div class="sec grow" style="margin:0">Fertilizer</div>${arch ? "" : this._btn("form-fert", "sprout", "Fertilized", `data-v="${v.id}"`, "primary")}</div>`;
+    if (v.feeding_off && !tree) h += `<div class="small mut" style="margin:6px 0">No feeding plan between the first fall frost and the last spring frost.</div>`;
     if (v.feeding) {
       const f = v.feeding;
       h += `<div class="phases" style="grid-template-columns:repeat(${f.phases.length},minmax(0,1fr))">${f.phases.map((ph, i) => `<div class="phase ${i === f.current ? "cur" : ""}">${esc(ph.name)}<b>${esc(ph.focus)}</b></div>`).join("")}</div>`;
@@ -775,6 +777,7 @@ class GardenTrackerCard extends HTMLElement {
     const src = (m) => (m.entities.length ? `${m.entities.length} sensor${m.entities.length === 1 ? "" : "s"}` : "manual");
     let h = `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("flower")} Moisture and fertility</div><span class="small mut">Top ${f.depth} in</span></div>`;
     if (g.paused.ec || g.paused.moisture) h += `<div class="pill" style="margin:8px 0">Sensors out of the ground. New readings are ignored. Showing the last ones.</div>`;
+    if (f.off_season) h += `<div class="small mut" style="margin:8px 0">No feeding advice from the first fall frost (${fmtMd(f.season.from)}) until after the last spring frost (${fmtMd(f.season.until)}).</div>`;
     h += f.paused ? "" : f.action ? `<div class="pill ${cls}" style="margin:8px 0">${label}</div><div class="small" style="margin-bottom:8px">${esc(f.advice)}</div>` : ec.current !== null ? "" : `<div class="small mut" style="margin:6px 0">No EC readings yet. Pick sensors or log one by hand.</div>`;
     h += `<div class="row" style="align-items:baseline;gap:22px;margin:6px 0"><div><span class="ph">${ec.current === null ? "-" : num(ec.current, 2)}</span> <span class="small mut">mS/cm EC</span></div><div><span class="ph">${mo.current === null ? "-" : num(mo.current, 0) + "%"}</span> <span class="small mut">moisture</span></div></div>`;
     h += `<div class="small mut" style="margin-bottom:6px">Healthy EC ${f.ec_target[0]} to ${f.ec_target[1]}. EC is trusted when moisture is ${f.moisture_band[0]} to ${f.moisture_band[1]}%${f.moisture_state ? `, now ${f.moisture_state === "ok" ? "in that range" : f.moisture_state}` : ""}.${f.ec_change !== null && f.ec_change !== 0 ? ` EC ${f.ec_change < 0 ? "down" : "up"} ${Math.abs(f.ec_change).toFixed(2)} in two weeks.` : ""}${f.last_fed ? ` Last fed ${fmtDate(f.last_fed)}.` : ""}</div>`;

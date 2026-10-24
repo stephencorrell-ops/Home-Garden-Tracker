@@ -17,7 +17,7 @@ Tap the button above to open this repository in your own Home Assistant (it asks
 Optional card option: `garden: Raised beds` limits the card to one garden.
 
 ## What it tracks
-- Gardens with soil pH, moisture, EC, soil temperature and outside temperature (one or several Home Assistant sensors, averaged, or manual entries) with daily lows and highs, plus a soil temperature planting guide that only lists crops with enough days left before the first frost.
+- Gardens with soil pH, moisture, EC, soil temperature and outside temperature (one or several Home Assistant sensors, averaged, or manual entries) with daily lows and highs, plus a soil temperature planting guide that only lists crops with enough days left before the first frost. Feeding advice is switched off from the first fall frost until after the last spring frost.
 - Soil adjuncts (sulfur, humic acid, compost, gypsum, micros, or anything you type in).
 - Plant varieties with plant counts, harvests split across living plants, large plantings (like 180 garlic) shown as one summary, and root crops that finish when harvested.
 - Slow crops such as horseradish with a years, months and days countdown.
