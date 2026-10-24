@@ -37,7 +37,7 @@ mark_plants_lost:
 restore_plants:
   fields: {plant: {required: true, selector: {text: {}}}, count: {required: true, selector: {number: {min: 1, max: 1000, mode: box}}}, status: {selector: {select: {options: [dead, pulled]}}}, reason: {selector: {select: {options: [disease, pests, frost, heat, water, animal_damage, other]}}}, date: {selector: {date: {}}}}
 set_garden_sensors:
-  fields: {garden: {required: true, selector: {text: {}}}, metric: {required: true, selector: {select: {options: [moisture, ec, soil_temp, air_temp, par]}}}, entities: {required: true, example: "sensor.bed_1_moisture, sensor.bed_2_moisture", selector: {entity: {multiple: true, domain: sensor}}}}
+  fields: {garden: {required: true, selector: {text: {}}}, metric: {required: true, selector: {select: {options: [moisture, ec, soil_temp, air_temp, out_temp, par]}}}, entities: {required: true, example: "sensor.bed_1_moisture, sensor.bed_2_moisture", selector: {entity: {multiple: true, domain: sensor}}}}
 set_trays:
   fields: {garden: {required: true, selector: {text: {}}}, trays: {required: true, description: "10x20 trays in use", selector: {number: {min: 0, max: 500, mode: box}}}}
 log_watering:
@@ -54,6 +54,15 @@ set_sensor_alarm:
   fields: {garden: {required: true, selector: {text: {}}}, enabled: {required: true, description: "Warn when a sensor in use reports nothing for an hour. Off clears any warning.", selector: {boolean: {}}}}
 ack_sensor_alarm:
   fields: {garden: {required: true, selector: {text: {}}}, entity: {description: "One sensor (default all)", selector: {entity: {}}}}
+set_microclimate:
+  fields:
+    usda_zone: {description: "What USDA says your zone is, shown next to the zone worked out from your sensors", example: "7a", selector: {text: {}}}
+    frost_f: {description: "Temperature counted as a frost (°F)", example: 32, selector: {number: {min: 20, max: 40, step: 0.5, mode: box}}}
+    temp_entities: {description: "Extra outside temperature sensors, averaged with the main one", selector: {entity: {domain: sensor, multiple: true}}}
+    rain_entities: {description: "Rainfall total sensors (daily, weekly or yearly rain, not the rain rate), averaged", selector: {entity: {domain: sensor, multiple: true}}}
+    humidity_entities: {description: "Outside humidity sensors, averaged", selector: {entity: {domain: sensor, multiple: true}}}
+    solar_entities: {description: "Solar radiation sensors in W/m², averaged", selector: {entity: {domain: sensor, multiple: true}}}
+    air_entities: {description: "Air quality sensors as lists under pm1, pm25, pm10, nox and voc, averaged for each", example: "{pm25: [sensor.outside_pm2_5], voc: [sensor.outside_voc]}", selector: {object: {}}}
 set_power_rate:
   fields: {cents: {required: true, description: "Price of electricity in cents per kWh (0 clears it)", example: 5.15, selector: {number: {min: 0, max: 1000, step: 0.01, mode: box}}}}
 set_power_sensors:
@@ -63,9 +72,9 @@ up_pot:
 move_plants:
   fields: {plant: {required: true, selector: {text: {}}}, to: {required: true, description: "Garden, seedling rack or greenhouse to move to", selector: {text: {}}}, count: {description: "How many plants to move (default all)", selector: {number: {min: 1, max: 1000, mode: box}}}, date: {selector: {date: {}}}}
 set_soil_sensors_paused:
-  fields: {garden: {required: true, selector: {text: {}}}, paused: {required: true, description: "True while the soil probes are out of the ground, so their readings are ignored", selector: {boolean: {}}}, group: {description: "Which probes: moisture_ec, soil_temp, air_temp, par or all (default)", selector: {select: {options: [moisture_ec, soil_temp, air_temp, par, all]}}}}
+  fields: {garden: {required: true, selector: {text: {}}}, paused: {required: true, description: "True while the soil probes are out of the ground, so their readings are ignored", selector: {boolean: {}}}, group: {description: "Which probes: moisture_ec, soil_temp, air_temp, out_temp, par or all (default)", selector: {select: {options: [moisture_ec, soil_temp, air_temp, out_temp, par, all]}}}}
 log_garden_reading:
-  fields: {garden: {required: true, selector: {text: {}}}, metric: {required: true, selector: {select: {options: [moisture, ec, soil_temp, air_temp, par]}}}, value: {required: true, selector: {number: {step: 0.1, mode: box}}}, date: {selector: {date: {}}}}
+  fields: {garden: {required: true, selector: {text: {}}}, metric: {required: true, selector: {select: {options: [moisture, ec, soil_temp, air_temp, out_temp, par]}}}, value: {required: true, selector: {number: {step: 0.1, mode: box}}}, date: {selector: {date: {}}}}
 add_cover_crop:
   fields: {garden: {required: true, selector: {text: {}}}, crop: {required: true, example: Hairy vetch, selector: {text: {}}}, sown_date: {selector: {date: {}}}, wait_days: {example: 21, selector: {number: {min: 0, max: 120, mode: box}}}, amount_lbs: {description: "Pounds of seed, used for the mix ratio when sowing several together", selector: {number: {min: 0, step: 0.1, mode: box}}}, notes: {selector: {text: {}}}}
 terminate_cover_crop:
@@ -91,6 +100,6 @@ delete_entry:
 undo_delete:
   fields: {}
 edit_entry:
-  fields: {kind: {required: true, selector: {select: {options: [harvest, fertilizer, spray, review, upotted, adjunct, ph, moisture, ec, soil_temp, air_temp, par, cover, water]}}}, parent: {required: true, selector: {text: {}}}, entry_id: {required: true, selector: {text: {}}}, date: {selector: {date: {}}}, lbs: {selector: {number: {min: 0, step: 0.1, mode: box}}}, product: {selector: {text: {}}}, n: {selector: {number: {mode: box}}}, p: {selector: {number: {mode: box}}}, k: {selector: {number: {mode: box}}}, target: {selector: {text: {}}}, phi_days: {selector: {number: {mode: box}}}, reapply_days: {selector: {number: {mode: box}}}, amount: {selector: {text: {}}}, value: {selector: {number: {step: 0.1, mode: box}}}, sown: {selector: {date: {}}}, terminated: {selector: {date: {}}}, method: {selector: {select: {options: [mowed, roll_crimped, tarped, tilled, winterkill, other]}}}, crop: {selector: {text: {}}}, amount_lbs: {selector: {number: {min: 0, step: 0.1, mode: box}}}, wait_days: {selector: {number: {min: 0, max: 120, mode: box}}}, notes: {selector: {text: {}}}, year: {selector: {number: {mode: box}}}, type: {selector: {text: {}}}}
+  fields: {kind: {required: true, selector: {select: {options: [harvest, fertilizer, spray, review, upotted, adjunct, ph, moisture, ec, soil_temp, air_temp, out_temp, par, cover, water]}}}, parent: {required: true, selector: {text: {}}}, entry_id: {required: true, selector: {text: {}}}, date: {selector: {date: {}}}, lbs: {selector: {number: {min: 0, step: 0.1, mode: box}}}, product: {selector: {text: {}}}, n: {selector: {number: {mode: box}}}, p: {selector: {number: {mode: box}}}, k: {selector: {number: {mode: box}}}, target: {selector: {text: {}}}, phi_days: {selector: {number: {mode: box}}}, reapply_days: {selector: {number: {mode: box}}}, amount: {selector: {text: {}}}, value: {selector: {number: {step: 0.1, mode: box}}}, sown: {selector: {date: {}}}, terminated: {selector: {date: {}}}, method: {selector: {select: {options: [mowed, roll_crimped, tarped, tilled, winterkill, other]}}}, crop: {selector: {text: {}}}, amount_lbs: {selector: {number: {min: 0, step: 0.1, mode: box}}}, wait_days: {selector: {number: {min: 0, max: 120, mode: box}}}, notes: {selector: {text: {}}}, year: {selector: {number: {mode: box}}}, type: {selector: {text: {}}}}
 add_species:
   fields: {key: {required: true, selector: {text: {}}}, name: {required: true, selector: {text: {}}}, kind: {selector: {select: {options: [tree, plant]}}}, pests: {description: "List of pests: key, name, lower_f, upper_f, default_biofix (MM-DD or omit), milestones [{dd, note}]", selector: {object: {}}}}

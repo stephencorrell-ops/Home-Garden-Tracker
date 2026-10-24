@@ -17,13 +17,14 @@ Tap the button above to open this repository in your own Home Assistant (it asks
 Optional card option: `garden: Raised beds` limits the card to one garden.
 
 ## What it tracks
-- Gardens with soil pH, moisture, EC and soil temperature (one or several Home Assistant sensors, averaged, or manual entries) with daily lows and highs, plus a soil temperature planting guide.
+- Gardens with soil pH, moisture, EC, soil temperature and outside temperature (one or several Home Assistant sensors, averaged, or manual entries) with daily lows and highs, plus a soil temperature planting guide that only lists crops with enough days left before the first frost. Feeding advice is switched off from the first fall frost until after the last spring frost.
 - Soil adjuncts (sulfur, humic acid, compost, gypsum, micros, or anything you type in).
 - Plant varieties with plant counts, harvests split across living plants, large plantings (like 180 garlic) shown as one summary, and root crops that finish when harvested.
 - Slow crops such as horseradish with a years, months and days countdown.
 - Orchard trees with spray, pre-harvest and degree-day tracking.
 - Winter cover crops with days in the ground, termination, and a 3 week wait before planting.
-- Frost countdowns (last spring frost, then first fall frost) with dates you set for your area.
+- Frost countdowns (last spring frost, then first fall frost) with dates you set for your area, next to the dates your own sensors recorded.
+- A Microclimate page: your local hardiness zone from your sensor data (with USDA's zone beside it), recorded frost dates, expected against actual soil temperature, high and low temperatures, rainfall, humidity, sunlight (W/m²) and air quality (PM1, PM2.5, PM10, NOx, VOC) by day, week, month and year, each from one or several averaged sensors.
 - A seedling rack and a greenhouse for starting seeds: air temperature (and light on the rack), watering with days since and an optional reminder, 10x20 trays in use, pot and tray sizes with up-potting, and moving a number of plants from the rack to the greenhouse to the garden.
 - A greenhouse and seedling rack thermostat that holds the air between a heat and a fan set point by switching your heaters (or heat mats) and fans, with a grow light schedule and a fan schedule, with minimum and maximum heater run times. Power use by day and month, with dollars from your electricity rate, when you pick energy or power sensors. A temperature alarm for a rack or greenhouse that stays until you acknowledge it and says how long the air was out of range. A warning when any sensor in use goes an hour with no reading.
 - End of season: archive a whole garden's plantings at once and keep the history for next year.

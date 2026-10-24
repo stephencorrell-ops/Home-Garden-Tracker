@@ -3,17 +3,25 @@ from __future__ import annotations
 
 import copy
 import re
+import time
 import uuid
 from datetime import date, datetime, timedelta
 from typing import Any, Callable
 
 from . import calc
+from . import microclimate as mc
 
 
-DEFAULT_SETTINGS = {"frost_last": "04-25", "frost_first": "10-15"}  # Ephrata, WA averages
+DEFAULT_SETTINGS = {"frost_last": "04-25", "frost_first": "10-15",  # Ephrata, WA averages
+                    "usda_zone": "7a (6b on the 2012 map)", "frost_f": mc.FROST_F,
+                    "temp_entities": [], "rain_entities": [], "humidity_entities": [], "solar_entities": [],
+                    "air_entities": {"pm1": [], "pm25": [], "pm10": [], "nox": [], "voc": []}}
 SENSOR_ALARM_AFTER = timedelta(hours=1)  # how long an in-use sensor may report nothing before it alarms
 ALARM_BACK_F = 1.0  # the air must come back this far inside a limit before an alarm counts as over
 UNSET: Any = object()
+SAMPLE_SLOT_S = 900                 # temperature readings are kept every 15 minutes...
+SAMPLE_KEEP_S = 8 * 86400           # ...for eight days, to draw the last 24 hours and the week
+SAMPLED = ("soil_temp", "air_temp", "out_temp")
 GROUP_MIN = 6  # plantings above this many plants are shown as one summary
 
 
@@ -36,12 +44,14 @@ METRICS = {
     "ec": {"name": "Soil EC", "unit": "mS/cm", "lo": 0, "hi": 30},
     "soil_temp": {"name": "Soil temperature", "unit": "°F", "lo": -40, "hi": 160},
     "air_temp": {"name": "Temperature", "unit": "°F", "lo": -40, "hi": 160},
+    "out_temp": {"name": "Outside temperature", "unit": "°F", "lo": -60, "hi": 150},
     "par": {"name": "Light (PAR)", "unit": "µmol/m²/s", "lo": 0, "hi": 4000},
 }
 # Places plants live. A garden has soil; the seedling rack and greenhouse are indoor, so they track
 # air temperature (and light on the rack), watering and 10x20 trays instead of soil and fertilizer.
 LOCATION_KINDS = {"garden": "Garden", "rack": "Seedling rack", "greenhouse": "Greenhouse"}
-METRIC_SETS = {"garden": ("moisture", "ec", "soil_temp"), "rack": ("air_temp", "par"), "greenhouse": ("air_temp",)}
+METRIC_SETS = {"garden": ("moisture", "ec", "soil_temp", "out_temp"), "rack": ("air_temp", "par"),
+               "greenhouse": ("air_temp", "out_temp")}
 DEFAULT_CONTAINERS = ["6-cell tray", "4-cell tray", "3.3 in pot", "5 in pot"]
 # How many fit in one 10x20 tray (Bootstrap Farmer sizes): 12 six-cell inserts, 8 four-cell inserts, and the pot inserts.
 CONTAINER_PER_TRAY = {"6-cell tray": 72, "4-cell tray": 32, "3.3 in pot": 18, "5 in pot": 8}
@@ -89,10 +99,10 @@ COVER_WAIT_DAYS = 21
 DEFAULT_EC_TARGET = [0.8, 1.8]
 DEFAULT_MOISTURE_BAND = [25, 60]
 DEFAULT_PROBE_DEPTH = 4
-# Rule-of-thumb minimum soil temperatures (°F) for sowing or transplanting.
-PLANTING_TEMPS = [
-    ("Peas, spinach, lettuce", 40), ("Carrots, beets, onions", 45), ("Potatoes", 45),
-    ("Corn, beans", 60), ("Tomatoes", 60), ("Peppers, squash, cucumbers", 65), ("Melons", 70),
+# Rule-of-thumb minimum soil temperatures (°F) for sowing or transplanting, and how long each takes to grow.
+PLANTING_TEMPS = [  # (crops, minimum soil °F, days from planting to harvest)
+    ("Peas, spinach, lettuce", 40, 50), ("Carrots, beets, onions", 45, 75), ("Potatoes", 45, 90),
+    ("Corn, beans", 60, 70), ("Tomatoes", 60, 75), ("Peppers, squash, cucumbers", 65, 70), ("Melons", 70, 85),
 ]
 KINDS = {  # entry kind -> (parent type, list key)
     "harvest": ("v", "harvests"), "fertilizer": ("v", "fertilizations"), "spray": ("v", "sprays"),
@@ -100,7 +110,7 @@ KINDS = {  # entry kind -> (parent type, list key)
     "adjunct": ("g", "adjuncts"), "ph": ("g", "ph_readings"),
     "moisture": ("g", "moisture"), "ec": ("g", "ec"), "soil_temp": ("g", "soil_temp"),
     "cover": ("g", "cover_crops"), "water": ("g", "watering"),
-    "air_temp": ("g", "air_temp"), "par": ("g", "par"),
+    "air_temp": ("g", "air_temp"), "par": ("g", "par"), "out_temp": ("g", "out_temp"),
 }
 EDITABLE = {
     "harvest": ("lbs", "date", "notes"),
@@ -109,7 +119,7 @@ EDITABLE = {
     "review": ("notes", "year"), "upotted": ("date",),
     "adjunct": ("type", "product", "amount", "date", "notes"), "ph": ("value", "date"),
     "moisture": ("value", "date"), "ec": ("value", "date"), "soil_temp": ("value", "date"),
-    "air_temp": ("value", "date"), "par": ("value", "date"), "water": ("date", "notes"),
+    "air_temp": ("value", "date"), "par": ("value", "date"), "out_temp": ("value", "date"), "water": ("date", "notes"),
     "cover": ("crop", "sown", "terminated", "method", "notes", "wait_days", "amount_lbs"),
 }
 
@@ -137,9 +147,13 @@ class GardenModel:
     def __init__(self, presets: dict, today_fn: Callable[[], date],
                  notify: Callable[[], None] | None = None,
                  structure: Callable[[], None] | None = None) -> None:
-        self.data: dict[str, Any] = {"gardens": {}, "varieties": {}, "species": {}, "daily": {},
+        self.data: dict[str, Any] = {"gardens": {}, "varieties": {}, "species": {}, "daily": {}, "rain": {}, "rain_src": {}, "humid": {}, "solar": {}, "air": {"q": {}, "h": {}, "d": {}},
                                     "settings": dict(DEFAULT_SETTINGS)}
         self.presets = presets
+        self._air_now: dict[str, tuple[float, float]] = {}
+        self._air_touched = 0.0
+        self.now_fn: Callable[[], float] = time.time  # seconds since the epoch; the manager sets a Home Assistant clock
+        self.outdoor_entity: str | None = None  # the main outdoor temperature sensor, used when a place has none of its own
         self._today_fn = today_fn
         self._notify = notify or (lambda: None)
         self._structure = structure or (lambda: None)
@@ -154,7 +168,12 @@ class GardenModel:
             for k in self.data:
                 if k in stored:
                     self.data[k] = stored[k]
-        self.data["settings"] = {**DEFAULT_SETTINGS, **(self.data.get("settings") or {})}
+        self.data["settings"] = {**copy.deepcopy(DEFAULT_SETTINGS), **(self.data.get("settings") or {})}
+        for tier in ("q", "h", "d"):
+            self.data["air"].setdefault(tier, {})
+        self.data["settings"].setdefault("air_entities", {})
+        for m in mc.AIR:
+            self.data["settings"]["air_entities"].setdefault(m, [])
         for g in self.data["gardens"].values():
             self._ensure_garden(g)
 
@@ -172,6 +191,7 @@ class GardenModel:
         g.setdefault("power_sensors", {})
         g.setdefault("energy", {})
         g.setdefault("energy_last", {})
+        g.setdefault("samples", {})
         sa = g.get("sensor_alarm") or {}
         g["sensor_alarm"] = {"enabled": sa.get("enabled", True), "down": dict(sa.get("down") or {})}
         if g["kind"] != "garden":
@@ -202,6 +222,195 @@ class GardenModel:
         if new != cur:
             self.data["daily"][key] = new
             self._touch()
+
+    def merge_daily(self, rows: dict[str, tuple[float, float]]) -> bool:
+        """Fill in daily lows and highs from Home Assistant's long-term statistics. Live readings are kept."""
+        changed = False
+        for k, (lo, hi) in rows.items():
+            cur = self.data["daily"].get(k)
+            new = [round(lo, 1), round(hi, 1)] if cur is None else [min(cur[0], round(lo, 1)), max(cur[1], round(hi, 1))]
+            if new != cur:
+                self.data["daily"][k] = new
+                changed = True
+        if changed:
+            self._touch()
+        return changed
+
+    # ---- rain: every sensor keeps its own daily amounts, and a day's rain is their average -----------
+    def _rain_day(self, k: str) -> None:
+        vals = [self.data["rain_src"][e][k] for e in self.data["settings"]["rain_entities"]
+                if k in self.data["rain_src"].get(e, {})]
+        if vals and sum(vals) > 0:
+            self.data["rain"][k] = round(sum(vals) / len(vals), 3)
+        else:
+            self.data["rain"].pop(k, None)
+
+    def rebuild_rain(self) -> None:
+        days = {k for src in self.data["rain_src"].values() for k in src} | set(self.data["rain"])
+        for k in days:
+            self._rain_day(k)
+
+    def merge_rain(self, entity: str, rows: dict[str, float]) -> bool:
+        src = self.data["rain_src"].setdefault(entity, {})
+        changed = False
+        for k, v in rows.items():
+            if v > 0 and v > src.get(k, 0):
+                src[k] = round(v, 3)
+                self._rain_day(k)
+                changed = True
+        if changed:
+            self._touch()
+        return changed
+
+    def add_rain(self, entity: str, inches: float) -> None:
+        """Add rain that just fell (inches) to today's total for one sensor."""
+        if inches <= 0:
+            return
+        key = self.today().isoformat()
+        src = self.data["rain_src"].setdefault(entity, {})
+        src[key] = round(src.get(key, 0) + inches, 3)
+        self._rain_day(key)
+        self._touch()
+
+    def record_humidity(self, pct: float) -> None:
+        key = self.today().isoformat()
+        cur = self.data["humid"].get(key)
+        new = [pct, pct] if cur is None else [min(cur[0], pct), max(cur[1], pct)]
+        if new != cur:
+            self.data["humid"][key] = new
+            self._touch()
+
+    def merge_humid(self, rows: dict[str, tuple[float, float]]) -> bool:
+        changed = False
+        for k, (lo, hi) in rows.items():
+            cur = self.data["humid"].get(k)
+            new = [round(lo, 1), round(hi, 1)] if cur is None else [min(cur[0], round(lo, 1)), max(cur[1], round(hi, 1))]
+            if new != cur:
+                self.data["humid"][k] = new
+                changed = True
+        if changed:
+            self._touch()
+        return changed
+
+    def record_solar(self, w_m2: float, wh: float = 0.0, secs: float = 0.0) -> None:
+        """Today's brightest reading, the energy (Wh/m2) that fell since the last one, and the time it covers."""
+        key = self.today().isoformat()
+        cur = list(self.data["solar"].get(key) or [0.0, 0.0, 0.0])
+        cur += [0.0] * (3 - len(cur))
+        new = [max(cur[0], round(w_m2, 1)), round(cur[1] + max(wh, 0.0), 2), round(cur[2] + max(secs, 0.0))]
+        if new != cur:
+            self.data["solar"][key] = new
+            self._touch()
+
+    def merge_solar(self, rows: dict[str, tuple[float, float]]) -> bool:
+        changed = False
+        for k, (peak, wh) in rows.items():
+            if k >= self.today().isoformat():  # today is measured live, a part-day statistic would skew it
+                continue
+            cur = self.data["solar"].get(k)
+            new = [round(peak, 1), round(wh, 1), 86400] if cur is None else [
+                max(cur[0], round(peak, 1)), max(cur[1], round(wh, 1)), max(cur[2] if len(cur) > 2 else 86400, 86400)]
+            if cur is not None and cur[1] >= round(wh, 1):  # what was measured live is kept as it is
+                new = cur
+            if new != cur:
+                self.data["solar"][k] = new
+                changed = True
+        if changed:
+            self._touch()
+        return changed
+
+    # ---- air quality: 15 minute averages for a day, hourly for a week, daily (with the day's highest) for a month ----
+    def record_air(self, metric: str, value: float) -> None:
+        if metric not in mc.AIR:
+            return
+        now = self.now_fn()
+        self._air_now[metric] = (now, value)
+        air = self.data["air"]
+        for tier, key in (("q", str(int(now // 900 * 900))), ("h", str(int(now // 3600 * 3600))), ("d", self.today().isoformat())):
+            slot = air[tier].setdefault(f"{metric}|{key}", [0.0, 0, value])
+            slot[0] += value
+            slot[1] += 1
+            slot[2] = max(slot[2], value)
+        if now - self._air_touched >= 60:  # readings can arrive every second; update everything once a minute
+            self._air_touched = now
+            self._prune_air(now)
+            self._touch()
+
+    def _prune_air(self, now: float) -> None:
+        air = self.data["air"]
+        for tier, keep in (("q", 2 * 86400), ("h", 9 * 86400)):
+            for k in [k for k in air[tier] if float(k.split("|")[1]) < now - keep]:
+                del air[tier][k]
+        cut = (self.today() - timedelta(days=400)).isoformat()
+        for k in [k for k in air["d"] if k.split("|")[1] < cut]:
+            del air["d"][k]
+
+    def merge_air(self, metric: str, rows: dict[int, tuple[float, float]]) -> bool:
+        """Fill in hours (and the days they make up) from long-term statistics: {hour start: (mean, highest)}."""
+        air, changed, days = self.data["air"], False, {}
+        for ts, (mean, hi) in rows.items():
+            key = f"{metric}|{int(ts)}"
+            if key not in air["h"]:
+                air["h"][key] = [round(mean, 2), 1, round(hi, 2)]
+                changed = True
+            day = self._local_day(ts)
+            days.setdefault(day, []).append((mean, hi))
+        for day, hrs in days.items():
+            key = f"{metric}|{day}"
+            if key not in air["d"] and day != self.today().isoformat():
+                air["d"][key] = [round(sum(m for m, _ in hrs), 2), len(hrs), round(max(h for _, h in hrs), 2)]
+                changed = True
+        if changed:
+            self._touch()
+        return changed
+
+    def _local_day(self, ts: float) -> str:
+        return datetime.fromtimestamp(ts).date().isoformat()
+
+    def _air_view(self, today: date) -> dict:
+        st, air, now = self.data["settings"], self.data["air"], self.now_fn()
+        out: dict[str, Any] = {"sensors": st["air_entities"], "metrics": {}}
+        for m, (name, unit) in mc.AIR.items():
+            def rows(tier, lo):
+                return sorted((k.split("|")[1], v) for k, v in air[tier].items() if k.startswith(m + "|") and k.split("|")[1] >= lo)
+            day = [[int(k), round(v[0] / v[1], 1)] for k, v in rows("q", str(int(now - 86400))) if float(k) >= now - 86400]
+            week = [[int(k), round(v[0] / v[1], 1), round(v[2], 1)] for k, v in rows("h", "0") if float(k) >= now - 7 * 86400]
+            month = [[k, round(v[0] / v[1], 1), round(v[2], 1)] for k, v in rows("d", (today - timedelta(days=29)).isoformat())]
+            cur = self._air_now.get(m)
+            out["metrics"][m] = {
+                "name": name, "unit": unit, "current": round(cur[1], 1) if cur and now - cur[0] <= 3600 else None,
+                "day": day, "week": week, "month": month,
+                "max": {"today": next((r[2] for r in month if r[0] == today.isoformat()), None),
+                        "week": max((r[2] for r in week), default=None),
+                        "month": max((r[2] for r in month), default=None)}}
+        return out
+
+    def set_microclimate(self, usda_zone: Any = UNSET, frost_f: float | None = None, temp_entities: Any = UNSET,
+                         rain_entities: Any = UNSET, humidity_entities: Any = UNSET, solar_entities: Any = UNSET,
+                         air_entities: Any = UNSET) -> None:
+        st = self.data["settings"]
+        if usda_zone is not UNSET:
+            st["usda_zone"] = (str(usda_zone).strip()[:40] or None) if usda_zone is not None else None
+        if frost_f is not None:
+            if not 20 <= float(frost_f) <= 40:
+                raise GardenError("Frost is between 20 and 40 °F")
+            st["frost_f"] = float(frost_f)
+        for key, val in (("temp_entities", temp_entities), ("rain_entities", rain_entities),
+                         ("humidity_entities", humidity_entities), ("solar_entities", solar_entities)):
+            if val is not UNSET:
+                ids = [val] if isinstance(val, str) else list(val or [])
+                st[key] = list(dict.fromkeys(i.strip() for i in ids if i and i.strip()))
+        if air_entities is not UNSET:
+            for m in mc.AIR:
+                ids = (air_entities or {}).get(m, [])
+                ids = [ids] if isinstance(ids, str) else list(ids or [])
+                st["air_entities"][m] = list(dict.fromkeys(i.strip() for i in ids if i and i.strip()))
+        self.rebuild_rain()
+        self._touch(True)
+        self._micro_changed()
+
+    def _micro_changed(self) -> None:
+        """Hook for the manager: watch the rain sensor that was chosen and pull its history."""
 
     # ---- lookups ----------------------------------------------------------
     def find_garden(self, ref: str) -> dict:
@@ -407,11 +616,67 @@ class GardenModel:
         self.find_garden(garden)["frost"] = {}
         self._touch(True)
 
+    def _recorded_frost(self, g: dict, today: date) -> dict:
+        """First and last frost this year as your sensors recorded them: the garden's own outside sensors if it
+        has some, otherwise the main outdoor sensor."""
+        thr = self.data["settings"].get("frost_f", mc.FROST_F)
+        rows, own = self.data["daily"], bool(g.get("sensors", {}).get("out_temp"))
+        if own:
+            rows = {r["date"]: [r.get("min", r["value"]), r.get("max", r["value"])] for r in g.get("out_temp", [])
+                    if r["source"] == "sensor"} or rows
+        yrs = {y["year"]: y for y in mc.frost_years(rows, today, thr)}
+        cur = yrs.get(today.year)
+        prev = yrs.get(today.year - 1)
+        return {"year": today.year, "threshold": thr, "source": "garden" if own and rows is not self.data["daily"] else "main",
+                "last_spring": cur and cur["last_spring"], "spring_final": bool(cur and cur["spring_final"]),
+                "spring_partial": bool(cur and cur["spring_partial"]),
+                "first_fall": cur and cur["first_fall"],
+                "last_year": prev and {"last_spring": prev["last_spring"], "first_fall": prev["first_fall"]}}
+
+    def _micro_view(self, today: date) -> dict:
+        st, daily, rain = self.data["settings"], self.data["daily"], self.data["rain"]
+        thr = st.get("frost_f", mc.FROST_F)
+        per = mc.periods(today)
+        gardens = [g for g in self.data["gardens"].values() if g.get("kind", "garden") == "garden"]
+        actual, last_year = [], []
+        for g in gardens:
+            hist = sorted(g.get("soil_temp", []), key=lambda r: (r["date"], r["id"]))
+            if hist and not g.get("sensors_paused", {}).get("soil_temp"):
+                cur = hist[-1]
+                if (today - date.fromisoformat(cur["date"])).days <= 2:
+                    actual.append(cur.get("last", cur["value"]))
+            ly = mc.soil_last_year(hist, today)
+            if ly is not None:
+                last_year.append(ly)
+        avg = lambda xs: round(sum(xs) / len(xs), 1) if xs else None
+        exp = mc.expected_soil(daily, today)
+        act = avg(actual)
+        zone = mc.local_zone(daily, today)
+        return {
+            "zone": {**zone, "usda": st.get("usda_zone")},
+            "frost": {"threshold": thr, "years": mc.frost_years(daily, today, thr)[:6],
+                      "expected_last": st["frost_last"], "expected_first": st["frost_first"],
+                      "first_data": min(daily) if daily else None},
+            "temps": {k: mc.temp_range(daily, a, b) for k, (a, b) in per.items()},
+            "rain": {"sensors": st["rain_entities"], "days_recorded": len(rain),
+                     **{k: mc.rain_total(rain, a, b) for k, (a, b) in per.items()}},
+            "soil": {"actual": act, "expected": exp, "last_year": avg(last_year),
+                     "diff": None if act is None or exp is None else round(act - exp, 1)},
+            "humidity": {"sensors": st["humidity_entities"],
+                         **{k: mc.temp_range(self.data["humid"], a, b) for k, (a, b) in per.items()}},
+            "air": self._air_view(today),
+            "solar": {"sensors": st["solar_entities"], **{k: mc.solar_total(self.data["solar"], a, b) for k, (a, b) in per.items()}},
+            "settings": {"usda_zone": st.get("usda_zone"), "frost_f": thr, "outdoor_entity": self.outdoor_entity,
+                         "temp_entities": st["temp_entities"], "rain_entities": st["rain_entities"],
+                         "humidity_entities": st["humidity_entities"], "solar_entities": st["solar_entities"],
+                         "air_entities": st["air_entities"]},
+        }
+
     def _frost_view(self, g: dict, today: date) -> dict:
         st = self.data["settings"]
         last = g["frost"].get("last") or st["frost_last"]
         first = g["frost"].get("first") or st["frost_first"]
-        return {"last": last, "first": first, "custom": bool(g["frost"]),
+        return {"last": last, "first": first, "custom": bool(g["frost"]), "recorded": self._recorded_frost(g, today),
                 "last_date": calc.md_date(last, today.year).isoformat(),
                 "first_date": calc.md_date(first, today.year).isoformat(),
                 "next": calc.frost_status(last, first, today)}
@@ -459,9 +724,15 @@ class GardenModel:
             raise GardenError("Metric must be one of: " + ", ".join(METRICS))
         return METRICS[metric]
 
+    def _metric_for(self, g: dict, metric: str) -> dict:
+        spec = self._metric(metric)
+        if metric not in METRIC_SETS[g.get("kind", "garden")]:
+            raise GardenError(f"{g['name']} doesn't track {spec['name'].lower()}")
+        return spec
+
     def set_sensors(self, garden: str, metric: str, entities: list[str]) -> None:
         g = self.find_garden(garden)
-        self._metric(metric)
+        self._metric_for(g, metric)
         clean: list[str] = []
         for e in entities:
             e = str(e).strip()
@@ -900,7 +1171,7 @@ class GardenModel:
         return target["id"]
 
     PAUSE_GROUPS = {"moisture_ec": ("moisture", "ec"), "soil_temp": ("soil_temp",),
-                    "air_temp": ("air_temp",), "par": ("par",), "all": tuple(METRICS)}
+                    "air_temp": ("air_temp",), "par": ("par",), "out_temp": ("out_temp",), "all": tuple(METRICS)}
 
     def set_sensors_paused(self, garden: str, paused: bool, group: str = "all") -> None:
         """Ignore sensor readings while the probes are out of the ground.
@@ -909,14 +1180,14 @@ class GardenModel:
         g = self.find_garden(garden)
         self._ensure_garden(g)
         if group not in self.PAUSE_GROUPS:
-            raise GardenError("Group must be moisture_ec, soil_temp, air_temp, par or all")
+            raise GardenError("Group must be moisture_ec, soil_temp, air_temp, out_temp, par or all")
         for k in self.PAUSE_GROUPS[group]:
             g["sensors_paused"][k] = bool(paused)
         self._touch(True)
 
     def log_metric(self, garden: str, metric: str, value: float, when: Any = None) -> None:
         g = self.find_garden(garden)
-        spec = self._metric(metric)
+        spec = self._metric_for(g, metric)
         if not spec["lo"] <= value <= spec["hi"]:
             raise GardenError(f"{spec['name']} must be between {spec['lo']} and {spec['hi']} {spec['unit']}")
         g[metric].append({"id": new_id(), "date": iso(when) or self.today().isoformat(),
@@ -943,7 +1214,26 @@ class GardenModel:
         else:
             g[metric].append({"id": new_id(), "date": today, "value": value, "last": value, "min": value,
                               "max": value, "n": 1, "sum": value, "source": "sensor"})
+        if metric in SAMPLED:
+            self._sample(g, metric, value)
         self._touch()
+
+    def _sample(self, g: dict, metric: str, value: float) -> None:
+        """Keep one reading per 15 minutes (the latest in the slot) for the last 24 hour and week charts."""
+        now = int(self.now_fn())
+        rows = g["samples"].setdefault(metric, [])
+        if rows and rows[-1][0] // SAMPLE_SLOT_S == now // SAMPLE_SLOT_S:
+            rows[-1] = [now, value]
+        else:
+            rows.append([now, value])
+        cut = now - SAMPLE_KEEP_S
+        while rows and rows[0][0] < cut:
+            rows.pop(0)
+
+    def _samples_view(self, g: dict, metric: str) -> list[list[float]]:
+        """The last 24 hours of readings, 15 minutes apart, as [seconds since the epoch, value]."""
+        cut = int(self.now_fn()) - 86400
+        return [r for r in g["samples"].get(metric, []) if r[0] >= cut]
 
     # ---- varieties and plants -----------------------------------------------
     def add_variety(self, garden: str, species: str, variety: str, plants: int = 1,
@@ -1349,7 +1639,7 @@ class GardenModel:
         gardens = [self._garden_view(g, today) for g in self.data["gardens"].values()]
         varieties = [self._variety_view(v, today, daily) for v in self.data["varieties"].values()]
         varieties.sort(key=lambda x: (x["archived"] is not None, x["garden"], x["kind"], x["name"].lower()))
-        return {"today": today.isoformat(), "species": species, "gardens": gardens,
+        return {"today": today.isoformat(), "micro": self._micro_view(today), "species": species, "gardens": gardens,
                 "varieties": varieties, "can_undo": self._trash is not None,
                 "containers": list(DEFAULT_CONTAINERS), "container_per_tray": dict(CONTAINER_PER_TRAY),
                 "reasons": REASONS}
@@ -1365,10 +1655,15 @@ class GardenModel:
         log = sorted(g["adjuncts"], key=lambda e: (e["date"], e["id"]), reverse=True)
         kind = g.get("kind", "garden")
         metrics = {k: self._metric_view(g, k) for k in METRIC_SETS[kind]}
+        for k in metrics:
+            if k in SAMPLED:
+                metrics[k]["day"] = self._samples_view(g, k)
+        if "out_temp" in metrics:  # with no sensor of its own it follows the main outdoor sensor
+            metrics["out_temp"]["fallback"] = bool(not metrics["out_temp"]["entities"] and self.outdoor_entity)
         soil = kind == "garden"
         return {
             "id": g["id"], "name": g["name"], "kind": kind, "kind_name": LOCATION_KINDS[kind], "metrics": metrics,
-            "planting": self._planting_view(metrics["soil_temp"]) if soil else None,
+            "planting": self._planting_view(metrics["soil_temp"], g, today) if soil else None,
             "cover": self._cover_view(g, today),
             "frost": self._frost_view(g, today),
             "paused": {k: bool(g.get("sensors_paused", {}).get(k)) for k in METRICS},
@@ -1405,6 +1700,11 @@ class GardenModel:
                 "gap": CLIMATE_MIN_GAP, "heat_off_at": c.get("heat_off") if c.get("heat_off") is not None else c["heat_set"] + 1.0,
                 "cool_off_at": c.get("cool_off") if c.get("cool_off") is not None else c["cool_set"] - 1.0, "fan_on": bool(st.get("fan")), "lights_on": bool(st.get("light"))}
 
+    def _feeding_off(self, g: dict, today: date) -> bool:
+        """True from the garden's first fall frost until after its last spring frost, when feeding advice is off."""
+        fr = self._frost_view(g, today)
+        return today >= date.fromisoformat(fr["first_date"]) or today <= date.fromisoformat(fr["last_date"])
+
     def _fertility_view(self, g: dict, metrics: dict, today: date) -> dict:
         """Judge soil EC (fertility) together with moisture, for the top few inches the probe can see."""
         elo, ehi = g.get("ec_target", DEFAULT_EC_TARGET)
@@ -1412,12 +1712,16 @@ class GardenModel:
         ec, mo = metrics["ec"], metrics["moisture"]
         out = {"ec_target": [elo, ehi], "moisture_band": [mlo, mhi], "depth": g.get("probe_depth", DEFAULT_PROBE_DEPTH),
                "ec": ec["current"], "moisture": mo["current"], "level": None, "moisture_state": None,
-               "advice": None, "action": None, "ec_change": None, "last_fed": None}
+               "advice": None, "action": None, "ec_change": None, "last_fed": None, "off_season": False}
         fed = [f["date"] for v in self.data["varieties"].values() if v["garden"] == g["id"]
                and not v.get("archived") for f in v.get("fertilizations", [])]
         out["last_fed"] = max(fed) if fed else None
         out["probes_out"] = bool(g.get("sensors_paused", {}).get("ec") or g.get("sensors_paused", {}).get("moisture"))
         out["paused"] = out["probes_out"] or any(not c.get("terminated") for c in g.get("cover_crops", []))
+        # No feeding advice from the first fall frost until after the last spring frost.
+        fr = self._frost_view(g, today)
+        out["off_season"] = self._feeding_off(g, today)
+        out["season"] = {"from": fr["first"], "until": fr["last"]}
         if ec["current"] is None:
             return out
         e = ec["current"]
@@ -1432,8 +1736,8 @@ class GardenModel:
         if len(week) >= 2:
             out["ec_change"] = round(e - week[0]["value"], 2)
         lvl = out["level"]
-        if out["paused"]:
-            return out  # a cover crop is growing, so there is no feeding or watering advice
+        if out["paused"] or out["off_season"]:
+            return out  # a cover crop is growing or it is the off season, so there is no feeding or watering advice
         if lvl == "ok":
             out["action"], out["advice"] = "ok", f"Fertility is in range in the top {depth} in. No feeding needed."
         elif lvl == "low":
@@ -1507,15 +1811,19 @@ class GardenModel:
         return {"items": live + done, "blocked": blocked, "presets": COVER_CROPS, "methods": COVER_METHODS,
                 "mix": mix}
 
-    @staticmethod
-    def _planting_view(temp: dict) -> dict | None:
-        """Is the soil warm enough? Uses the average of the last 3 daily lows (or readings)."""
+    def _planting_view(self, temp: dict, g: dict, today: date) -> dict | None:
+        """Is the soil warm enough? Uses the average of the last 3 daily lows (or readings). A crop is left
+        out once there are fewer days before this year's first frost than it needs to grow, which hides the
+        whole guide through the fall and winter, until it counts toward the next frost on January 1."""
         hist = temp["history"][-3:]
         if not hist:
             return None
         basis = round(sum(r.get("min", r["value"]) for r in hist) / len(hist), 1)
-        return {"basis": basis, "days": len(hist),
-                "crops": [{"name": n, "min_f": t, "ready": basis >= t} for n, t in PLANTING_TEMPS]}
+        left = (calc.md_date(self._first_frost(g), today.year) - today).days
+        crops = [{"name": n, "min_f": t, "ready": basis >= t} for n, t, need in PLANTING_TEMPS if left >= need]
+        if not crops:
+            return None
+        return {"basis": basis, "days": len(hist), "frost_in": left, "crops": crops}
 
     def _variety_view(self, v: dict, today: date, daily: dict) -> dict:
         self._refresh_rule(v)
@@ -1582,9 +1890,10 @@ class GardenModel:
                 est = int(-(-st["dd_to_next"] // rate))
             pests.append({"key": pest["key"], "name": pest["name"], "status": st, "est_days": est,
                           "needs_biofix": st is None and not pest.get("default_biofix")})
-        feeding = None
+        feeding, g = None, self.data["gardens"].get(v["garden"])
+        feeding_off = bool(g and g.get("kind", "garden") == "garden" and self._feeding_off(g, today))
         plan = sp.get("feeding_plan")
-        if plan and kind != "tree":
+        if plan and kind != "tree" and not feeding_off:
             ref_day = date.fromisoformat(v["in_ground"]) if v.get("in_ground") else planted_d
             age = (today - ref_day).days
             cur = max((i for i, ph in enumerate(plan) if ph["from_day"] <= age), default=0)
@@ -1592,7 +1901,6 @@ class GardenModel:
         seasons = calc.seasons_for(v, self.data["varieties"], daily, today)
         proj = None if v.get("archived") else calc.project(v, seasons, daily, today, len(alive) or len(allp))
         status = self._status(kind, dh, spray, pests, proj)
-        g = self.data["gardens"].get(v["garden"])
         return {
             "id": v["id"], "name": v["name"], "species": v["species"], "species_name": v["species_name"],
             "kind": kind, "garden": v["garden"],
@@ -1610,7 +1918,7 @@ class GardenModel:
             "harvested": sum(1 for p in allp if p["status"] == "harvested"),
             "total_lbs": round(sum(totals.values()), 2), "harvests": harvests,
             "fertilizations": sorted(v["fertilizations"], key=lambda e: (e["date"], e["id"]), reverse=True),
-            "last_fert": last_f, "feeding": feeding,
+            "last_fert": last_f, "feeding": feeding, "feeding_off": feeding_off,
             "sprays": sorted(v["sprays"], key=lambda e: (e["date"], e["id"]), reverse=True),
             "spray": spray, "pests": pests,
             "reviews": sorted(v["reviews"], key=lambda e: (e["year"], e["id"]), reverse=True),
