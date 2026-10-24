@@ -14,7 +14,7 @@ from . import microclimate as mc
 
 DEFAULT_SETTINGS = {"frost_last": "04-25", "frost_first": "10-15",  # Ephrata, WA averages
                     "usda_zone": "7a (6b on the 2012 map)", "frost_f": mc.FROST_F,
-                    "temp_entities": [], "rain_entities": [], "humidity_entities": [], "solar_entities": [],
+                    "location": None, "temp_entities": [], "rain_entities": [], "humidity_entities": [], "solar_entities": [],
                     "air_entities": {"pm1": [], "pm25": [], "pm10": [], "nox": [], "voc": []}}
 SENSOR_ALARM_AFTER = timedelta(hours=1)  # how long an in-use sensor may report nothing before it alarms
 ALARM_BACK_F = 1.0  # the air must come back this far inside a limit before an alarm counts as over
@@ -385,6 +385,17 @@ class GardenModel:
                         "month": max((r[2] for r in month), default=None)}}
         return out
 
+    def set_location(self, lat: float | None, lon: float | None, name: str | None = None) -> None:
+        """Where the garden is, for apps that get local weather from a service instead of your own sensors."""
+        if lat is None or lon is None:
+            self.data["settings"]["location"] = None
+        else:
+            if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                raise GardenError("That is not a place on the map")
+            self.data["settings"]["location"] = {"lat": round(float(lat), 4), "lon": round(float(lon), 4),
+                                                 "name": (name or "").strip()[:60] or None}
+        self._touch()
+
     def set_microclimate(self, usda_zone: Any = UNSET, frost_f: float | None = None, temp_entities: Any = UNSET,
                          rain_entities: Any = UNSET, humidity_entities: Any = UNSET, solar_entities: Any = UNSET,
                          air_entities: Any = UNSET) -> None:
@@ -461,6 +472,9 @@ class GardenModel:
                    ph_min: float = 6.0, ph_max: float = 6.8, kind: str = "garden") -> str:
         if kind not in LOCATION_KINDS:
             raise GardenError("Type must be garden, rack or greenhouse")
+        name = (name or "").strip()
+        if not name:
+            raise GardenError("Give it a name")
         gid = self._unique(slug(name), self.data["gardens"])
         self.data["gardens"][gid] = {
             "id": gid, "name": name, "kind": kind, "ph_entity": ph_entity or None, "ph_target": [ph_min, ph_max],
@@ -666,7 +680,7 @@ class GardenModel:
                          **{k: mc.temp_range(self.data["humid"], a, b) for k, (a, b) in per.items()}},
             "air": self._air_view(today),
             "solar": {"sensors": st["solar_entities"], **{k: mc.solar_total(self.data["solar"], a, b) for k, (a, b) in per.items()}},
-            "settings": {"usda_zone": st.get("usda_zone"), "frost_f": thr, "outdoor_entity": self.outdoor_entity,
+            "settings": {"usda_zone": st.get("usda_zone"), "frost_f": thr, "location": st.get("location"), "outdoor_entity": self.outdoor_entity,
                          "temp_entities": st["temp_entities"], "rain_entities": st["rain_entities"],
                          "humidity_entities": st["humidity_entities"], "solar_entities": st["solar_entities"],
                          "air_entities": st["air_entities"]},

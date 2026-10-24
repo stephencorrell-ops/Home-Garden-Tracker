@@ -1,0 +1,21 @@
+:root{color-scheme:light dark;--primary-color:#2e7d32;--primary-text-color:#1b1b1b;--secondary-text-color:#5f6368;--card-background-color:#fff;--secondary-background-color:#f1f3f4;--divider-color:#dadce0;--text-primary-color:#fff;--page:#f6f8f6}
+@media (prefers-color-scheme:dark){:root{--primary-color:#66bb6a;--primary-text-color:#e6e6e6;--secondary-text-color:#9aa0a6;--card-background-color:#262626;--secondary-background-color:#303030;--divider-color:#3d3d3d;--text-primary-color:#10210f;--page:#181818}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--primary-text-color);font-family:Roboto,system-ui,-apple-system,"Segoe UI",sans-serif;min-height:100vh;display:flex;flex-direction:column}
+.bar{display:flex;gap:8px;align-items:center;padding:calc(8px + env(safe-area-inset-top)) 12px 8px;background:var(--card-background-color);border-bottom:1px solid var(--divider-color);position:sticky;top:0;z-index:5}
+.brand{display:flex;gap:8px;align-items:center;font-weight:500;font-size:17px}.grow{flex:1}
+button{font:inherit;color:var(--primary-text-color);background:transparent;border:1px solid var(--divider-color);border-radius:8px;padding:6px 10px;cursor:pointer}
+button.primary{background:var(--primary-color);color:var(--text-primary-color);border-color:var(--primary-color)}
+main{flex:1;width:100%;max-width:760px;margin:0 auto;padding:12px 12px 24px}
+footer{font-size:12px;color:var(--secondary-text-color);text-align:center;padding:12px 16px calc(16px + env(safe-area-inset-bottom))}
+footer a{color:inherit}
+.splash{padding:48px 0;text-align:center;color:var(--secondary-text-color)}
+.notice{margin:10px auto 0;max-width:736px;width:calc(100% - 24px);padding:10px 12px;border-radius:10px;background:color-mix(in srgb,#ffa000 18%,var(--card-background-color));border:1px solid color-mix(in srgb,#ffa000 50%,transparent);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.notice[hidden]{display:none}
+dialog{border:1px solid var(--divider-color);border-radius:14px;padding:16px;background:var(--card-background-color);color:var(--primary-text-color);width:min(460px,calc(100% - 24px))}
+dialog::backdrop{background:rgba(0,0,0,.45)}
+dialog h2{margin:0 0 8px;font-size:18px}
+dialog input[type=text],dialog input[type=search]{width:100%;font:inherit;padding:8px;border-radius:8px;border:1px solid var(--divider-color);background:var(--secondary-background-color);color:inherit}
+dialog .row{display:flex;gap:8px;margin-top:12px;justify-content:flex-end;flex-wrap:wrap}
+dialog ul{list-style:none;margin:8px 0 0;padding:0}dialog li button{width:100%;text-align:left;margin-top:6px}
+.small{font-size:12px;color:var(--secondary-text-color)}

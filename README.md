@@ -48,5 +48,8 @@ Each garden and active plant record becomes a device: harvest total, plants aliv
 - `species.json` thresholds and feeding focus are **starter values**. Check them against your extension service and the product label. Pre-harvest and reapply intervals always come from you, per label.
 - Projected harvest dates need at least one past season of logged harvests for that variety.
 
+## Web app (no Home Assistant needed)
+The same garden tracker runs in a browser at the project's GitHub Pages address (Settings, Pages, then pick "GitHub Actions" as the source the first time). Open it on your phone and use the browser's menu to add it to the home screen. Data is kept in the browser, so use **Back up** to save a file now and then and **Restore** to load it again. Weather comes from [Open-Meteo](https://open-meteo.com/).
+
 ## For developers
-The garden logic (plants, sprays, frost, zone, weather history) lives in `custom_components/garden_tracker/core`. It is plain Python with no Home Assistant code, so other apps can reuse it. The files beside it are the Home Assistant side: sensors, services, climate control and the card. Run the core's tests with `python -m unittest discover -s tests -t .`.
+The garden logic (plants, sprays, frost, zone, weather history) lives in `custom_components/garden_tracker/core`. It is plain Python with no Home Assistant code, so other apps can reuse it. The files beside it are the Home Assistant side: sensors, services, climate control and the card. Run the core's tests with `python -m unittest discover -s tests -t .`. The web app is in `web/`; `python web/build.py --download-pyodide` builds it into `web/dist`, and `python -m tests.web_e2e` tests it in a browser.

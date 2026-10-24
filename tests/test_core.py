@@ -5,6 +5,7 @@ from pathlib import Path
 import unittest
 
 from . import _load  # noqa: F401  (makes the core importable without Home Assistant)
+from custom_components.garden_tracker.core.api import GardenApp
 from custom_components.garden_tracker.core import calc, microclimate as mc
 from custom_components.garden_tracker.core.model import GardenError, GardenModel
 
@@ -100,6 +101,40 @@ class Model(unittest.TestCase):
 
     def test_species_presets_load(self):
         self.assertTrue(make().presets)
+
+
+class App(unittest.TestCase):
+    """The pieces the web app uses: actions as JSON, saving, restoring and weather."""
+
+    def app(self, stored=None):
+        return GardenApp(SPECIES.read_text("utf-8"), stored, TODAY.isoformat())
+
+    def test_actions_report_errors_instead_of_raising(self):
+        a = self.app()
+        self.assertEqual(json.loads(a.call("add_garden", json.dumps({"name": "Back yard"}))), {"ok": True})
+        self.assertFalse(json.loads(a.call("add_garden", json.dumps({"name": " "})))["ok"])
+        self.assertFalse(json.loads(a.call("no_such_action"))["ok"])
+
+    def test_saved_data_restores_into_a_new_app(self):
+        a = self.app()
+        a.call("add_garden", json.dumps({"name": "Back yard"}))
+        a.call("set_location", json.dumps({"lat": 47.3, "lon": -119.5, "name": "Ephrata"}))
+        b = self.app(a.data())
+        snap = json.loads(b.snapshot())
+        self.assertEqual([g["name"] for g in snap["gardens"]], ["Back yard"])
+        self.assertEqual(snap["micro"]["settings"]["location"]["name"], "Ephrata")
+
+    def test_weather_fills_in_history_and_counts_as_rain(self):
+        a = self.app()
+        w = {"daily": {"2026-10-20": [30, 55]}, "rain": {"2026-10-20": 0.3}}
+        self.assertTrue(json.loads(a.merge_weather(json.dumps(w)))["changed"])
+        self.assertFalse(json.loads(a.merge_weather(json.dumps(w)))["changed"])  # the same days again change nothing
+        snap = json.loads(a.snapshot())
+        self.assertEqual(snap["micro"]["rain"]["month"], 0.3)
+        self.assertEqual(snap["micro"]["temps"]["month"]["low"], 30)
+
+    def test_bad_location_is_refused(self):
+        self.assertFalse(json.loads(self.app().call("set_location", json.dumps({"lat": 99, "lon": 0})))["ok"])
 
 
 if __name__ == "__main__":
