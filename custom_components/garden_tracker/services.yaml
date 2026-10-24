@@ -55,7 +55,13 @@ set_sensor_alarm:
 ack_sensor_alarm:
   fields: {garden: {required: true, selector: {text: {}}}, entity: {description: "One sensor (default all)", selector: {entity: {}}}}
 set_microclimate:
-  fields: {usda_zone: {description: "What USDA says your zone is, shown next to the zone worked out from your sensors", example: "7a", selector: {text: {}}}, rain_entity: {description: "A rainfall total sensor (daily, weekly or yearly rain, not the rain rate). Empty removes it.", selector: {entity: {domain: sensor}}}, frost_f: {description: "Temperature counted as a frost (°F)", example: 32, selector: {number: {min: 20, max: 40, step: 0.5, mode: box}}}}
+  fields:
+    usda_zone: {description: "What USDA says your zone is, shown next to the zone worked out from your sensors", example: "7a", selector: {text: {}}}
+    frost_f: {description: "Temperature counted as a frost (°F)", example: 32, selector: {number: {min: 20, max: 40, step: 0.5, mode: box}}}
+    temp_entities: {description: "Extra outside temperature sensors, averaged with the main one", selector: {entity: {domain: sensor, multiple: true}}}
+    rain_entities: {description: "Rainfall total sensors (daily, weekly or yearly rain, not the rain rate), averaged", selector: {entity: {domain: sensor, multiple: true}}}
+    humidity_entities: {description: "Outside humidity sensors, averaged", selector: {entity: {domain: sensor, multiple: true}}}
+    solar_entities: {description: "Solar radiation sensors in W/m², averaged", selector: {entity: {domain: sensor, multiple: true}}}
 set_power_rate:
   fields: {cents: {required: true, description: "Price of electricity in cents per kWh (0 clears it)", example: 5.15, selector: {number: {min: 0, max: 1000, step: 0.01, mode: box}}}}
 set_power_sensors:

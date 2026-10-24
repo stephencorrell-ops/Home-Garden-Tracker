@@ -13,7 +13,8 @@ from . import microclimate as mc
 
 
 DEFAULT_SETTINGS = {"frost_last": "04-25", "frost_first": "10-15",  # Ephrata, WA averages
-                    "usda_zone": "7a (6b on the 2012 map)", "rain_entity": None, "frost_f": mc.FROST_F}
+                    "usda_zone": "7a (6b on the 2012 map)", "frost_f": mc.FROST_F,
+                    "temp_entities": [], "rain_entities": [], "humidity_entities": [], "solar_entities": []}
 SENSOR_ALARM_AFTER = timedelta(hours=1)  # how long an in-use sensor may report nothing before it alarms
 ALARM_BACK_F = 1.0  # the air must come back this far inside a limit before an alarm counts as over
 UNSET: Any = object()
@@ -145,7 +146,7 @@ class GardenModel:
     def __init__(self, presets: dict, today_fn: Callable[[], date],
                  notify: Callable[[], None] | None = None,
                  structure: Callable[[], None] | None = None) -> None:
-        self.data: dict[str, Any] = {"gardens": {}, "varieties": {}, "species": {}, "daily": {}, "rain": {},
+        self.data: dict[str, Any] = {"gardens": {}, "varieties": {}, "species": {}, "daily": {}, "rain": {}, "rain_src": {}, "humid": {}, "solar": {},
                                     "settings": dict(DEFAULT_SETTINGS)}
         self.presets = presets
         self.now_fn: Callable[[], float] = time.time  # seconds since the epoch; the manager sets a Home Assistant clock
@@ -227,34 +228,98 @@ class GardenModel:
             self._touch()
         return changed
 
-    def merge_rain(self, rows: dict[str, float]) -> bool:
+    # ---- rain: every sensor keeps its own daily amounts, and a day's rain is their average -----------
+    def _rain_day(self, k: str) -> None:
+        vals = [self.data["rain_src"][e][k] for e in self.data["settings"]["rain_entities"]
+                if k in self.data["rain_src"].get(e, {})]
+        if vals and sum(vals) > 0:
+            self.data["rain"][k] = round(sum(vals) / len(vals), 3)
+        else:
+            self.data["rain"].pop(k, None)
+
+    def rebuild_rain(self) -> None:
+        days = {k for src in self.data["rain_src"].values() for k in src} | set(self.data["rain"])
+        for k in days:
+            self._rain_day(k)
+
+    def merge_rain(self, entity: str, rows: dict[str, float]) -> bool:
+        src = self.data["rain_src"].setdefault(entity, {})
         changed = False
         for k, v in rows.items():
-            if v > 0 and v > self.data["rain"].get(k, 0):
-                self.data["rain"][k] = round(v, 3)
+            if v > 0 and v > src.get(k, 0):
+                src[k] = round(v, 3)
+                self._rain_day(k)
                 changed = True
         if changed:
             self._touch()
         return changed
 
-    def add_rain(self, inches: float) -> None:
-        """Add rain that just fell (inches) to today's total."""
+    def add_rain(self, entity: str, inches: float) -> None:
+        """Add rain that just fell (inches) to today's total for one sensor."""
         if inches <= 0:
             return
         key = self.today().isoformat()
-        self.data["rain"][key] = round(self.data["rain"].get(key, 0) + inches, 3)
+        src = self.data["rain_src"].setdefault(entity, {})
+        src[key] = round(src.get(key, 0) + inches, 3)
+        self._rain_day(key)
         self._touch()
 
-    def set_microclimate(self, usda_zone: Any = UNSET, rain_entity: Any = UNSET, frost_f: float | None = None) -> None:
+    def record_humidity(self, pct: float) -> None:
+        key = self.today().isoformat()
+        cur = self.data["humid"].get(key)
+        new = [pct, pct] if cur is None else [min(cur[0], pct), max(cur[1], pct)]
+        if new != cur:
+            self.data["humid"][key] = new
+            self._touch()
+
+    def merge_humid(self, rows: dict[str, tuple[float, float]]) -> bool:
+        changed = False
+        for k, (lo, hi) in rows.items():
+            cur = self.data["humid"].get(k)
+            new = [round(lo, 1), round(hi, 1)] if cur is None else [min(cur[0], round(lo, 1)), max(cur[1], round(hi, 1))]
+            if new != cur:
+                self.data["humid"][k] = new
+                changed = True
+        if changed:
+            self._touch()
+        return changed
+
+    def record_solar(self, w_m2: float, wh: float = 0.0) -> None:
+        """Today's brightest reading, and the energy (Wh/m2) that fell since the last one."""
+        key = self.today().isoformat()
+        cur = self.data["solar"].get(key) or [0.0, 0.0]
+        new = [max(cur[0], round(w_m2, 1)), round(cur[1] + max(wh, 0.0), 2)]
+        if new != cur:
+            self.data["solar"][key] = new
+            self._touch()
+
+    def merge_solar(self, rows: dict[str, tuple[float, float]]) -> bool:
+        changed = False
+        for k, (peak, wh) in rows.items():
+            cur = self.data["solar"].get(k)
+            new = [round(peak, 1), round(wh, 1)] if cur is None else [max(cur[0], round(peak, 1)), max(cur[1], round(wh, 1))]
+            if new != cur:
+                self.data["solar"][k] = new
+                changed = True
+        if changed:
+            self._touch()
+        return changed
+
+    def set_microclimate(self, usda_zone: Any = UNSET, frost_f: float | None = None, temp_entities: Any = UNSET,
+                         rain_entities: Any = UNSET, humidity_entities: Any = UNSET, solar_entities: Any = UNSET) -> None:
         st = self.data["settings"]
         if usda_zone is not UNSET:
             st["usda_zone"] = (str(usda_zone).strip()[:40] or None) if usda_zone is not None else None
-        if rain_entity is not UNSET:
-            st["rain_entity"] = (str(rain_entity).strip() or None) if rain_entity is not None else None
         if frost_f is not None:
             if not 20 <= float(frost_f) <= 40:
                 raise GardenError("Frost is between 20 and 40 °F")
             st["frost_f"] = float(frost_f)
+        for key, val in (("temp_entities", temp_entities), ("rain_entities", rain_entities),
+                         ("humidity_entities", humidity_entities), ("solar_entities", solar_entities)):
+            if val is not UNSET:
+                ids = [val] if isinstance(val, str) else list(val or [])
+                st[key] = list(dict.fromkeys(i.strip() for i in ids if i and i.strip()))
+        self.rebuild_rain()
         self._touch(True)
         self._micro_changed()
 
@@ -507,12 +572,16 @@ class GardenModel:
                       "expected_last": st["frost_last"], "expected_first": st["frost_first"],
                       "first_data": min(daily) if daily else None},
             "temps": {k: mc.temp_range(daily, a, b) for k, (a, b) in per.items()},
-            "rain": {"sensor": st.get("rain_entity"), "days_recorded": len(rain),
+            "rain": {"sensors": st["rain_entities"], "days_recorded": len(rain),
                      **{k: mc.rain_total(rain, a, b) for k, (a, b) in per.items()}},
             "soil": {"actual": act, "expected": exp, "last_year": avg(last_year),
                      "diff": None if act is None or exp is None else round(act - exp, 1)},
-            "settings": {"usda_zone": st.get("usda_zone"), "rain_entity": st.get("rain_entity"), "frost_f": thr,
-                         "outdoor_entity": self.outdoor_entity},
+            "humidity": {"sensors": st["humidity_entities"],
+                         **{k: mc.temp_range(self.data["humid"], a, b) for k, (a, b) in per.items()}},
+            "solar": {"sensors": st["solar_entities"], **{k: mc.solar_total(self.data["solar"], a, b) for k, (a, b) in per.items()}},
+            "settings": {"usda_zone": st.get("usda_zone"), "frost_f": thr, "outdoor_entity": self.outdoor_entity,
+                         "temp_entities": st["temp_entities"], "rain_entities": st["rain_entities"],
+                         "humidity_entities": st["humidity_entities"], "solar_entities": st["solar_entities"]},
         }
 
     def _frost_view(self, g: dict, today: date) -> dict:

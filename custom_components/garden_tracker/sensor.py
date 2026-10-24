@@ -458,6 +458,19 @@ MICRO = [
               native_unit_of_measurement=UnitOfTemperature.FAHRENHEIT, value_fn=lambda m: m["soil"]["expected"],
               attr_fn=lambda m: {"actual": m["soil"]["actual"], "difference": m["soil"]["diff"],
                                  "last_year": m["soil"]["last_year"]}),
+    *[MicroDesc(key=f"humidity_{w}_{k}", name=f"Humidity {w} {n}", device_class=SensorDeviceClass.HUMIDITY,
+                native_unit_of_measurement=PERCENTAGE, state_class=SensorStateClass.MEASUREMENT,
+                value_fn=lambda m, k=k, w=w: m["humidity"][k][w])
+      for k, n in (("day", "today"), ("week", "this week"), ("month", "this month"), ("year", "this year"))
+      for w in ("high", "low")],
+    *[MicroDesc(key=f"solar_peak_{k}", name=f"Peak sun {n}", device_class=SensorDeviceClass.IRRADIANCE,
+                native_unit_of_measurement="W/m²", state_class=SensorStateClass.MEASUREMENT,
+                value_fn=lambda m, k=k: m["solar"][k]["peak"])
+      for k, n in (("day", "today"), ("week", "this week"), ("month", "this month"), ("year", "this year"))],
+    *[MicroDesc(key=f"solar_energy_{k}", name=f"Sun energy {n}", native_unit_of_measurement="kWh/m²",
+                icon="mdi:white-balance-sunny", state_class=SensorStateClass.MEASUREMENT,
+                value_fn=lambda m, k=k: m["solar"][k]["kwh"])
+      for k, n in (("day", "today"), ("week", "this week"), ("month", "this month"), ("year", "this year"))],
     *[_rain(k, n) for k, n in (("day", "today"), ("week", "this week"), ("month", "this month"), ("year", "this year"))],
     *[_temp(k, n, w) for k, n in (("day", "today"), ("week", "this week"), ("month", "this month"), ("year", "this year"))
       for w in ("high", "low")],
@@ -523,7 +536,11 @@ class AdjunctSensor(_Base):
 def _build(mgr: GardenManager, known: set) -> list:
     ents: list = []
     snap = mgr.snapshot()
-    for d in MICRO:
+    cfg = snap["micro"]["settings"]
+    for d in MICRO:  # humidity, sun and rain sensors appear once you have picked sensors for them
+        need = {"humidity": "humidity_entities", "solar": "solar_entities", "rain": "rain_entities"}.get(d.key.split("_")[0])
+        if need and not cfg[need]:
+            continue
         if f"micro_{d.key}" not in known:
             ents.append(MicroSensor(mgr, known, d))
     for g in snap["gardens"]:

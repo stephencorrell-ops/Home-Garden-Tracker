@@ -98,6 +98,22 @@ def rain_total(rain: dict, start: date, end: date) -> float:
     return round(sum(v for k, v in rain.items() if start.isoformat() <= k <= end.isoformat()), 2)
 
 
+def solar_total(solar: dict, start: date, end: date) -> dict:
+    """Peak sun and the energy that fell between two dates: solar holds [peak W/m2, Wh/m2] for each day."""
+    peak, wh, days, pk = None, 0.0, 0, None
+    d = start
+    while d <= end:
+        r = solar.get(d.isoformat())
+        if r:
+            days += 1
+            wh += r[1]
+            if peak is None or r[0] > peak:
+                peak, pk = r[0], d.isoformat()
+        d += timedelta(days=1)
+    return {"peak": peak and round(peak), "peak_date": pk, "kwh": round(wh / 1000, 2),
+            "avg_kwh": round(wh / 1000 / days, 2) if days else None, "days": days}
+
+
 def periods(today: date) -> dict[str, tuple[date, date]]:
     return {"day": (today, today), "week": (today - timedelta(days=6), today),
             "month": (today.replace(day=1), today), "year": (date(today.year, 1, 1), today)}

@@ -388,13 +388,13 @@ class GardenTrackerCard extends HTMLElement {
     if (!m) return "";
     const z = m.zone, t = m.temps.year;
     const zt = z.zone ? `Zone ${esc(z.zone)}` : "Zone still being worked out";
-    const sub = [z.usda ? `USDA says ${esc(z.usda)}` : "", t.low !== null ? `year ${num(t.low, 0)}° to ${num(t.high, 0)}°F` : "", m.rain.sensor ? `rain this year ${num(m.rain.year, 1)} in` : ""].filter(Boolean).join(", ");
+    const sub = [z.usda ? `USDA says ${esc(z.usda)}` : "", t.low !== null ? `year ${num(t.low, 0)}° to ${num(t.high, 0)}°F` : "", m.rain.sensors.length ? `rain this year ${num(m.rain.year, 1)} in` : ""].filter(Boolean).join(", ");
     return `<div class="card tile" data-act="open-micro"><div class="row"><div class="pic" style="background:color-mix(in srgb,var(--info) 18%,transparent);color:var(--info)">${this._icon("map-marker-radius")}</div><div class="grow"><div style="font-size:15px;font-weight:500">Microclimate</div><div class="sub">${zt}</div><div class="small mut">${sub || "Your own frost dates, temperatures and rain"}</div></div>${this._icon("chevron-right")}</div></div>`;
   }
   _microView() {
     const m = this._snap.micro;
     let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="ttl grow">Microclimate</div>${this._btn("form-micro", "cog", "Settings")}</div>`;
-    if (!m.settings.outdoor_entity) h += `<div class="msg">Choose an outside temperature sensor in the card options to start recording frost and temperatures here.</div>`;
+    if (!m.settings.outdoor_entity) h += `<div class="msg">Set an outside temperature sensor in the Garden Tracker integration options to start recording frost and temperatures here.</div>`;
     // zone
     const z = m.zone;
     h += `<div class="card"><div class="sec">Hardiness zone</div>`;
@@ -436,27 +436,39 @@ class GardenTrackerCard extends HTMLElement {
     const P = [["day", "Today"], ["week", "Week"], ["month", "Month"], ["year", "Year"]];
     h += `<div class="card"><div class="sec">High and low</div><table class="tbl"><tr><th></th><th>High</th><th>Low</th></tr>${P.map(([k, n]) => { const t = m.temps[k]; return `<tr><td>${n}</td><td>${t.high === null ? "-" : num(t.high, 0) + "°F"}</td><td>${t.low === null ? "-" : num(t.low, 0) + "°F"}</td></tr>`; }).join("")}</table></div>`;
     h += `<div class="card"><div class="sec">Rainfall</div>`;
-    if (!m.rain.sensor) h += `<div class="small mut">Pick a rainfall total sensor in Settings to track rain.</div>`;
+    if (!m.rain.sensors.length) h += `<div class="small mut">Pick rainfall total sensors in Settings to track rain.</div>`;
     else h += `<table class="tbl"><tr><th></th><th>Rain</th></tr>${P.map(([k, n]) => `<tr><td>${n}</td><td>${num(m.rain[k], 2)} in</td></tr>`).join("")}</table>`;
-    return h + `</div>`;
+    h += `</div>`;
+    if (m.humidity.sensors.length) h += `<div class="card"><div class="sec">Humidity</div><table class="tbl"><tr><th></th><th>High</th><th>Low</th></tr>${P.map(([k, n]) => { const t = m.humidity[k]; return `<tr><td>${n}</td><td>${t.high === null ? "-" : num(t.high, 0) + "%"}</td><td>${t.low === null ? "-" : num(t.low, 0) + "%"}</td></tr>`; }).join("")}</table></div>`;
+    if (m.solar.sensors.length) h += `<div class="card"><div class="sec">Sun</div><table class="tbl"><tr><th></th><th>Peak</th><th>Energy</th></tr>${P.map(([k, n]) => { const t = m.solar[k]; return `<tr><td>${n}</td><td>${t.peak === null ? "-" : num(t.peak, 0) + " W/m²"}</td><td>${t.days ? num(t.kwh, 1) + " kWh/m²" : "-"}</td></tr>`; }).join("")}</table><div class="small mut" style="margin-top:6px">Energy is the sunlight that landed on each square metre. A clear summer day is about 7 to 8 kWh/m².</div></div>`;
+    return h;
   }
-  _fMicro() {
-    const m = this._snap.micro, st = (this._hass && this._hass.states) || {};
-    const opts = [["", "None"]];
+  _weatherCandidates(selected, test) {
+    const st = (this._hass && this._hass.states) || {}, out = [];
     for (const [id, s2] of Object.entries(st)) {
       if (!id.startsWith("sensor.")) continue;
       const a = s2.attributes || {}, unit = String(a.unit_of_measurement || "").toLowerCase();
-      if (a.device_class === "precipitation" || ["in", "mm", "cm"].includes(unit) || id === m.settings.rain_entity) opts.push([id, `${a.friendly_name || id} (${s2.state} ${a.unit_of_measurement || ""})`]);
+      if (test(a, unit) || selected.includes(id)) out.push([id, `${a.friendly_name || id} (${s2.state}${a.unit_of_measurement ? " " + a.unit_of_measurement : ""})`]);
     }
+    return out;
+  }
+  _fMicro() {
+    const m = this._snap.micro, c = m.settings, W = this._weatherCandidates.bind(this);
     return {
       title: "Microclimate settings", submitLabel: "Save",
       fields: [
-        { name: "rain_entity", label: "Rainfall total sensor", type: "select", options: opts, value: m.settings.rain_entity || "" },
-        { name: "usda_zone", label: "What USDA says your zone is", type: "text", placeholder: "7a", value: m.settings.usda_zone || "" },
-        { name: "frost_f", label: "Counts as a frost at or below (°F)", type: "number", step: "0.5", value: m.settings.frost_f },
+        { name: "temp_entities", label: `Outside temperature: more sensors to average${c.outdoor_entity ? ` with ${c.outdoor_entity}` : ""} (tap to include)`, type: "multi", options: W(c.temp_entities, (a, u) => a.device_class === "temperature"), value: c.temp_entities.join(",") },
+        { name: "rain_entities", label: "Rainfall total sensors (tap to include)", type: "multi", options: W(c.rain_entities, (a, u) => a.device_class === "precipitation" || ["in", "mm", "cm"].includes(u)), value: c.rain_entities.join(",") },
+        { name: "humidity_entities", label: "Humidity sensors (tap to include)", type: "multi", options: W(c.humidity_entities, (a, u) => a.device_class === "humidity"), value: c.humidity_entities.join(",") },
+        { name: "solar_entities", label: "Solar radiation sensors, W/m² (tap to include)", type: "multi", options: W(c.solar_entities, (a, u) => a.device_class === "irradiance" || u.endsWith("w/m²") || u.endsWith("w/m2")), value: c.solar_entities.join(",") },
+        { name: "usda_zone", label: "What USDA says your zone is", type: "text", placeholder: "7a", value: c.usda_zone || "" },
+        { name: "frost_f", label: "Counts as a frost at or below (°F)", type: "number", step: "0.5", value: c.frost_f },
       ],
-      note: "Use a rain total that counts up through the day, week or year, not a rain rate. Past rain and temperatures are read from Home Assistant's long-term statistics for your outside sensor and rain sensor.",
-      submit: (x) => this._call("set_microclimate", { rain_entity: x.rain_entity || " ", usda_zone: x.usda_zone || " ", frost_f: x.frost_f }),
+      note: "Several sensors of one kind are averaged. Rain needs totals that count up through the day, week or year, not a rain rate. Past weather is read from Home Assistant's long-term statistics for these sensors, so history is there right away. Humidity and sun cards show once you pick sensors for them.",
+      submit: (x) => {
+        const list = (v) => String(v || "").split(",").filter(Boolean);
+        return this._call("set_microclimate", { temp_entities: list(x.temp_entities), rain_entities: list(x.rain_entities), humidity_entities: list(x.humidity_entities), solar_entities: list(x.solar_entities), usda_zone: x.usda_zone || " ", frost_f: x.frost_f });
+      },
     };
   }
   _homeView() {

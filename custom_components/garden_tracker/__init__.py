@@ -6,14 +6,12 @@ from pathlib import Path
 from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN, Platform, UnitOfTemperature
-from homeassistant.core import Event, HomeAssistant, State, callback
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.const import Platform
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.dispatcher import async_dispatcher_connect, async_dispatcher_send
 from homeassistant.helpers.event import async_track_state_change_event, async_track_time_change
 from homeassistant.helpers.typing import ConfigType
-from homeassistant.util.unit_conversion import TemperatureConverter
 
 from . import websocket
 from .const import CARD_URL, CONF_TEMP_ENTITY, DOMAIN, SIGNAL_STRUCTURE, SIGNAL_UPDATE
@@ -32,21 +30,6 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     return True
 
 
-@callback
-def _ingest(hass: HomeAssistant, mgr: GardenManager, state: State | None) -> None:
-    if state is None or state.state in (STATE_UNKNOWN, STATE_UNAVAILABLE):
-        return
-    if state.domain == "weather":
-        val = state.attributes.get("temperature")
-        unit = state.attributes.get("temperature_unit") or hass.config.units.temperature_unit
-    else:
-        val, unit = state.state, state.attributes.get("unit_of_measurement")
-    try:
-        mgr.record_temp_f(TemperatureConverter.convert(float(val), unit, UnitOfTemperature.FAHRENHEIT))
-    except (TypeError, ValueError, HomeAssistantError):
-        return
-
-
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     mgr = GardenManager(hass)
     source = entry.options.get(CONF_TEMP_ENTITY, entry.data[CONF_TEMP_ENTITY])
@@ -56,10 +39,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     @callback
     def _on_temp(event: Event) -> None:
-        _ingest(hass, mgr, event.data.get("new_state"))
+        mgr.record_outdoor()
 
     entry.async_on_unload(async_track_state_change_event(hass, [source], _on_temp))
-    _ingest(hass, mgr, hass.states.get(source))
+    mgr.record_outdoor()
 
     @callback
     def _midnight(now) -> None:
