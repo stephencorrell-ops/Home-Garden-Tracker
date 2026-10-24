@@ -472,6 +472,14 @@ MICRO = [
                 icon="mdi:white-balance-sunny", state_class=SensorStateClass.MEASUREMENT,
                 value_fn=lambda m, k=k: m["solar"][k]["kwh"])
       for k, n in (("day", "today"), ("week", "this week"), ("month", "this month"), ("year", "this year"))],
+    *[MicroDesc(key=f"air_max_{m}", name=f"{nm} highest today", state_class=SensorStateClass.MEASUREMENT,
+                native_unit_of_measurement=unit or None, icon="mdi:air-filter",
+                value_fn=lambda mc_, m=m: mc_["air"]["metrics"][m]["max"]["today"],
+                attr_fn=lambda mc_, m=m: {"now": mc_["air"]["metrics"][m]["current"],
+                                          "week_high": mc_["air"]["metrics"][m]["max"]["week"],
+                                          "month_high": mc_["air"]["metrics"][m]["max"]["month"]})
+      for m, (nm, unit) in {"pm1": ("PM1", "µg/m³"), "pm25": ("PM2.5", "µg/m³"), "nox": ("NOx index", ""),
+                            "voc": ("VOC index", "")}.items()],
     *[_rain(k, n) for k, n in (("day", "today"), ("week", "this week"), ("month", "this month"), ("year", "this year"))],
     *[_temp(k, n, w) for k, n in (("day", "today"), ("week", "this week"), ("month", "this month"), ("year", "this year"))
       for w in ("high", "low")],
@@ -541,6 +549,8 @@ def _build(mgr: GardenManager, known: set) -> list:
     for d in MICRO:  # humidity, sun and rain sensors appear once you have picked sensors for them
         need = {"humidity": "humidity_entities", "solar": "solar_entities", "rain": "rain_entities"}.get(d.key.split("_")[0])
         if need and not cfg[need]:
+            continue
+        if d.key.startswith("air_max_") and not cfg["air_entities"][d.key[8:]]:
             continue
         if f"micro_{d.key}" not in known:
             ents.append(MicroSensor(mgr, known, d))

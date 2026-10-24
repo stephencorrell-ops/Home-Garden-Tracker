@@ -136,7 +136,9 @@ class GardenManager(GardenModel):
         self._rain_last = {e: self._rain_inches(self.hass.states.get(e)) for e in rain}
         self._solar_t = None
         extra = [e for e in st.get("temp_entities", []) if e != self.outdoor_entity]
-        every = list(dict.fromkeys([*extra, *rain, *st.get("humidity_entities", []), *st.get("solar_entities", [])]))
+        air = st.get("air_entities", {})
+        air_by = {e: m for m, es in air.items() for e in es}
+        every = list(dict.fromkeys([*extra, *rain, *st.get("humidity_entities", []), *st.get("solar_entities", []), *air_by]))
         if not every:
             return
 
@@ -159,6 +161,8 @@ class GardenManager(GardenModel):
                     self.record_humidity(h)
             if ent in st.get("solar_entities", []):
                 self._on_solar()
+            if ent in air_by:
+                self._on_air(air_by[ent])
 
         self._rain_unsub = async_track_state_change_event(self.hass, every, _on_weather)
         if st.get("humidity_entities"):
@@ -166,6 +170,16 @@ class GardenManager(GardenModel):
             if h is not None and 0 <= h <= 100:
                 self.record_humidity(h)
         self._on_solar()
+        for m in air:
+            self._on_air(m)
+
+    def _on_air(self, metric: str) -> None:
+        v = self._avg([self._num(e)[0] for e in self.data["settings"]["air_entities"].get(metric, [])])
+        if v is not None and 0 <= v <= 10000:
+            self.record_air(metric, v)
+
+    def _local_day(self, ts: float) -> str:
+        return dt_util.as_local(datetime.fromtimestamp(ts, tz=dt_util.UTC)).date().isoformat()
 
     def _on_solar(self) -> None:
         w, now = self._solar_now(), self.now_fn()
@@ -183,15 +197,20 @@ class GardenManager(GardenModel):
         st = self.data["settings"]
         temps, rain = self.outdoor_entities(), st.get("rain_entities", [])
         humid, solar = st.get("humidity_entities", []), st.get("solar_entities", [])
+        air = st.get("air_entities", {})
         ents = [e for e in dict.fromkeys([*temps, *rain, *humid, *solar]) if e.startswith("sensor.")]
-        if not ents:
+        air_ents = [e for es in air.values() for e in es if e.startswith("sensor.")]
+        if not ents and not air_ents:
             return
         try:
             from homeassistant.components.recorder import get_instance
             from homeassistant.components.recorder.statistics import statistics_during_period
             start = dt_util.utcnow() - timedelta(days=BACKFILL_DAYS)
             stats = await get_instance(self.hass).async_add_executor_job(
-                statistics_during_period, self.hass, start, None, set(ents), "day", None, {"min", "max", "mean", "sum"})
+                statistics_during_period, self.hass, start, None, set(ents), "day", None, {"min", "max", "mean", "sum"}) if ents else {}
+            hourly = await get_instance(self.hass).async_add_executor_job(
+                statistics_during_period, self.hass, dt_util.utcnow() - timedelta(days=35), None, set(air_ents), "hour", None,
+                {"max", "mean"}) if air_ents else {}
         except Exception as err:  # the recorder may not be loaded, or may not keep these statistics
             _LOGGER.debug("Garden Tracker: no long-term statistics to read: %s", err)
             return
@@ -201,6 +220,12 @@ class GardenManager(GardenModel):
             if e in stats:
                 self._backfill_rain(stats[e], e)
         self._backfill_solar([self._stat_solar(stats[e], e) for e in solar if e in stats])
+        for m, es in air.items():
+            per = [self._stat_hours(hourly[e]) for e in es if e in hourly]
+            days = {t for p in per for t in p}
+            if days:
+                self.merge_air(m, {t: (sum(p[t][0] for p in per if t in p) / sum(1 for p in per if t in p),
+                                       max(p[t][1] for p in per if t in p)) for t in days})
 
     @staticmethod
     def _stat_day(row) -> str | None:
@@ -208,6 +233,17 @@ class GardenManager(GardenModel):
         if isinstance(start, (int, float)):
             start = datetime.fromtimestamp(start, tz=dt_util.UTC)
         return dt_util.as_local(start).date().isoformat() if start else None
+
+    @staticmethod
+    def _stat_hours(rows: list[dict]) -> dict:
+        out = {}
+        for r in rows:
+            start = r.get("start")
+            if isinstance(start, datetime):
+                start = start.timestamp()
+            if start is not None and r.get("mean") is not None and r.get("max") is not None:
+                out[int(start)] = (float(r["mean"]), float(r["max"]))
+        return out
 
     def _stat_temps(self, rows: list[dict], ent: str) -> dict:
         state = self.hass.states.get(ent)

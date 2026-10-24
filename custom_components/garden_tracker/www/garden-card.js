@@ -193,6 +193,22 @@ function tempChart(series, label) {
     <text class="ax" x="2" y="${T + 8}">${f(hi)}</text><text class="ax" x="2" y="${H - B - 2}">${f(lo)}</text>
     ${body}<text class="ax" x="${L}" y="${H - 5}">${fmtDate(first)}</text><text class="ax" text-anchor="end" x="${W - R}" y="${H - 5}">${fmtDate(end)}</text></svg>`;
 }
+// Air quality: rows are [time, average, highest?]; time is seconds since the epoch, or a date for whole days.
+function airChart(rows, label) {
+  if (rows.length < 2) return `<div class="mut small">Readings will draw a trend as they come in.</div>`;
+  const W = 340, H = 100, L = 34, R = 8, T = 8, B = 18;
+  const t = (r) => (typeof r[0] === "number" ? r[0] * 1000 : Date.parse(r[0] + "T12:00:00"));
+  const t0 = t(rows[0]), t1 = t(rows[rows.length - 1]) || t0 + 1;
+  const hi = Math.max(1, ...rows.map((r) => (r[2] === undefined ? r[1] : r[2]))) * 1.08;
+  const x = (r) => L + ((t(r) - t0) / Math.max(1, t1 - t0)) * (W - L - R), y = (v) => T + (1 - v / hi) * (H - T - B);
+  const avg = rows.map((r) => `${x(r).toFixed(1)},${y(r[1]).toFixed(1)}`).join(" ");
+  const mx = rows[0].length > 2 ? `<polyline points="${rows.map((r) => `${x(r).toFixed(1)},${y(r[2]).toFixed(1)}`).join(" ")}" fill="none" stroke="var(--warning-color,#ff9800)" stroke-width="1.5" stroke-dasharray="3 2"/>` : "";
+  const short = (ms) => new Date(ms).toLocaleString(undefined, t1 - t0 <= 2 * 864e5 ? { hour: "numeric", minute: "2-digit" } : { month: "short", day: "numeric" });
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${esc(label)}"><line x1="${L}" y1="${H - B}" x2="${W - R}" y2="${H - B}" stroke="var(--divider-color)"/>
+    <text class="ax" x="2" y="${T + 8}">${Math.round(hi)}</text><text class="ax" x="2" y="${H - B - 2}">0</text>${mx}
+    <polyline points="${avg}" fill="none" stroke="var(--primary-color)" stroke-width="2"/>
+    <text class="ax" x="${L}" y="${H - 4}">${short(t0)}</text><text class="ax" text-anchor="end" x="${W - R}" y="${H - 4}">${short(t1)}</text></svg>`;
+}
 // The last 24 hours of readings: series are [{ color, rows: [[seconds since the epoch, value], ...] }].
 function dayChart(series, label) {
   const now = Date.now() / 1000, t0 = now - 86400;
@@ -439,6 +455,15 @@ class GardenTrackerCard extends HTMLElement {
     if (!m.rain.sensors.length) h += `<div class="small mut">Pick rainfall total sensors in Settings to track rain.</div>`;
     else h += `<table class="tbl"><tr><th></th><th>Rain</th></tr>${P.map(([k, n]) => `<tr><td>${n}</td><td>${num(m.rain[k], 2)} in</td></tr>`).join("")}</table>`;
     h += `</div>`;
+    const air = Object.entries(m.air.metrics).filter(([k]) => (m.air.sensors[k] || []).length);
+    if (air.length) {
+      const rng = this._airRange || "day", RN = { day: "Last 24 hours, 15 minute averages", week: "Last 7 days, hourly averages", month: "Last 30 days, daily averages and highest" };
+      h += `<div class="card"><div class="sec">Air quality</div><div class="seg" style="margin-bottom:6px">${[["day", "Day"], ["week", "Week"], ["month", "Month"]].map(([k, t]) => `<button data-act="air-range" data-s="${k}" class="${rng === k ? "on" : ""}">${t}</button>`).join("")}</div><div class="small mut">${RN[rng]}${rng === "day" ? "" : ". Dashed line is the highest in each " + (rng === "week" ? "hour" : "day")}</div>`;
+      for (const [k, a] of air) {
+        h += `<div style="margin-top:12px"><div class="row"><div class="grow" style="font-weight:500">${esc(a.name)}</div><div><b>${a.current === null ? "-" : num(a.current, 1)}</b> <span class="small mut">${esc(a.unit)}</span></div></div>${airChart(a[rng], a.name)}<div class="small mut">Highest: today ${a.max.today === null ? "-" : num(a.max.today, 1)}, week ${a.max.week === null ? "-" : num(a.max.week, 1)}, month ${a.max.month === null ? "-" : num(a.max.month, 1)}</div></div>`;
+      }
+      h += `</div>`;
+    }
     if (m.humidity.sensors.length) h += `<div class="card"><div class="sec">Humidity</div><table class="tbl"><tr><th></th><th>High</th><th>Low</th></tr>${P.map(([k, n]) => { const t = m.humidity[k]; return `<tr><td>${n}</td><td>${t.high === null ? "-" : num(t.high, 0) + "%"}</td><td>${t.low === null ? "-" : num(t.low, 0) + "%"}</td></tr>`; }).join("")}</table></div>`;
     if (m.solar.sensors.length) h += `<div class="card"><div class="sec">Sun</div><table class="tbl"><tr><th></th><th>Average</th><th>Energy</th></tr>${P.map(([k, n]) => { const t = m.solar[k]; return `<tr><td>${n}</td><td>${t.avg === null ? "-" : num(t.avg, 0) + " W/m²"}</td><td>${t.days ? num(t.kwh, 1) + " kWh/m²" : "-"}</td></tr>`; }).join("")}</table><div class="small mut" style="margin-top:6px">Average is over the whole 24 hours, night included. Energy is the sunlight that landed on each square metre. A clear summer day is about 7 to 8 kWh/m².</div></div>`;
     return h;
@@ -448,12 +473,13 @@ class GardenTrackerCard extends HTMLElement {
     for (const [id, s2] of Object.entries(st)) {
       if (!id.startsWith("sensor.")) continue;
       const a = s2.attributes || {}, unit = String(a.unit_of_measurement || "").toLowerCase();
-      if (test(a, unit) || selected.includes(id)) out.push([id, `${a.friendly_name || id} (${s2.state}${a.unit_of_measurement ? " " + a.unit_of_measurement : ""})`]);
+      if (test(a, unit, id) || selected.includes(id)) out.push([id, `${a.friendly_name || id} (${s2.state}${a.unit_of_measurement ? " " + a.unit_of_measurement : ""})`]);
     }
     return out;
   }
   _fMicro() {
     const m = this._snap.micro, c = m.settings, W = this._weatherCandidates.bind(this);
+    const airMatch = { pm1: /pm[\s_.]?1(?![0-9])/i, pm25: /pm[\s_.]?2[\s_.]?5/i, nox: /nox/i, voc: /voc|volatile/i };
     return {
       title: "Microclimate settings", submitLabel: "Save",
       fields: [
@@ -461,13 +487,14 @@ class GardenTrackerCard extends HTMLElement {
         { name: "rain_entities", label: "Rainfall total sensors (tap to include)", type: "multi", options: W(c.rain_entities, (a, u) => a.device_class === "precipitation" || ["in", "mm", "cm"].includes(u)), value: c.rain_entities.join(",") },
         { name: "humidity_entities", label: "Humidity sensors (tap to include)", type: "multi", options: W(c.humidity_entities, (a, u) => a.device_class === "humidity"), value: c.humidity_entities.join(",") },
         { name: "solar_entities", label: "Solar radiation sensors, W/m² (tap to include)", type: "multi", options: W(c.solar_entities, (a, u) => a.device_class === "irradiance" || u.endsWith("w/m²") || u.endsWith("w/m2")), value: c.solar_entities.join(",") },
+        ...Object.entries({ pm1: "PM1", pm25: "PM2.5", nox: "NOx", voc: "VOC" }).map(([k, t]) => ({ name: `air_${k}`, label: `Air quality, ${t} sensors (tap to include)`, type: "multi", options: W(c.air_entities[k], (a, u, id) => airMatch[k].test(id + " " + (a.friendly_name || "")) || a.device_class === ({ pm1: "pm1", pm25: "pm25", nox: "nitrogen_oxides", voc: "volatile_organic_compounds" })[k]), value: c.air_entities[k].join(",") })),
         { name: "usda_zone", label: "What USDA says your zone is", type: "text", placeholder: "7a", value: c.usda_zone || "" },
         { name: "frost_f", label: "Counts as a frost at or below (°F)", type: "number", step: "0.5", value: c.frost_f },
       ],
       note: "Several sensors of one kind are averaged. Rain needs totals that count up through the day, week or year, not a rain rate. Past weather is read from Home Assistant's long-term statistics for these sensors, so history is there right away. Humidity and sun cards show once you pick sensors for them.",
       submit: (x) => {
         const list = (v) => String(v || "").split(",").filter(Boolean);
-        return this._call("set_microclimate", { temp_entities: list(x.temp_entities), rain_entities: list(x.rain_entities), humidity_entities: list(x.humidity_entities), solar_entities: list(x.solar_entities), usda_zone: x.usda_zone || " ", frost_f: x.frost_f });
+        return this._call("set_microclimate", { temp_entities: list(x.temp_entities), rain_entities: list(x.rain_entities), humidity_entities: list(x.humidity_entities), solar_entities: list(x.solar_entities), air_entities: { pm1: list(x.air_pm1), pm25: list(x.air_pm25), nox: list(x.air_nox), voc: list(x.air_voc) }, usda_zone: x.usda_zone || " ", frost_f: x.frost_f });
       },
     };
   }
@@ -961,6 +988,7 @@ class GardenTrackerCard extends HTMLElement {
       case "open-micro": return this._go({ v: "micro" });
       case "form-micro": return this._open(this._fMicro());
       case "filter": this._filter = d.s; return this._render();
+      case "air-range": this._airRange = d.s; return this._render();
       case "temp-range": this._tempRange = d.s; return this._render();
       case "toggle-log": this._showLog = !this._showLog; return this._render();
       case "undo": return this._act("undo_delete", {}, () => { this._undo = false; });
