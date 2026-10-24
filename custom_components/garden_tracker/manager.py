@@ -31,6 +31,7 @@ class GardenManager(GardenModel):
     def __init__(self, hass: HomeAssistant) -> None:
         super().__init__({}, lambda: dt_util.now().date(), self._on_change, self._on_structure)
         self.hass = hass
+        self.now_fn = lambda: dt_util.utcnow().timestamp()
         self._store: Store = Store(hass, STORAGE_VERSION, STORAGE_KEY)
         self._ph_unsub = None
         self._climate_unsub = None

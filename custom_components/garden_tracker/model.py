@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import re
+import time
 import uuid
 from datetime import date, datetime, timedelta
 from typing import Any, Callable
@@ -14,6 +15,9 @@ DEFAULT_SETTINGS = {"frost_last": "04-25", "frost_first": "10-15"}  # Ephrata, W
 SENSOR_ALARM_AFTER = timedelta(hours=1)  # how long an in-use sensor may report nothing before it alarms
 ALARM_BACK_F = 1.0  # the air must come back this far inside a limit before an alarm counts as over
 UNSET: Any = object()
+SAMPLE_SLOT_S = 900                 # temperature readings are kept every 15 minutes...
+SAMPLE_KEEP_S = 8 * 86400           # ...for eight days, to draw the last 24 hours and the week
+SAMPLED = ("soil_temp", "air_temp", "out_temp")
 GROUP_MIN = 6  # plantings above this many plants are shown as one summary
 
 
@@ -142,6 +146,7 @@ class GardenModel:
         self.data: dict[str, Any] = {"gardens": {}, "varieties": {}, "species": {}, "daily": {},
                                     "settings": dict(DEFAULT_SETTINGS)}
         self.presets = presets
+        self.now_fn: Callable[[], float] = time.time  # seconds since the epoch; the manager sets a Home Assistant clock
         self.outdoor_entity: str | None = None  # the main outdoor temperature sensor, used when a place has none of its own
         self._today_fn = today_fn
         self._notify = notify or (lambda: None)
@@ -175,6 +180,7 @@ class GardenModel:
         g.setdefault("power_sensors", {})
         g.setdefault("energy", {})
         g.setdefault("energy_last", {})
+        g.setdefault("samples", {})
         sa = g.get("sensor_alarm") or {}
         g["sensor_alarm"] = {"enabled": sa.get("enabled", True), "down": dict(sa.get("down") or {})}
         if g["kind"] != "garden":
@@ -952,7 +958,26 @@ class GardenModel:
         else:
             g[metric].append({"id": new_id(), "date": today, "value": value, "last": value, "min": value,
                               "max": value, "n": 1, "sum": value, "source": "sensor"})
+        if metric in SAMPLED:
+            self._sample(g, metric, value)
         self._touch()
+
+    def _sample(self, g: dict, metric: str, value: float) -> None:
+        """Keep one reading per 15 minutes (the latest in the slot) for the last 24 hour and week charts."""
+        now = int(self.now_fn())
+        rows = g["samples"].setdefault(metric, [])
+        if rows and rows[-1][0] // SAMPLE_SLOT_S == now // SAMPLE_SLOT_S:
+            rows[-1] = [now, value]
+        else:
+            rows.append([now, value])
+        cut = now - SAMPLE_KEEP_S
+        while rows and rows[0][0] < cut:
+            rows.pop(0)
+
+    def _samples_view(self, g: dict, metric: str) -> list[list[float]]:
+        """The last 24 hours of readings, 15 minutes apart, as [seconds since the epoch, value]."""
+        cut = int(self.now_fn()) - 86400
+        return [r for r in g["samples"].get(metric, []) if r[0] >= cut]
 
     # ---- varieties and plants -----------------------------------------------
     def add_variety(self, garden: str, species: str, variety: str, plants: int = 1,
@@ -1374,6 +1399,9 @@ class GardenModel:
         log = sorted(g["adjuncts"], key=lambda e: (e["date"], e["id"]), reverse=True)
         kind = g.get("kind", "garden")
         metrics = {k: self._metric_view(g, k) for k in METRIC_SETS[kind]}
+        for k in metrics:
+            if k in SAMPLED:
+                metrics[k]["day"] = self._samples_view(g, k)
         if "out_temp" in metrics:  # with no sensor of its own it follows the main outdoor sensor
             metrics["out_temp"]["fallback"] = bool(not metrics["out_temp"]["entities"] and self.outdoor_entity)
         soil = kind == "garden"

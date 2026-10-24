@@ -191,6 +191,30 @@ function tempChart(series, label) {
     <text class="ax" x="2" y="${T + 8}">${f(hi)}</text><text class="ax" x="2" y="${H - B - 2}">${f(lo)}</text>
     ${body}<text class="ax" x="${L}" y="${H - 5}">${fmtDate(first)}</text><text class="ax" text-anchor="end" x="${W - R}" y="${H - 5}">${fmtDate(end)}</text></svg>`;
 }
+// The last 24 hours of readings: series are [{ color, rows: [[seconds since the epoch, value], ...] }].
+function dayChart(series, label) {
+  const now = Date.now() / 1000, t0 = now - 86400;
+  series = series.map((x) => ({ ...x, rows: x.rows.filter((r) => r[0] >= t0) })).filter((x) => x.rows.length);
+  if (!series.some((x) => x.rows.length >= 2)) return `<div class="mut small">Readings are kept every 15 minutes from now on. The last 24 hours will fill in as they come.</div>`;
+  const W = 340, H = 130, L = 34, R = 8, T = 10, B = 20;
+  const all = series.flatMap((x) => x.rows.map((r) => r[1]));
+  let lo = Math.min(...all), hi = Math.max(...all);
+  if (hi - lo < 1e-6) { lo -= 1; hi += 1; }
+  const pad = (hi - lo) * 0.1; lo -= pad; hi += pad;
+  const x = (t) => L + ((t - t0) / 86400) * (W - L - R);
+  const y = (v) => T + ((hi - v) / (hi - lo)) * (H - T - B);
+  const f = (v) => (Math.abs(hi - lo) < 10 ? v.toFixed(1) : Math.round(v));
+  const hr = (t) => new Date(t * 1000).toLocaleTimeString(undefined, { hour: "numeric" });
+  const body = series.map((sr) => {
+    const last = sr.rows[sr.rows.length - 1];
+    return `<polyline points="${sr.rows.map((r) => `${x(r[0]).toFixed(1)},${y(r[1]).toFixed(1)}`).join(" ")}" fill="none" stroke="${sr.color}" stroke-width="2"/><circle cx="${x(last[0]).toFixed(1)}" cy="${y(last[1]).toFixed(1)}" r="3.5" fill="${sr.color}"/>`;
+  }).join("");
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map((k) => `<line x1="${x(t0 + k * 86400).toFixed(1)}" x2="${x(t0 + k * 86400).toFixed(1)}" y1="${T}" y2="${H - B}" stroke="var(--divider-color)" opacity="0.5"/>`).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${esc(label)}, last 24 hours">
+    ${ticks}<line x1="${L}" y1="${H - B}" x2="${W - R}" y2="${H - B}" stroke="var(--divider-color)"/>
+    <text class="ax" x="2" y="${T + 8}">${f(hi)}</text><text class="ax" x="2" y="${H - B - 2}">${f(lo)}</text>
+    ${body}<text class="ax" x="${L}" y="${H - 5}">${hr(t0)}</text><text class="ax" text-anchor="middle" x="${x(t0 + 43200).toFixed(1)}" y="${H - 5}">${hr(t0 + 43200)}</text><text class="ax" text-anchor="end" x="${W - R}" y="${H - 5}">Now</text></svg>`;
+}
 function dualChart(ec, mo, band) {
   const rows = new Map();
   for (const r of ec.history) rows.set(r.date, { ...(rows.get(r.date) || {}), ec: r.value });
@@ -792,7 +816,11 @@ class GardenTrackerCard extends HTMLElement {
     const col = (m, name, color) => `<div><span class="ph" style="color:${color}">${m.current === null ? "–" : num(m.current, 0) + "°"}</span> <span class="small mut">${name}${m.min !== null && m.min !== undefined ? `, today ${num(m.min, 0)} to ${num(m.max, 0)}` : ""}</span><div class="small mut">${m.current === null ? "No readings yet" : `${m.source === "sensor" ? "Sensor" : "Manual"}, ${fmtDate(m.date)}`} (${src(m)})</div></div>`;
     let h = `<div class="card"><div class="sec">${this._icon("thermometer")} Soil and outside temperature</div>`;
     h += `<div class="row" style="align-items:flex-start;gap:22px;margin:6px 0">${col(soil, "soil", SOIL)}${col(out, "outside", AIR)}</div>`;
-    h += tempChart([{ name: soil.name, hist: soil.history, color: SOIL }, { name: out.name, hist: out.history, color: AIR }], "Soil and outside temperature");
+    const day = this._tempRange === "day", wk = Date.parse(this._snap.today) - 6 * 864e5;
+    h += `<div class="row" style="gap:6px;margin:0 0 6px">${[["week", "Week"], ["day", "24 hours"]].map(([k, t]) => `<button class="chip ${(day ? "day" : "week") === k ? "on" : ""}" data-act="temp-range" data-s="${k}">${t}</button>`).join("")}</div>`;
+    h += day
+      ? dayChart([{ rows: soil.day || [], color: SOIL }, { rows: out.day || [], color: AIR }], "Soil and outside temperature")
+      : tempChart([{ name: soil.name, hist: soil.history.filter((r) => Date.parse(r.date) >= wk), color: SOIL }, { name: out.name, hist: out.history.filter((r) => Date.parse(r.date) >= wk), color: AIR }], "Soil and outside temperature");
     h += `<div class="small" style="margin:2px 0 6px"><span style="color:${SOIL}">&#9632;</span> Soil &nbsp; <span style="color:${AIR}">&#9632;</span> Outside air</div>`;
     for (const m of [soil, out]) if (g.paused[m.key]) h += `<div class="pill" style="margin:4px 0">${esc(m.name)}: sensors out. New readings are ignored. Showing the last ones.</div>`;
     if (g.planting) h += `<div class="small mut" style="margin:8px 0 4px">Planting guide, using the average of the last ${g.planting.days} night low${g.planting.days === 1 ? "" : "s"} (${num(g.planting.basis, 0)}°F)</div><div>${g.planting.crops.map((c) => `<span class="pill ${c.ready ? "ok" : "none"}" style="margin:2px 4px 2px 0">${esc(c.name)} ${c.min_f}°${c.ready ? "" : ", not yet"}</span>`).join("")}</div>`;
@@ -829,6 +857,7 @@ class GardenTrackerCard extends HTMLElement {
       case "open-g": return this._go({ v: "garden", id: d.g });
       case "open-archive": return this._go({ v: "archive" });
       case "filter": this._filter = d.s; return this._render();
+      case "temp-range": this._tempRange = d.s; return this._render();
       case "toggle-log": this._showLog = !this._showLog; return this._render();
       case "undo": return this._act("undo_delete", {}, () => { this._undo = false; });
       case "ask-del": this._confirm = d.key; return this._render();
