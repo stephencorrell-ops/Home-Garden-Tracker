@@ -1050,8 +1050,13 @@ class GardenTrackerCard extends HTMLElement {
       case "lay-row": {
         const L = this._garden(d.g).layout, i = Number(d.r), row = L.rows[i], brush = this._brushFor(L), len = Number(this._brushLen) || 0;
         this._selRow = i;
-        if (len > 0) return this._act("add_layout_segment", { garden: d.g, row: i, crop: brush, length_ft: len });
-        return this._act("assign_layout_rows", { garden: d.g, crop: row.crop === brush ? null : brush, rows: [i] });
+        const vr = L.draft && L.draft.crop === brush ? L.draft.variety || undefined : undefined;
+        if (len > 0) return this._act("add_layout_segment", { garden: d.g, row: i, crop: brush, length_ft: len, variety: vr });
+        return this._act("assign_layout_rows", { garden: d.g, crop: row.crop === brush ? null : brush, rows: [i], variety: vr });
+      }
+      case "lay-traits": {
+        const L = this._garden(d.g).layout, crop = this._brushFor(L);
+        return this._open(this._fTraits(this._garden(d.g), crop, (L.draft && L.draft.crop === crop && L.draft.variety) || ""));
       }
       case "lay-mode": return this._act("set_layout_draft", { garden: d.g, crop: this._brushFor(this._garden(d.g).layout), mode: d.m });
       case "lay-place": return this._act("place_layout_draft", { garden: d.g, row: Number(this._placeRow || 0), start_ft: this._placeStart === "" || this._placeStart === undefined ? undefined : Number(this._placeStart) }, () => { this._selRow = Number(this._placeRow || 0); });
@@ -1155,6 +1160,10 @@ class GardenTrackerCard extends HTMLElement {
     if (el.dataset && el.dataset.draft && isChange) {
       const L = this._garden(el.dataset.g).layout, d = L.draft || {};
       return this._act("set_layout_draft", { garden: el.dataset.g, crop: this._brushFor(L), mode: d.mode || "weight", [el.dataset.draft]: Number(el.value) });
+    }
+    if (el.dataset && el.dataset.dvar !== undefined && isChange) {
+      const L = this._garden(el.dataset.g).layout, d = L.draft || {};
+      return this._act("set_layout_draft", { garden: el.dataset.g, crop: this._brushFor(L), mode: d.mode || "weight", variety: el.value.trim() });
     }
     if (el.dataset && el.dataset.placerow !== undefined && isChange) { this._placeRow = el.value; return; }
     if (el.dataset && el.dataset.placestart !== undefined && isChange) { this._placeStart = el.value; return; }
@@ -1704,12 +1713,16 @@ class GardenTrackerCard extends HTMLElement {
       h += `<div class="small mut" style="margin-top:8px">Fits ${t.rows} row${t.rows === 1 ? "" : "s"} of ${L.row_in} in with ${num(L.path_in, 0)} in paths between them. Each crop has its own pattern: a single line, a double line or an offset grid.</div></div>`;
       if (L.alerts.length) {
         h += `<div class="card"><div class="sec">Crop rotation</div>`;
-        h += L.alerts.map((a) => `<div class="alarm" ${a.level === "family" ? 'style="--hold:var(--spray)"' : ""}><b>${this._icon("alert")} ${esc(a.name)}, row ${a.row + 1}</b><div class="small" style="margin-top:4px">${esc(a.text)}</div></div>`).join("");
+        h += L.alerts.map((a) => `<div class="alarm" ${a.level === "family" ? 'style="--hold:var(--spray)"' : a.level === "resistant" ? 'style="--hold:var(--ok)"' : ""}><b>${this._icon(a.level === "resistant" ? "check" : "alert")} ${esc(a.name)}${a.variety ? ` (${esc(a.variety)})` : ""}, row ${a.row + 1}</b><div class="small" style="margin-top:4px">${esc(a.text)}</div></div>`).join("");
         h += `<div class="small mut">Rest times follow <a href="${L.rotation_sources[0]}" target="_blank" rel="noopener">WSU Extension</a> and <a href="${L.rotation_sources[1]}" target="_blank" rel="noopener">Cornell Vegetable MD Online</a>.</div></div>`;
       }
       const brush = this._brushFor(L), cur = L.available.find((a) => a.key === brush), d = L.draft && L.draft.crop === brush ? L.draft : null;
       const mode = (d && d.mode) || "weight";
       h += `<div class="card"><div class="sec">Plan a crop</div><div class="row wrap" style="margin-bottom:10px"><div class="grow" style="min-width:140px"><select data-brush data-g="${gid}">${L.available.map((a) => `<option value="${esc(a.key)}" ${a.key === brush ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select></div>${this._btn("lay-edit", "pencil", "Spacing", `data-g="${gid}" data-c="${esc(brush)}"`)}</div>`;
+      const names = [...new Set([...(this._snap.variety_traits || []).filter((t) => t.crop === brush).map((t) => t.name), ...this._snap.varieties.filter((v) => v.species === brush).map((v) => v.name)])];
+      const vr = (d && d.variety) || "";
+      h += `<label>Variety (optional)</label><div class="row" style="margin-bottom:10px"><div class="grow"><input type="text" list="vl" placeholder="Roma VF" value="${esc(vr)}" data-dvar data-g="${gid}"><datalist id="vl">${names.map((n) => `<option value="${esc(n)}"></option>`).join("")}</datalist></div>${this._btn("lay-traits", "pencil", "Resists", `data-g="${gid}"`)}</div>`;
+      if (d && d.resist && d.resist.length) h += `<div class="small mut" style="margin:-4px 0 10px">${esc(vr)} resists ${esc(d.resist.map((k) => (cur.diseases.find((x) => x.key === k) || { name: k }).name).join(", "))}. Rotation alerts allow for that.</div>`;
       h += `<div class="seg">${[["weight", "Harvest weight"], ["plants", "Plants"], ["length", "Row length"]].map(([m, t2]) => `<button class="${mode === m ? "on" : ""}" data-act="lay-mode" data-g="${gid}" data-m="${m}">${t2}</button>`).join("")}</div>`;
       const lab = { weight: "Pounds you want to harvest", plants: "Number of plants", length: "Feet of row" }[mode];
       h += `<div class="grid6" style="margin-top:10px"><div style="grid-column:span 6"><label>${lab}</label><input type="number" inputmode="decimal" min="0" step="any" value="${d && d.value ? num(d.value, 2) : ""}" data-draft="value" data-g="${gid}"></div>`;
@@ -1719,7 +1732,7 @@ class GardenTrackerCard extends HTMLElement {
       if (d && d.ready) {
         h += `<div class="stats" style="margin-top:10px">${d.plants_needed ? `<div class="stat"><span>Plants needed</span><b>${d.plants_needed}</b></div>` : ""}<div class="stat"><span>Row length</span><b>${num(d.length_ft, 1)} ft</b></div><div class="stat"><span>Plants that fit</span><b>${d.plants}</b></div>${d.est_lb ? `<div class="stat"><span>Harvest</span><b>${num(d.est_lb, 1)} lb</b></div>` : ""}</div>`;
         h += `<div class="small mut" style="margin-top:6px">${d.plants} plants in ${num(d.length_ft, 1)} ft of ${L.row_in} in row (${d.lines} line${d.lines === 1 ? "" : "s"})${d.rows > 1 ? `, which is ${num(d.rows, 1)} rows` : ""}.</div>`;
-        const opts = L.rows.map((r) => { const f = d.flags[r.i]; return `<option value="${r.i}" ${String(this._placeRow || "0") === String(r.i) ? "selected" : ""}>Row ${r.i + 1}${r.used_ft ? `, ${num(r.used_ft, 1)} ft planted` : ", empty"}${f ? ` (${f.level === "same" ? "same crop" : "same family"}: ${f.text})` : ""}</option>`; }).join("");
+        const opts = L.rows.map((r) => { const f = d.flags[r.i]; return `<option value="${r.i}" ${String(this._placeRow || "0") === String(r.i) ? "selected" : ""}>Row ${r.i + 1}${r.used_ft ? `, ${num(r.used_ft, 1)} ft planted` : ", empty"}${f ? ` (${f.level === "same" ? "same crop" : f.level === "resistant" ? "resistant" : "shared disease"}: ${f.text})` : ""}</option>`; }).join("");
         h += `<div class="grid6" style="margin-top:10px"><div style="grid-column:span 4"><label>Put it in</label><select data-placerow>${opts}</select></div><div style="grid-column:span 2"><label>Start (ft)</label><input type="number" inputmode="decimal" min="0" step="any" placeholder="0" value="${esc(this._placeStart || "")}" data-placestart></div></div>`;
         h += `<div class="row" style="margin-top:10px">${this._btn("lay-place", "plus", "Add to garden", `data-g="${gid}"`, "primary grow")}</div>`;
       } else if (d && d.need) {
@@ -1739,7 +1752,7 @@ class GardenTrackerCard extends HTMLElement {
     if (sel) {
       h += `<div class="card" style="margin:10px 0 0"><div class="row"><div class="sec grow" style="margin:0">Row ${sel.i + 1}: ${num(sel.used_ft, 1)} of ${num(L.length_ft, 1)} ft planted</div>${sel.segments.length ? this._btn("lay-row-clear", "", "Clear row", `data-g="${gid}" data-r="${sel.i}"`) : ""}</div>`;
       if (!sel.segments.length) h += `<div class="small mut" style="margin-top:6px">Empty. Tap the row to plant it. To split it between crops, enter feet above and tap once for each crop, or use Plan a crop and pick where it goes.</div>`;
-      sel.segments.forEach((sg, k) => { h += `<div class="lg"><div class="t">${esc(sg.name)}<span>${num(sg.start_in / 12, 1)} to ${num((sg.start_in + sg.len_in) / 12, 1)} ft, ${sg.plants} plants</span></div>${this._btn("lay-seg-rm", "close", "", `data-g="${gid}" data-r="${sel.i}" data-i="${k}"`, "ic")}</div>`; });
+      sel.segments.forEach((sg, k) => { h += `<div class="lg"><div class="t">${esc(sg.name)}${sg.variety ? ` (${esc(sg.variety)})` : ""}<span>${num(sg.start_in / 12, 1)} to ${num((sg.start_in + sg.len_in) / 12, 1)} ft, ${sg.plants} plants</span></div>${this._btn("lay-seg-rm", "close", "", `data-g="${gid}" data-r="${sel.i}" data-i="${k}"`, "ic")}</div>`; });
       h += `</div>`;
     }
     h += `<div class="row" style="margin-top:10px">${this._btn("lay-rot", "", "Turn left", `data-g="${gid}" data-n="-90"`, "grow")}${this._btn("lay-rot", "", "Turn right", `data-g="${gid}" data-n="90"`, "grow")}</div>`;
@@ -1758,6 +1771,22 @@ class GardenTrackerCard extends HTMLElement {
       h += `<div class="card">${this._confirm === "lay" ? `<div class="conf">Remove this season's layout? Your plants are not affected.<div class="row"><button data-act="cancel-del">Keep</button><button class="danger" data-act="do-lay" data-g="${gid}">Remove</button></div></div>` : `<button class="danger" data-act="ask-lay">Remove layout</button>`}</div>`;
     }
     return h;
+  }
+  _fTraits(g, crop, variety) {
+    const L = g.layout, c = L.available.find((a) => a.key === crop);
+    const have = (name) => (this._snap.variety_traits || []).find((t) => t.crop === crop && t.name.toLowerCase() === name.toLowerCase());
+    return {
+      title: `${c.name}: disease resistance`, submitLabel: "Save",
+      fields: [
+        { name: "variety", label: "Variety", type: "text", req: true, value: variety, placeholder: "Roma VF" },
+        { name: "resist", label: "Resistant to (tap the letters on the seed packet)", type: "multi", options: c.diseases.map((x) => [x.key, x.code ? `${x.name} (${x.code})` : x.name]), value: ((have(variety) || {}).resist || []).join(",") },
+      ],
+      note: "A resistant variety can follow its own family sooner, because the diseases it resists are left out of the rotation wait. It lowers the risk but does not remove it.",
+      submit: async (x) => {
+        await this._call("set_variety_traits", { crop, variety: x.variety, resist: (x.resist || "").split(",").filter(Boolean) });
+        await this._call("set_layout_draft", { garden: g.id, crop, variety: x.variety });
+      },
+    };
   }
   _fLayCrop(g, key) {
     const L = g.layout, c = L.available.find((a) => a.key === key);

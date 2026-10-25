@@ -158,7 +158,7 @@ def row_segments(layout: dict, i: int, names: dict[str, str] | None = None) -> l
         ft = min(float(sg.get("ft") or 0), end - start)
         if ft <= 1e-6:
             continue
-        out.append({"crop": sg["crop"], "ft": round(ft, 3), "start_ft": round(start, 3)})
+        out.append({"crop": sg["crop"], "ft": round(ft, 3), "start_ft": round(start, 3), "variety": sg.get("variety") or ""})
         floor = start + ft
     return out
 
@@ -207,8 +207,19 @@ def _segment(layout: dict, cx: float, start_in: float, seg_in: float, key: str, 
 
 
 # ---- rotation ---------------------------------------------------------------------------------------------
+def trait_key(crop: str, variety: str) -> str:
+    return f"{crop}|{(variety or '').strip().lower()}"
+
+
+def resistances(traits: dict | None, crop: str, variety: str | None) -> frozenset:
+    """The diseases a named variety is resistant to, as entered from its seed packet."""
+    if not variety or not traits:
+        return frozenset()
+    return frozenset((traits.get(trait_key(crop, variety)) or {}).get("resist") or [])
+
+
 def _conflicts(layout: dict, x0: float, y0: float, y1: float, crop: str, history: dict[int, dict], year: int,
-               names: dict[str, str]) -> list[dict]:
+               names: dict[str, str], resist: frozenset = frozenset()) -> list[dict]:
     """Earlier seasons that grew a crop which should not be followed by `crop` on the same ground."""
     x1, found = x0 + layout["row_in"], {}
     for hy, hl in sorted(history.items(), reverse=True):
@@ -223,26 +234,34 @@ def _conflicts(layout: dict, x0: float, y0: float, y1: float, crop: str, history
                 over = min(y1, b) - max(y0, a)
                 if over < 6:
                     continue
-                bad = rot.check(crop, sg["crop"], year - hy)
+                bad = rot.check(crop, sg["crop"], year - hy, resist)
                 if bad and (hy, sg["crop"]) not in found:
                     found[(hy, sg["crop"])] = {**bad, "year": hy, "years_ago": year - hy, "other": sg["crop"],
                                                "other_name": names.get(sg["crop"], sg["crop"]),
                                                "overlap_ft": round(over / 12, 1), "back_in": hy + bad["rest"]}
-    return sorted(found.values(), key=lambda c: (c["level"] != "same", -c["year"]))
+    return sorted(found.values(), key=lambda c: ({"same": 0, "family": 1}.get(c["level"], 2), -c["year"]))
 
 
-def _alert_text(name: str, row: int, c: dict) -> str:
+def _join(items: list[str]) -> str:
+    return ", ".join(items[:-1]) + " and " + items[-1] if len(items) > 1 else items[0]
+
+
+def _alert_text(name: str, row: int, c: dict, variety: str = "") -> str:
+    who = f"{name} ({variety})" if variety else name
     where = f"row {row + 1}"
-    if c["level"] == "same":
-        t = f"{name} was already in {where} in {c['year']}."
-    else:
-        t = f"{c['other_name']} grew in {where} in {c['year']}, and {name} is in the same {c['family']} group."
-    t += f" Keep it off this spot until {c['back_in']}."
-    return t + (f" {c['note']}" if c["note"] else "")
+    if c["level"] == "resistant":
+        return (f"{c['other_name']} grew in {where} in {c['year']}. {who} is within the usual rest time, but it is resistant to "
+                f"{_join(c['resisted'])}, so those are not a worry. Rotate anyway when you can.")
+    t = f"{name} was already in {where} in {c['year']}." if c["level"] == "same" else \
+        f"{c['other_name']} grew in {where} in {c['year']}, and {name} shares diseases with it."
+    t += f" Still a risk: {_join(c['risks'])}. Keep it off this spot until {c['back_in']}."
+    if c["resisted"]:
+        t += f" {variety or 'The variety'} resists {_join(c['resisted'])}, which shortens the wait."
+    return t
 
 
 # ---- planning a crop from a target ----------------------------------------------------------------------
-def draft_result(layout: dict, names: dict[str, str], history: dict[int, dict], year: int) -> dict | None:
+def draft_result(layout: dict, names: dict[str, str], history: dict[int, dict], year: int, traits: dict | None = None) -> dict | None:
     """The row length a crop needs for a target: harvest weight, number of plants, or feet of row."""
     d = layout.get("draft")
     if not d or d.get("crop") not in names:
@@ -251,7 +270,9 @@ def draft_result(layout: dict, names: dict[str, str], history: dict[int, dict], 
     s = settings_for(layout, key)
     offs, stagger = _lines(layout, s)
     fit = lambda seg_in: _per_line(s, seg_in, stagger) * len(offs)  # noqa: E731
-    res: dict = {"crop": key, "name": names[key], "mode": mode, "value": value, "spacing_in": s["spacing_in"], "pattern": s["pattern"],
+    variety = (d.get("variety") or "").strip()
+    resist = resistances(traits, key, variety)
+    res: dict = {"crop": key, "name": names[key], "variety": variety, "resist": sorted(resist), "mode": mode, "value": value, "spacing_in": s["spacing_in"], "pattern": s["pattern"],
                  "yield_lb": s["yield_lb"], "lines": len(offs), "ready": False, "need": None, "flags": []}
     if not value or value <= 0:
         res["need"] = "value"
@@ -277,16 +298,17 @@ def draft_result(layout: dict, names: dict[str, str], history: dict[int, dict], 
         res["est_lb"] = round(res["plants"] * s["yield_lb"], 1) if s["yield_lb"] else None
         res["per_ft"] = round(res["plants"] / res["length_ft"], 2)
     for i in range(row_count(layout)):  # would this crop clash with last seasons' crops in each row?
-        c = _conflicts(layout, row_x0(layout, i), 0, layout["length_ft"] * 12, key, history, year, names)
+        c = _conflicts(layout, row_x0(layout, i), 0, layout["length_ft"] * 12, key, history, year, names, resist)
         res["flags"].append({"level": c[0]["level"], "text": f"{c[0]['other_name']} in {c[0]['year']}"} if c else None)
     return res
 
 
-def plan(layout: dict | None, names: dict[str, str], history: dict[int, dict] | None = None, year: int | None = None) -> dict:
+def plan(layout: dict | None, names: dict[str, str], history: dict[int, dict] | None = None, year: int | None = None,
+         traits: dict | None = None) -> dict:
     """Work out every row and the totals. `names` maps crop key to display name (only plants, not trees)."""
     history = history or {}
-    available = [{"key": k, "name": n, **defaults_for(k), **((layout or {}).get("crops", {}).get(k) or {})}
-                 for k, n in sorted(names.items(), key=lambda kv: kv[1].lower())]
+    available = [{"key": k, "name": n, **defaults_for(k), **((layout or {}).get("crops", {}).get(k) or {}),
+                  "diseases": rot.diseases_for(k)} for k, n in sorted(names.items(), key=lambda kv: kv[1].lower())]
     if not layout:
         return {"configured": False, "available": available, "row_widths": list(ROW_WIDTHS), "supports": SUPPORTS,
                 "patterns": PATTERNS}
@@ -311,9 +333,11 @@ def plan(layout: dict | None, names: dict[str, str], history: dict[int, dict] | 
                 c[k] += seg[k]
             c["twine_ft"] = round(c["twine_ft"] + seg["twine_ft"], 1)
             bed_ft2 += sg["ft"] * row_in / 12
-            for bad in _conflicts(layout, x0, seg["start_in"], seg["start_in"] + seg["len_in"], sg["crop"], history, year, names):
-                alerts.append({"row": i, "crop": sg["crop"], "name": names[sg["crop"]], **bad,
-                               "text": _alert_text(names[sg["crop"]], i, bad)})
+            seg["variety"] = sg.get("variety") or ""
+            resist = resistances(traits, sg["crop"], seg["variety"])
+            for bad in _conflicts(layout, x0, seg["start_in"], seg["start_in"] + seg["len_in"], sg["crop"], history, year, names, resist):
+                alerts.append({"row": i, "crop": sg["crop"], "name": names[sg["crop"]], "variety": seg["variety"], **bad,
+                               "text": _alert_text(names[sg["crop"]], i, bad, seg["variety"])})
         whole = len(segs) == 1 and segs[0]["start_in"] <= 1e-6 and segs[0]["len_in"] >= l_in - 1e-6
         rows.append({"i": i, "x": cx, "x0": x0, "crop": segs[0]["crop"] if whole else None,
                      "used_ft": round(sum(sg["len_in"] for sg in segs) / 12, 2), "segments": segs,
@@ -323,13 +347,13 @@ def plan(layout: dict | None, names: dict[str, str], history: dict[int, dict] | 
         c["feet"] = round(c["feet"], 2)
     area = layout["width_ft"] * layout["length_ft"]
     plants = sum(c["plants"] for c in crops.values())
-    alerts.sort(key=lambda a: (a["level"] != "same", a["row"]))
+    alerts.sort(key=lambda a: ({"same": 0, "family": 1}.get(a["level"], 2), a["row"]))
     return {
         "configured": True, "year": year, "width_ft": layout["width_ft"], "length_ft": layout["length_ft"], "row_in": row_in,
         "path_in": path_in(layout), "rotation": int(layout.get("rotation") or 0),
         "pair_gap_in": PAIR_GAP_IN, "rows": rows, "crops": list(crops.values()), "available": available,
         "row_widths": list(ROW_WIDTHS), "supports": SUPPORTS, "patterns": PATTERNS, "alerts": alerts,
-        "draft": draft_result(layout, names, history, year), "rotation_sources": rot.SOURCES,
+        "draft": draft_result(layout, names, history, year, traits), "rotation_sources": rot.SOURCES,
         "totals": {"rows": n, "planted_rows": sum(1 for r in rows if r["segments"]), "plants": plants, "area_sqft": round(area, 1),
                    "density": round(plants / area, 2) if area else 0,
                    "bed_density": round(plants / bed_ft2, 2) if bed_ft2 else 0,

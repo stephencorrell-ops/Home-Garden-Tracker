@@ -336,6 +336,48 @@ class Layout(unittest.TestCase):
         m.assign_layout_rows(gid, "tomato", [0])
         self.assertEqual([a for a in self.view(m, gid)["alerts"] if a["year"] == year], [])
 
+    def test_a_resistant_variety_shortens_the_wait_or_clears_the_alert(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 5, 20, 30, None, 0)
+        m.assign_layout_rows(gid, "tomato", [0])
+        year = self.view(m, gid)["year"]
+        m.start_layout_season(gid)
+        m.assign_layout_rows(gid, "tomato", [0])
+        a = self.view(m, gid)["alerts"][0]
+        self.assertEqual((a["level"], a["back_in"]), ("same", year + 3))  # Verticillium and Fusarium wait three years
+        self.assertIn("Verticillium wilt", a["risks"])
+        # Roma VF resists Verticillium and Fusarium, so only the two-year diseases are left
+        m.set_variety_traits("tomato", "Roma VF", ["verticillium", "fusarium"])
+        m.assign_layout_rows(gid, "tomato", [0], "Roma VF")
+        a = self.view(m, gid)["alerts"][0]
+        self.assertEqual((a["level"], a["back_in"]), ("same", year + 2))
+        self.assertNotIn("Verticillium wilt", a["risks"])
+        self.assertEqual(a["resisted"], ["Verticillium wilt", "Fusarium wilt"])
+        self.assertIn("Roma VF resists", a["text"])
+        # a pepper that resists everything a tomato passes on is only a note
+        m.assign_layout_rows(gid, "pepper", [0], "Carolina")
+        self.assertEqual(self.view(m, gid)["alerts"][0]["level"], "family")
+        m.set_variety_traits("pepper", "carolina", ["verticillium", "nematode", "bacterial_spot"])
+        a = self.view(m, gid)["alerts"][0]
+        self.assertEqual((a["level"], a["resisted"]), ("resistant", ["Verticillium wilt", "Root-knot nematodes", "Bacterial spot"]))
+        # and the planner row marker allows for the variety before anything is placed
+        m.set_layout_draft(gid, "pepper", "length", 5, None, None, "Carolina")
+        self.assertEqual(self.view(m, gid)["draft"]["flags"][0]["level"], "resistant")
+        m.set_layout_draft(gid, "pepper", None, None, None, None, "Other")
+        self.assertEqual(self.view(m, gid)["draft"]["flags"][0]["level"], "family")
+        with self.assertRaises(GardenError):
+            m.set_variety_traits("tomato", "Roma VF", ["clubroot"])  # not a tomato disease
+
+    def test_a_placed_section_keeps_its_variety(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 5, 20, 30, None, 0)
+        m.set_layout_draft(gid, "tomato", "length", 8, None, None, "Roma VF")
+        m.place_layout_draft(gid, 0, 2)
+        sg = self.view(m, gid)["rows"][0]["segments"][0]
+        self.assertEqual((sg["crop"], sg["variety"], sg["start_in"]), ("tomato", "Roma VF", 24))
+        m.set_layout_draft(gid, "pepper")  # changing the crop drops the variety
+        self.assertEqual(self.view(m, gid)["draft"]["variety"], "")
+
     def test_the_garden_can_be_turned_in_90_degree_steps(self):
         m, gid = self.garden()
         m.set_layout(gid, 20, 40, 30, 90)
