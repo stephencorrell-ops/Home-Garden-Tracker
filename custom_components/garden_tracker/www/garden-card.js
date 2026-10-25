@@ -2000,7 +2000,7 @@ class GardenTrackerCard extends HTMLElement {
   _layoutSvg(L, g, ro) {
     const COL = ["#e5372d", "#2e7d32", "#f28c38", "#8e24aa", "#039be5", "#c0a000", "#795548", "#d81b60"];
     const color = (k) => COL[Math.max(0, L.available.findIndex((a) => a.key === k)) % COL.length];
-    const rot = L.rotation || 0, W = L.width_ft * 12, N = L.length_ft * 12, M = 24;
+    const north = L.rotation || 0, rot = 0, W = L.width_ft * 12, N = L.length_ft * 12, M = 24; // the plan stays square to the screen; the arrow turns
     const th = rot * Math.PI / 180, cs0 = Math.cos(th), sn0 = Math.sin(th), named = L.rows.some((r) => r.segments.length);
     const corners = [[0, 0], [W, 0], [W, N], [0, N]].map(([x, y]) => [x * cs0 - y * sn0, x * sn0 + y * cs0]);
     const ux = corners.map((c) => c[0]), uy = corners.map((c) => c[1]);
@@ -2020,7 +2020,7 @@ class GardenTrackerCard extends HTMLElement {
       x0 = Math.min(x0, l.anchor === "start" ? l.x : l.anchor === "end" ? l.x - l.wd : l.x - l.wd / 2); x1 = Math.max(x1, l.anchor === "start" ? l.x + l.wd : l.anchor === "end" ? l.x : l.x + l.wd / 2);
       y0 = Math.min(y0, l.y - 10); y1 = Math.max(y1, l.y + 3);
     }
-    const left = M - x0, top = M + 22 - y0, VW = x1 - x0 + 2 * M, VH = y1 - y0 + 2 * M + 22;
+    const left = M - x0, top = M + 34 - y0, VW = x1 - x0 + 2 * M + 30, VH = y1 - y0 + 2 * M + 34;
     const tf = `translate(${left.toFixed(1)} ${top.toFixed(1)}) rotate(${rot})`;
     const P = (lx, ly) => { const [a, b] = R(lx, ly); return [left + a, top + b]; };
     const total = L.rows.reduce((a, r) => a + r.segments.reduce((b, sg) => b + sg.ys.length * sg.lines.length, 0), 0);
@@ -2052,7 +2052,8 @@ class GardenTrackerCard extends HTMLElement {
       }
     }
     for (const l of labels) names += `<text class="ax" x="${fix(left + l.x)}" y="${fix(top + l.y)}" font-size="11" fill="${l.color}" text-anchor="${l.anchor}" pointer-events="none">${esc(l.t)}</text>`;
-    names += `<g pointer-events="none" transform="translate(${fix(VW - 18)} 20)"><path d="M0 10 L0 -9 M-4 -4 L0 -10 L4 -4" stroke="var(--primary-text-color)" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/><text class="ax" y="22" font-size="10" text-anchor="middle" fill="var(--mut)">N</text></g>`;
+    const nx = -Math.sin(north * Math.PI / 180), ny = -Math.cos(north * Math.PI / 180), ax = VW - 26, ay = 28;
+    names += `<g pointer-events="none"><circle cx="${fix(ax)}" cy="${fix(ay)}" r="19" fill="none" stroke="var(--line)"/><path d="M${fix(ax - nx * 12)} ${fix(ay - ny * 12)} L${fix(ax + nx * 13)} ${fix(ay + ny * 13)} M${fix(ax + nx * 13 + (nx * 0.55 - ny * 0.55) * -6)} ${fix(ay + ny * 13 + (ny * 0.55 + nx * 0.55) * -6)} L${fix(ax + nx * 13)} ${fix(ay + ny * 13)} L${fix(ax + nx * 13 + (nx * 0.55 + ny * 0.55) * -6)} ${fix(ay + ny * 13 + (ny * 0.55 - nx * 0.55) * -6)}" stroke="var(--primary-text-color)" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/><text class="ax" x="${fix(ax + nx * 26)}" y="${fix(ay + ny * 26 + 4)}" font-size="11" font-weight="600" text-anchor="middle" fill="var(--primary-text-color)">N</text></g>`;
     return `<svg viewBox="0 0 ${fix(VW)} ${fix(VH)}" width="100%" style="max-width:${Math.round(VW * 1.15)}px;display:block;margin:0 auto" role="img" aria-label="Garden layout, ${L.totals.rows} rows">${o}</g>${names}</svg>`;
   }
   _layoutView(g) {
@@ -2120,7 +2121,7 @@ class GardenTrackerCard extends HTMLElement {
     }
     if (!past) {
       const chip = (n, t) => `<button class="chip ${Math.abs(rotv - n) < 0.05 ? "on" : ""}" data-act="lay-ang" data-g="${gid}" data-n="${n}">${t}</button>`;
-      h += `<div class="card" style="margin-top:10px"><div class="sec">Which way the rows run</div><div class="row" style="align-items:end;gap:10px"><div style="flex:1"><label>Degrees off north</label><input type="number" inputmode="decimal" step="any" min="0" max="360" value="${num(rotv, 1)}" data-lay="rotation" data-g="${gid}"></div></div><div class="chips" style="margin:8px 0 0">${chip(0, "North-south (0)")}${chip(90, "East-west (90)")}${chip(45, "45")}${chip(135, "135")}${chip(180, "180")}${chip(270, "270")}</div><div class="small mut" style="margin-top:6px">Any angle works. 0 runs rows north-south, 90 east-west, and an angle between runs them across the compass. The plan above turns to match, with north at the top.</div></div>`;
+      h += `<div class="card" style="margin-top:10px"><div class="sec">Which way the rows run</div><div class="row" style="align-items:end;gap:10px"><div style="flex:1"><label>Degrees off north</label><input type="number" inputmode="decimal" step="any" min="0" max="360" value="${num(rotv, 1)}" data-lay="rotation" data-g="${gid}"></div></div><div class="chips" style="margin:8px 0 0">${chip(0, "North-south (0)")}${chip(90, "East-west (90)")}${chip(45, "45")}${chip(135, "135")}${chip(180, "180")}${chip(270, "270")}</div><div class="small mut" style="margin-top:6px">Any angle works. 0 runs rows north-south, 90 east-west, and an angle between runs them across the compass. The plan stays square to the screen, and the arrow in its corner points to north.</div></div>`;
       h += this._sunCard(L, gid);
     }
     if (!past) h += `<div class="row" style="margin-top:10px">${this._btn("lay-fill", "", "Fill every row", `data-g="${gid}"`, "grow")}${this._btn("lay-clear", "", "Clear rows", `data-g="${gid}"`)}</div>`;
