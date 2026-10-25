@@ -139,3 +139,275 @@ class App(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Layout(unittest.TestCase):
+    def garden(self):
+        m = make()
+        gid = m.add_garden("Back yard")
+        return m, gid
+
+    def view(self, m, gid):
+        return next(g for g in m.snapshot()["gardens"] if g["id"] == gid)["layout"]
+
+    def seg(self, m, gid, row=0, k=0):
+        return self.view(m, gid)["rows"][row]["segments"][k]
+
+    def test_single_line_tomatoes_with_t_posts(self):
+        m, gid = self.garden()
+        self.assertFalse(self.view(m, gid)["configured"])
+        m.set_layout(gid, 20, 40, 30, None, 0)  # no paths
+        m.assign_layout_rows(gid, "tomato")
+        v = self.view(m, gid)
+        self.assertEqual(v["totals"]["rows"], 8)  # 240 in across at 30 in a row
+        self.assertEqual(len(self.seg(m, gid)["lines"]), 1)
+        self.assertEqual(v["rows"][0]["plants"], 20)  # 480 in long at 24 in
+        self.assertEqual(v["totals"]["plants"], 160)
+        self.assertEqual(v["totals"]["posts"], 8 * 11)  # a post every 4 ft plus the end one: 40 / 4 + 1
+        self.assertEqual(v["totals"]["density"], 0.2)
+
+    def test_double_line_doubles_the_plants_and_can_be_staggered(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 6, 10, 36)
+        m.assign_layout_rows(gid, "tomato")
+        one = self.view(m, gid)["totals"]["plants"]
+        m.set_layout_crop(gid, "tomato", None, None, None, None, None, "double", False)
+        sg = self.seg(m, gid)
+        self.assertEqual(len(sg["lines"]), 2)
+        self.assertEqual(sg["ys2"], [])
+        self.assertEqual(self.view(m, gid)["totals"]["plants"], one * 2)
+        m.set_layout_crop(gid, "tomato", None, None, None, None, None, None, True)
+        sg = self.seg(m, gid)
+        self.assertEqual(round(sg["ys2"][0] - sg["ys"][0], 2), 12)  # half of 24 in
+        self.assertLessEqual(sg["ys2"][-1], 120)
+
+    def test_an_offset_grid_keeps_every_plant_the_spacing_from_its_neighbours(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 5, 5, 30)  # one 30 in row, 5 ft long
+        m.add_layout_segment(gid, 0, "garlic", 5)
+        m.set_layout_crop(gid, "garlic", 7, None, None, None, None, "grid")
+        sg = self.seg(m, gid)
+        self.assertEqual(len(sg["lines"]), 5)  # lines sit 7 x 0.866 = 6.06 in apart
+        self.assertAlmostEqual(sg["lines"][1] - sg["lines"][0], 6.062, places=2)
+        self.assertEqual(sg["per_line"], 8)
+        self.assertEqual(sg["plants"], 40)
+        self.assertEqual(round(sg["ys2"][0] - sg["ys"][0], 2), 3.5)  # every other line is half a step along
+        a, b = (sg["lines"][0], sg["ys"][0]), (sg["lines"][1], sg["ys2"][0])
+        self.assertAlmostEqual(((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2) ** 0.5, 7, places=1)
+
+    def test_pepper_corral_counts_posts_and_twine(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 6, 12, 36)
+        m.assign_layout_rows(gid, "pepper")
+        r = self.view(m, gid)["rows"][0]
+        self.assertEqual(r["stakes"], 2 * (12 // 3 + 1))  # both sides, every 3 ft plus the end
+        self.assertEqual(r["twine_ft"], 2 * (2 * 12 + 2 * 1))  # 2 lines of twine, two sides and two ends
+        m.set_layout_crop(gid, "pepper", None, None, 4, "tpost", 3)
+        r = self.view(m, gid)["rows"][0]
+        self.assertEqual((r["posts"], r["stakes"]), (2 * (12 // 4 + 1), 0))
+        self.assertEqual(r["twine_ft"], 3 * 26)
+
+    def test_cages_follow_plants(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 6, 10, 36, None, 0)
+        m.assign_layout_rows(gid, "pepper")
+        m.set_layout_crop(gid, "pepper", None, "cage", None, None, None, "double")
+        v = self.view(m, gid)
+        self.assertEqual(v["totals"]["plants"], 2 * 2 * 6)  # 2 rows, 2 lines, 120 in / 18 in = 6
+        self.assertEqual(v["totals"]["cages"], v["totals"]["plants"])
+
+    def test_one_row_can_hold_several_crops_in_sections(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 5, 25, 30, None, 0)  # two rows, 25 ft long
+        m.add_layout_segment(gid, 0, "onion", 5)
+        m.add_layout_segment(gid, 0, "carrot", 10)
+        m.add_layout_segment(gid, 0, "bean", 10)
+        v = self.view(m, gid)
+        segs = v["rows"][0]["segments"]
+        self.assertEqual([x["crop"] for x in segs], ["onion", "carrot", "bean"])
+        self.assertEqual([x["start_in"] for x in segs], [0, 60, 180])
+        self.assertTrue(all(x["grid"] for x in segs))
+        self.assertIsNone(v["rows"][0]["crop"])  # no single crop owns the row
+        self.assertEqual(v["rows"][0]["used_ft"], 25)
+        self.assertEqual(next(c for c in v["crops"] if c["key"] == "carrot")["feet"], 10)
+        with self.assertRaises(GardenError):
+            m.add_layout_segment(gid, 0, "lettuce", 1)  # the row is full
+        m.remove_layout_segment(gid, 0, 1)  # take out the carrots, the beans stay where they are
+        segs = self.view(m, gid)["rows"][0]["segments"]
+        self.assertEqual([(x["crop"], x["start_in"]) for x in segs], [("onion", 0), ("bean", 180)])
+        m.add_layout_segment(gid, 0, "lettuce", 10, 5)  # the gap is 5 to 15 ft
+        with self.assertRaises(GardenError):
+            m.add_layout_segment(gid, 0, "lettuce", 1, 4.5)  # overlaps the onions
+        m.remove_layout_segment(gid, 0)  # no index takes the last one
+        m.remove_layout_segment(gid, 0)
+        m.remove_layout_segment(gid, 0)
+        self.assertEqual(self.view(m, gid)["rows"][0]["segments"], [])
+
+    def test_one_row_can_hold_a_different_crop_and_be_cleared(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 10, 10, 24, None, 0)
+        m.assign_layout_rows(gid, "tomato")
+        m.assign_layout_rows(gid, "carrot", [1])
+        v = self.view(m, gid)
+        self.assertEqual({c["key"] for c in v["crops"]}, {"tomato", "carrot"})
+        m.assign_layout_rows(gid, None, [1])
+        self.assertEqual({c["key"] for c in self.view(m, gid)["crops"]}, {"tomato"})
+
+    def test_a_whole_row_can_be_trimmed_by_removing_its_section(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 5, 20, 30, None, 0)
+        m.assign_layout_rows(gid, "tomato", [0])
+        self.assertEqual(self.view(m, gid)["rows"][0]["crop"], "tomato")
+        m.remove_layout_segment(gid, 0, 0)
+        self.assertIsNone(self.view(m, gid)["rows"][0]["crop"])
+
+    def test_paths_sit_between_the_rows_and_the_rows_are_centred(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 20, 10, 30)  # 240 in: rows of 30 with 24 in paths take 54 in each
+        v = self.view(m, gid)
+        self.assertEqual(v["path_in"], 24)
+        self.assertEqual(v["totals"]["rows"], 4)  # 4 rows + 3 paths = 192 in
+        self.assertEqual(round(v["rows"][1]["x0"] - v["rows"][0]["x0"], 1), 54)
+        self.assertEqual(round(v["rows"][0]["x0"], 1), 24)  # centred: 48 in spare, half each side
+        m.set_layout(gid, None, None, None, None, 36)
+        self.assertEqual(self.view(m, gid)["path_in"], 36)
+        m.set_layout(gid, None, None, None, None, 0)
+        self.assertEqual(self.view(m, gid)["totals"]["rows"], 8)
+
+    def test_planning_garlic_from_a_harvest_target(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 10, 20, 30, None, 24)
+        m.set_layout_draft(gid, "garlic", "weight", 20)
+        d = self.view(m, gid)["draft"]
+        self.assertEqual(d["need"], "yield")  # it has to know the weight of each plant
+        m.set_layout_draft(gid, None, None, None, 0.25, 7)  # a quarter pound a head, 7 in apart
+        d = self.view(m, gid)["draft"]
+        self.assertEqual(d["plants_needed"], 80)
+        self.assertEqual(d["length_ft"], 10)  # 5 lines x 8.57 plants a foot
+        self.assertGreaterEqual(d["plants"], 80)
+        self.assertEqual(d["est_lb"], round(d["plants"] * 0.25, 1))
+        m.set_layout_draft(gid, None, "plants", 40)
+        self.assertEqual(self.view(m, gid)["draft"]["length_ft"], 5)
+        m.set_layout_draft(gid, None, "length", 4)
+        self.assertEqual(self.view(m, gid)["draft"]["plants"], 30)  # 5 lines x 6
+
+    def test_a_planned_crop_goes_where_you_pick_and_carries_into_the_next_row(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 10, 20, 30, None, 24)  # two rows, 20 ft long
+        m.set_layout_draft(gid, "garlic", "length", 25)
+        m.place_layout_draft(gid, 0, 5)  # 15 ft left in row 1, then 10 ft in row 2
+        rows = self.view(m, gid)["rows"]
+        self.assertEqual([(s["crop"], s["start_in"], s["len_in"]) for s in rows[0]["segments"]], [("garlic", 60, 180)])
+        self.assertEqual([(s["crop"], s["start_in"], s["len_in"]) for s in rows[1]["segments"]], [("garlic", 0, 120)])
+        m.set_layout_draft(gid, "tomato", "length", 30)
+        with self.assertRaises(GardenError):
+            m.place_layout_draft(gid, 1, 0)  # no room, and nothing is half placed
+        self.assertEqual(len(self.view(m, gid)["rows"][1]["segments"]), 1)
+
+    def test_last_seasons_layout_is_kept_and_same_ground_is_flagged(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 10, 20, 30, None, 24)
+        m.assign_layout_rows(gid, "tomato", [0])
+        m.assign_layout_rows(gid, "garlic", [1])
+        year = self.view(m, gid)["year"]
+        m.start_layout_season(gid)
+        v = self.view(m, gid)
+        self.assertEqual(v["year"], year + 1)
+        self.assertEqual(v["totals"]["planted_rows"], 0)
+        g = next(x for x in m.snapshot()["gardens"] if x["id"] == gid)
+        self.assertEqual(g["layout_history"][str(year)]["totals"]["planted_rows"], 2)  # last year can be looked up
+        m.assign_layout_rows(gid, "tomato", [0])  # the same crop in the same row
+        m.assign_layout_rows(gid, "pepper", [1])  # not a rotation problem for garlic, but...
+        v = self.view(m, gid)
+        by_row = {(a["row"], a["crop"]): a for a in v["alerts"]}
+        self.assertEqual(by_row[(0, "tomato")]["level"], "same")
+        self.assertNotIn((1, "pepper"), by_row)  # garlic and pepper are different families
+        m.assign_layout_rows(gid, "pepper", [0])  # pepper after tomato: the same nightshade family
+        self.assertEqual({(a["row"], a["level"]) for a in self.view(m, gid)["alerts"]}, {(0, "family")})
+        self.assertIn("Keep it off this spot until", self.view(m, gid)["alerts"][0]["text"])
+        # the planner flags the rows too, before anything is placed
+        m.set_layout_draft(gid, "pepper", "length", 5)
+        flags = self.view(m, gid)["draft"]["flags"]
+        self.assertEqual([f and f["level"] for f in flags], ["family", None])
+        # a rest of three years clears it
+        m.start_layout_season(gid)
+        m.start_layout_season(gid)
+        m.start_layout_season(gid)
+        m.assign_layout_rows(gid, "tomato", [0])
+        self.assertEqual([a for a in self.view(m, gid)["alerts"] if a["year"] == year], [])
+
+    def test_a_resistant_variety_shortens_the_wait_or_clears_the_alert(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 5, 20, 30, None, 0)
+        m.assign_layout_rows(gid, "tomato", [0])
+        year = self.view(m, gid)["year"]
+        m.start_layout_season(gid)
+        m.assign_layout_rows(gid, "tomato", [0])
+        a = self.view(m, gid)["alerts"][0]
+        self.assertEqual((a["level"], a["back_in"]), ("same", year + 3))  # Verticillium and Fusarium wait three years
+        self.assertIn("Verticillium wilt", a["risks"])
+        # Roma VF resists Verticillium and Fusarium, so only the two-year diseases are left
+        m.set_variety_traits("tomato", "Roma VF", ["verticillium", "fusarium"])
+        m.assign_layout_rows(gid, "tomato", [0], "Roma VF")
+        a = self.view(m, gid)["alerts"][0]
+        self.assertEqual((a["level"], a["back_in"]), ("same", year + 2))
+        self.assertNotIn("Verticillium wilt", a["risks"])
+        self.assertEqual(a["resisted"], ["Verticillium wilt", "Fusarium wilt"])
+        self.assertIn("Roma VF resists", a["text"])
+        # a pepper that resists everything a tomato passes on is only a note
+        m.assign_layout_rows(gid, "pepper", [0], "Carolina")
+        self.assertEqual(self.view(m, gid)["alerts"][0]["level"], "family")
+        m.set_variety_traits("pepper", "carolina", ["verticillium", "nematode", "bacterial_spot"])
+        a = self.view(m, gid)["alerts"][0]
+        self.assertEqual((a["level"], a["resisted"]), ("resistant", ["Verticillium wilt", "Root-knot nematodes", "Bacterial spot"]))
+        # and the planner row marker allows for the variety before anything is placed
+        m.set_layout_draft(gid, "pepper", "length", 5, None, None, "Carolina")
+        self.assertEqual(self.view(m, gid)["draft"]["flags"][0]["level"], "resistant")
+        m.set_layout_draft(gid, "pepper", None, None, None, None, "Other")
+        self.assertEqual(self.view(m, gid)["draft"]["flags"][0]["level"], "family")
+        with self.assertRaises(GardenError):
+            m.set_variety_traits("tomato", "Roma VF", ["clubroot"])  # not a tomato disease
+
+    def test_a_placed_section_keeps_its_variety(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 5, 20, 30, None, 0)
+        m.set_layout_draft(gid, "tomato", "length", 8, None, None, "Roma VF")
+        m.place_layout_draft(gid, 0, 2)
+        sg = self.view(m, gid)["rows"][0]["segments"][0]
+        self.assertEqual((sg["crop"], sg["variety"], sg["start_in"]), ("tomato", "Roma VF", 24))
+        m.set_layout_draft(gid, "pepper")  # changing the crop drops the variety
+        self.assertEqual(self.view(m, gid)["draft"]["variety"], "")
+
+    def test_the_garden_can_be_turned_in_90_degree_steps(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 20, 40, 30, 90)
+        self.assertEqual(self.view(m, gid)["rotation"], 90)
+        m.set_layout(gid, None, None, None, 450)
+        self.assertEqual(self.view(m, gid)["rotation"], 90)
+        with self.assertRaises(GardenError):
+            m.set_layout(gid, None, None, None, 45)
+
+    def test_bad_input_is_refused(self):
+        m, gid = self.garden()
+        with self.assertRaises(GardenError):
+            m.set_layout(gid, 20, 40, 28)
+        with self.assertRaises(GardenError):
+            m.set_layout(gid, 0, 40, 30)
+        m.set_layout(gid, 20, 40, 30)
+        with self.assertRaises(GardenError):
+            m.assign_layout_rows(gid, "apple")  # a tree
+        with self.assertRaises(GardenError):
+            m.assign_layout_rows(gid, "tomato", [99])
+        with self.assertRaises(GardenError):
+            m.set_layout_crop(gid, "tomato", 0)
+        with self.assertRaises(GardenError):
+            m.set_layout_crop(gid, "tomato", None, None, None, None, None, "diagonal")
+
+    def test_layout_survives_saving_and_is_json(self):
+        a = App.app(self)
+        a.call("add_garden", json.dumps({"name": "Back yard"}))
+        gid = json.loads(a.snapshot())["gardens"][0]["id"]
+        for svc, args in (("set_layout", {"width_ft": 8, "length_ft": 8, "row_in": 24, "path_in": 0}), ("assign_layout_rows", {"crop": "tomato"})):
+            self.assertTrue(json.loads(a.call(svc, json.dumps({"garden": gid, **args})))["ok"])
+        b = App.app(self, a.data())
+        self.assertEqual(json.loads(b.snapshot())["gardens"][0]["layout"]["totals"]["plants"], 4 * 4)

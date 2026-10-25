@@ -4,6 +4,18 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.17.0 - 2026-10-25
+
+### Added
+- **Layout planner** for each garden (also in the web app). Enter the garden's width and length in feet, pick a row width (24, 30 or 36 in) and an access path between rows (24 in by default, any size you like), and the garden is drawn to scale. You can turn the drawing in 90 degree steps to match how you look at the garden.
+- **Crops in rows.** Tap a row and plant a crop in the whole row or in a stretch of it; a row can hold several crops, each with its own start, length, spacing and variety (5 ft of onion, 10 ft of carrot, 10 ft of beans). Each crop has a pattern: single line, double line (12 in apart, optionally staggered) or an offset grid where every plant is its plant spacing from its neighbours.
+- **Supports.** Per crop: none, T-posts, cages, or a corral (stakes or T-posts on both sides with levels of twine). The totals count plants, plants per square foot, planted rows, T-posts, stakes, feet of twine, cages and area, with a table for each crop.
+- **Plan a crop.** Say how much you want to harvest (with pounds per plant), how many plants, or how many feet of row, and it works out the plants, row length and expected harvest, then places it in the row and start you choose and carries on into the next rows.
+- **Seasons.** "Start the next season" files this year's layout away (past years stay readable) and begins empty rows with the same settings.
+- **Rotation alerts.** Planting where the same crop, or one that shares a soil disease, grew in recent years is flagged (red for the same crop, amber for a shared disease), and the row picker marks the rows to avoid. Rules are per disease, from Washington State University Extension and Cornell Vegetable MD Online.
+- **Varieties and disease resistance.** Enter what a variety resists from its seed packet (V, F, N, A and so on) and the wait shortens: Roma VF after tomato needs 2 years instead of 3. No variety resistances come preloaded.
+- New services: `set_layout`, `assign_layout_rows`, `add_layout_segment`, `remove_layout_segment`, `set_layout_crop`, `set_layout_draft`, `place_layout_draft`, `start_layout_season`, `set_variety_traits`, `remove_variety_traits`, `remove_layout`.
+
 ## 0.16.0 - 2026-10-24
 
 ### Added

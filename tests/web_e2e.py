@@ -126,6 +126,20 @@ def main():
         if SHOTS:
             card.evaluate("el => el.scrollIntoView()")
             pg.screenshot(path=str(SHOTS / "micro.png"), full_page=True)
+        # layout planner: size a garden, fill it with tomatoes and read the counts off the page
+        card.locator("[data-act=back]").first.click()
+        card.locator("[data-act=open-g]").first.click()
+        card.locator("[data-act=open-layout]").click()
+        card.locator("[data-act=lay-start]").click()
+        card.locator("[data-act=lay-fill]").wait_for(timeout=5000)
+        card.locator("[data-act=lay-fill]").click()
+        card.locator("svg [data-act=lay-row]").first.wait_for(timeout=5000)
+        pg.wait_for_timeout(300)
+        lay = pg.evaluate("window.__garden.engine.snapshot()")["gardens"][0]["layout"]
+        check(lay["configured"] and lay["totals"]["planted_rows"] == lay["totals"]["rows"] > 0, f"layout rows filled: {lay['totals']}")
+        check(lay["totals"]["posts"] > 0, "tomato rows need T-posts")
+        text = card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText")
+        check("T-posts" in text and "Per sq ft" in text, "layout page shows the counts")
         check(not errors, f"no page errors {errors[:2]}")
         b.close()
     server.shutdown()

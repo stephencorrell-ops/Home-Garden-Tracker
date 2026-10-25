@@ -382,6 +382,7 @@ class GardenTrackerCard extends HTMLElement {
       const g = this._view.id && w === "garden" ? this._garden(this._view.id) : null;
       if (w === "variety" && v) body = this._varietyView(v);
       else if (w === "garden" && g) body = this._gardenView(g);
+      else if (w === "layout" && this._view.id && this._garden(this._view.id) && this._garden(this._view.id).layout) body = this._layoutView(this._garden(this._view.id));
       else if (w === "archive") body = this._archiveView();
       else if (w === "micro" && this._snap.micro) body = this._microView();
       else { this._view = { v: "home" }; body = this._homeView(); }
@@ -900,7 +901,7 @@ class GardenTrackerCard extends HTMLElement {
     if (g.kind !== "garden") return this._placeView(g);
     const ph = g.ph, gid = g.id;
     let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="grow"><div class="ttl">${esc(g.name)}</div><div class="sub">${this._vars().filter((v) => v.garden === gid).length} plants</div></div>${this._btn("edit-g", "cog", "", `data-g="${gid}"`, "ic")}</div>`;
-    h += this._frostPill(g, false) + this._sensorBanner(g);
+    h += this._frostPill(g, false) + this._sensorBanner(g) + this._layoutTile(g);
     h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">Soil pH</div>${ph.level ? `<span class="pill ${ph.level === "ok" ? "ok" : "warn"}" style="margin:0">${ph.level === "ok" ? "In range" : ph.level === "low" ? "Below target" : "Above target"}</span>` : ""}</div>`;
     if (ph.current !== null) {
       const d = ph.first && ph.first.date !== ph.date ? ph.current - ph.first.value : null;
@@ -1040,6 +1041,36 @@ class GardenTrackerCard extends HTMLElement {
       case "open-g": return this._go({ v: "garden", id: d.g });
       case "open-archive": return this._go({ v: "archive" });
       case "open-micro": return this._go({ v: "micro" });
+      case "open-layout": this._season = null; this._placeRow = "0"; this._placeStart = ""; this._brush = null; this._selRow = null; this._brushLen = ""; return this._go({ v: "layout", id: d.g });
+      case "lay-start": {
+        const val = (k) => Number(this.shadowRoot.querySelector(`[data-lay="${k}"]`).value);
+        return this._act("set_layout", { garden: d.g, width_ft: val("width_ft"), length_ft: val("length_ft") });
+      }
+      case "lay-rowin": return this._act("set_layout", { garden: d.g, row_in: Number(d.n) });
+      case "lay-row": {
+        const L = this._garden(d.g).layout, i = Number(d.r), row = L.rows[i], brush = this._brushFor(L), len = Number(this._brushLen) || 0;
+        this._selRow = i;
+        const vr = L.draft && L.draft.crop === brush ? L.draft.variety || undefined : undefined;
+        if (len > 0) return this._act("add_layout_segment", { garden: d.g, row: i, crop: brush, length_ft: len, variety: vr });
+        return this._act("assign_layout_rows", { garden: d.g, crop: row.crop === brush ? null : brush, rows: [i], variety: vr });
+      }
+      case "lay-traits": {
+        const L = this._garden(d.g).layout, crop = this._brushFor(L);
+        return this._open(this._fTraits(this._garden(d.g), crop, (L.draft && L.draft.crop === crop && L.draft.variety) || ""));
+      }
+      case "lay-mode": return this._act("set_layout_draft", { garden: d.g, crop: this._brushFor(this._garden(d.g).layout), mode: d.m });
+      case "lay-place": return this._act("place_layout_draft", { garden: d.g, row: Number(this._placeRow || 0), start_ft: this._placeStart === "" || this._placeStart === undefined ? undefined : Number(this._placeStart) }, () => { this._selRow = Number(this._placeRow || 0); });
+      case "lay-season": this._season = d.y || null; this._selRow = null; return this._render();
+      case "ask-season": this._confirm = "season"; return this._render();
+      case "do-season": return this._act("start_layout_season", { garden: d.g }, () => { this._season = null; this._selRow = null; this._confirm = null; });
+      case "lay-seg-rm": return this._act("remove_layout_segment", { garden: d.g, row: Number(d.r), index: Number(d.i) });
+      case "lay-row-clear": return this._act("assign_layout_rows", { garden: d.g, crop: null, rows: [Number(d.r)] });
+      case "lay-rot": return this._act("set_layout", { garden: d.g, rotation: ((this._garden(d.g).layout.rotation || 0) + Number(d.n) + 360) % 360 });
+      case "lay-fill": return this._act("assign_layout_rows", { garden: d.g, crop: this._brushFor(this._garden(d.g).layout) });
+      case "lay-clear": return this._act("assign_layout_rows", { garden: d.g, crop: null });
+      case "lay-edit": return this._open(this._fLayCrop(this._garden(d.g), d.c));
+      case "ask-lay": this._confirm = "lay"; return this._render();
+      case "do-lay": return this._act("remove_layout", { garden: d.g }, () => this._back());
       case "form-micro": return this._open(this._fMicro());
       case "web-location": return this.dispatchEvent(new CustomEvent("garden-location", { bubbles: true, composed: true }));
       case "filter": this._filter = d.s; return this._render();
@@ -1119,7 +1150,25 @@ class GardenTrackerCard extends HTMLElement {
     }
   }
   _onInput(e, isChange) {
-    const el = e.target, name = el.dataset && el.dataset.f;
+    const el = e.target;
+    if (el.dataset && el.dataset.lay && isChange && el.tagName === "INPUT") {
+      const L = this._garden(el.dataset.g).layout;
+      if (L && L.configured) this._act("set_layout", { garden: el.dataset.g, [el.dataset.lay]: Number(el.value) });
+      return;
+    }
+    if (el.dataset && el.dataset.brushlen !== undefined && isChange) { this._brushLen = el.value; return this._render(); }
+    if (el.dataset && el.dataset.draft && isChange) {
+      const L = this._garden(el.dataset.g).layout, d = L.draft || {};
+      return this._act("set_layout_draft", { garden: el.dataset.g, crop: this._brushFor(L), mode: d.mode || "weight", [el.dataset.draft]: Number(el.value) });
+    }
+    if (el.dataset && el.dataset.dvar !== undefined && isChange) {
+      const L = this._garden(el.dataset.g).layout, d = L.draft || {};
+      return this._act("set_layout_draft", { garden: el.dataset.g, crop: this._brushFor(L), mode: d.mode || "weight", variety: el.value.trim() });
+    }
+    if (el.dataset && el.dataset.placerow !== undefined && isChange) { this._placeRow = el.value; return; }
+    if (el.dataset && el.dataset.placestart !== undefined && isChange) { this._placeStart = el.value; return; }
+    if (el.dataset && el.dataset.brush !== undefined && isChange) { this._brush = el.value; return this._act("set_layout_draft", { garden: el.dataset.g, crop: el.value }); }
+    const name = el.dataset && el.dataset.f;
     if (!name || !this._form || el.tagName === "BUTTON") return;
     const isSelect = el.tagName === "SELECT";
     if (isSelect !== isChange) return;
@@ -1579,6 +1628,181 @@ class GardenTrackerCard extends HTMLElement {
       ],
       note: "Pick Something else for anything your soil needs. It is added to the list so you can log it again next time.",
       submit: (x) => { const { custom, ...rest } = x; return this._call("log_adjunct", { garden: g.id, ...rest, adjunct: x.adjunct === "__new__" ? custom : x.adjunct }); },
+    };
+  }
+  // ---- layout planner ------------------------------------------------------------------------------
+  _brushFor(L) {
+    const keys = L.available.map((a) => a.key);
+    if (this._brush && keys.includes(this._brush)) return this._brush;
+    return (L.crops[0] && L.crops[0].key) || (keys.includes("tomato") ? "tomato" : keys[0]);
+  }
+  _layDesc(L, c) {
+    const sp = `${num(c.spacing_in, 1)} in`;
+    return c.pattern === "grid" ? `offset grid, ${sp} between plants` : c.pattern === "double" ? `double line, ${sp} apart${c.stagger ? ", staggered" : ""}` : `single line, ${sp} apart`;
+  }
+  _layoutTile(g) {
+    const L = g.layout;
+    if (!L) return "";
+    const t = L.configured ? L.totals : null;
+    const sub = t ? `${num(L.width_ft, 1)} x ${num(L.length_ft, 1)} ft, ${t.rows} rows${t.plants ? `, ${t.plants} plants` : ""}` : "Plan rows, plant counts, T-posts and cages";
+    return `<div class="card tile" data-act="open-layout" data-g="${g.id}"><div class="row"><div class="pic" style="background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)">${this._icon("grass")}</div><div class="grow"><div style="font-size:15px;font-weight:500">Layout planner</div><div class="sub">${esc(sub)}</div></div>${this._icon("chevron-right")}</div></div>`;
+  }
+  _layoutSvg(L, g, ro) {
+    const COL = ["#e5372d", "#2e7d32", "#f28c38", "#8e24aa", "#039be5", "#c0a000", "#795548", "#d81b60"];
+    const color = (k) => COL[Math.max(0, L.available.findIndex((a) => a.key === k)) % COL.length];
+    const rot = L.rotation || 0, W = L.width_ft * 12, N = L.length_ft * 12, M = 24;
+    const LM = L.rows.some((r) => r.segments.length) ? 62 : 0; // room for the crop names, on the side the rows start at
+    const sw = rot % 180 ? N : W, sh = rot % 180 ? W : N;
+    const s = Math.min(300 / sw, 440 / sh);
+    const left = M + (rot === 270 ? LM : 0), right = M + (rot === 90 ? LM : 0), top = M + (rot === 0 ? LM : 0), bottom = M + (rot === 180 ? LM : 0);
+    const VW = sw * s + left + right, VH = sh * s + top + bottom;
+    const tf = { 0: "", 90: `translate(${N * s} 0) rotate(90)`, 180: `translate(${W * s} ${N * s}) rotate(180)`, 270: `translate(0 ${W * s}) rotate(270)` }[rot];
+    const P = (lx, ly) => [left + [lx, N * s - ly, W * s - lx, ly][rot / 90], top + [ly, lx, N * s - ly, W * s - lx][rot / 90]];
+    const total = L.rows.reduce((a, r) => a + r.segments.reduce((b, sg) => b + sg.ys.length * sg.lines.length, 0), 0);
+    const dots = total <= 2500, fix = (n) => n.toFixed(1);
+    const info = (k) => L.crops.find((c) => c.key === k) || {};
+    let o = `<g transform="translate(${left} ${top}) ${tf}"><rect width="${W * s}" height="${N * s}" fill="var(--secondary-background-color)" stroke="var(--line)"/>`;
+    let names = "";
+    for (const r of L.rows) {
+      const x0 = r.x0 * s, sel = !ro && this._selRow === r.i;
+      o += `<rect ${ro ? 'pointer-events="none"' : `data-act="lay-row" data-g="${g.id}" data-r="${r.i}" style="cursor:pointer"`} x="${fix(x0)}" y="0" width="${fix(L.row_in * s)}" height="${N * s}" fill="var(--card-background-color)" stroke="${sel ? "var(--primary-color)" : "var(--line)"}" stroke-width="${sel ? 2 : 1}" stroke-dasharray="${sel ? "" : "3 3"}"/>`;
+      for (const sg of r.segments) {
+        const c = color(sg.crop), cs = info(sg.crop);
+        o += `<rect x="${fix(x0)}" y="${fix(sg.start_in * s)}" width="${fix(L.row_in * s)}" height="${fix(sg.len_in * s)}" fill="${c}" fill-opacity="0.16" pointer-events="none"/>`;
+        const rad = Math.max(1.6, Math.min(cs.spacing_in * 0.32, 5) * s);
+        sg.lines.forEach((lx, li) => {
+          const x = lx * s, ys = li % 2 === 1 && sg.ys2.length ? sg.ys2 : sg.ys;
+          if (dots) for (const y of ys) {
+            o += `<circle cx="${fix(x)}" cy="${fix(y * s)}" r="${fix(rad)}" fill="${c}" pointer-events="none"/>`;
+            if (cs.support === "cage") o += `<circle cx="${fix(x)}" cy="${fix(y * s)}" r="${fix(rad + 2)}" fill="none" stroke="var(--primary-text-color)" pointer-events="none"/>`;
+          } else o += `<line x1="${x}" x2="${x}" y1="${fix(sg.start_in * s)}" y2="${fix((sg.start_in + sg.len_in) * s)}" stroke="${c}" stroke-width="${fix(Math.max(1.5, rad))}" stroke-dasharray="1 ${Math.max(2, cs.spacing_in * s)}" stroke-linecap="round" pointer-events="none"/>`;
+        });
+        const stations = []; for (let k = 0; k * cs.post_ft * 12 <= sg.len_in + 1e-6; k++) stations.push(sg.start_in + k * cs.post_ft * 12);
+        if (cs.support === "tpost") for (const y of stations) o += `<rect x="${fix(r.x * s - 2.5)}" y="${fix(y * s - 2.5)}" width="5" height="5" fill="var(--primary-text-color)" pointer-events="none"/>`;
+        if (cs.support === "corral") {
+          const half = Math.min(sg.block_w_in, L.row_in - 2) / 2, xa = (r.x - half) * s, xb = (r.x + half) * s, sz = cs.post_kind === "tpost" ? 5 : 3.5;
+          o += `<rect x="${fix(xa)}" y="${fix(sg.start_in * s)}" width="${fix(xb - xa)}" height="${fix(sg.len_in * s)}" fill="none" stroke="#b8860b" stroke-width="1.6" stroke-dasharray="4 2" pointer-events="none"/>`;
+          for (const y of stations) for (const px of [xa, xb]) o += `<rect x="${fix(px - sz / 2)}" y="${fix(y * s - sz / 2)}" width="${sz}" height="${sz}" fill="var(--primary-text-color)" pointer-events="none"/>`;
+        }
+      }
+      if (r.segments.length) {
+        const nm = r.segments[0].name + (r.segments.length > 1 ? ` +${r.segments.length - 1}` : ""), t = esc(nm.length > 11 ? nm.slice(0, 10) + "." : nm), [px, py] = P(r.x * s, 0);
+        const at = { 0: `translate(${fix(px + 3)} ${fix(py - 6)}) rotate(-90)`, 90: `translate(${fix(px + 6)} ${fix(py + 4)})`, 180: `translate(${fix(px - 3)} ${fix(py + 6)}) rotate(90)`, 270: `translate(${fix(px - 6)} ${fix(py + 4)})` }[rot];
+        names += `<text class="ax" transform="${at}" font-size="11" fill="${color(r.segments[0].crop)}" text-anchor="${rot === 270 ? "end" : "start"}" pointer-events="none">${t}</text>`;
+      }
+    }
+    return `<svg viewBox="0 0 ${fix(VW)} ${fix(VH)}" width="100%" style="max-width:${Math.round(VW * 1.15)}px;display:block;margin:0 auto" role="img" aria-label="Garden layout, ${L.totals.rows} rows">${o}</g>${names}</svg>`;
+  }
+  _layoutView(g) {
+    const gid = g.id, hist = g.layout_history || {}, years = Object.keys(hist).sort();
+    const past = this._season && hist[this._season] ? this._season : null;
+    const L = past ? hist[past] : g.layout, ok = L.configured;
+    let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="grow"><div class="ttl">Layout planner</div><div class="sub">${esc(g.name)}${past ? `, ${past} (last season, view only)` : ok ? `, ${L.year}` : ""}</div></div></div>`;
+    if (years.length && ok) {
+      h += `<div class="chips">${years.map((y) => `<button class="chip ${past === y ? "on" : ""}" data-act="lay-season" data-g="${gid}" data-y="${y}">${y}</button>`).join("")}<button class="chip ${past ? "" : "on"}" data-act="lay-season" data-g="${gid}" data-y="">${g.layout.year}</button></div>`;
+    }
+    const dim = (k, label, v, span = 3, min = 1) => `<div style="grid-column:span ${span}"><label>${label}</label><input type="number" inputmode="decimal" min="${min}" max="500" step="any" value="${v}" data-lay="${k}" data-g="${gid}"></div>`;
+    if (!ok) {
+      h += `<div class="card"><div class="sec">Garden size</div><div class="grid6">${dim("width_ft", "Width (ft)", 20)}${dim("length_ft", "Length (ft)", 20)}</div><div class="small mut" style="margin:8px 0">Rows run along the length and are stacked across the width, with a 24 in access path between them.</div><div class="row">${this._btn("lay-start", "plus", "Start planning", `data-g="${gid}"`, "primary")}</div></div>`;
+      return h;
+    }
+    const t = L.totals;
+    if (!past) {
+      h += `<div class="card"><div class="sec">Garden size</div><div class="grid6">${dim("width_ft", "Width (ft)", num(L.width_ft, 2))}${dim("length_ft", "Length (ft)", num(L.length_ft, 2))}${dim("path_in", "Access path between rows (in)", num(L.path_in, 1), 6, 0)}</div>`;
+      h += `<label style="margin-top:10px">Row width</label><div class="seg">${L.row_widths.map((n) => `<button class="${L.row_in === n ? "on" : ""}" data-act="lay-rowin" data-g="${gid}" data-n="${n}">${n} in</button>`).join("")}</div>`;
+      h += `<div class="small mut" style="margin-top:8px">Fits ${t.rows} row${t.rows === 1 ? "" : "s"} of ${L.row_in} in with ${num(L.path_in, 0)} in paths between them. Each crop has its own pattern: a single line, a double line or an offset grid.</div></div>`;
+      if (L.alerts.length) {
+        h += `<div class="card"><div class="sec">Crop rotation</div>`;
+        h += L.alerts.map((a) => `<div class="alarm" ${a.level === "family" ? 'style="--hold:var(--spray)"' : a.level === "resistant" ? 'style="--hold:var(--ok)"' : ""}><b>${this._icon(a.level === "resistant" ? "check" : "alert")} ${esc(a.name)}${a.variety ? ` (${esc(a.variety)})` : ""}, row ${a.row + 1}</b><div class="small" style="margin-top:4px">${esc(a.text)}</div></div>`).join("");
+        h += `<div class="small mut">Rest times follow <a href="${L.rotation_sources[0]}" target="_blank" rel="noopener">WSU Extension</a> and <a href="${L.rotation_sources[1]}" target="_blank" rel="noopener">Cornell Vegetable MD Online</a>.</div></div>`;
+      }
+      const brush = this._brushFor(L), cur = L.available.find((a) => a.key === brush), d = L.draft && L.draft.crop === brush ? L.draft : null;
+      const mode = (d && d.mode) || "weight";
+      h += `<div class="card"><div class="sec">Plan a crop</div><div class="row wrap" style="margin-bottom:10px"><div class="grow" style="min-width:140px"><select data-brush data-g="${gid}">${L.available.map((a) => `<option value="${esc(a.key)}" ${a.key === brush ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select></div>${this._btn("lay-edit", "pencil", "Spacing", `data-g="${gid}" data-c="${esc(brush)}"`)}</div>`;
+      const names = [...new Set([...(this._snap.variety_traits || []).filter((t) => t.crop === brush).map((t) => t.name), ...this._snap.varieties.filter((v) => v.species === brush).map((v) => v.name)])];
+      const vr = (d && d.variety) || "";
+      h += `<label>Variety (optional)</label><div class="row" style="margin-bottom:10px"><div class="grow"><input type="text" list="vl" placeholder="Roma VF" value="${esc(vr)}" data-dvar data-g="${gid}"><datalist id="vl">${names.map((n) => `<option value="${esc(n)}"></option>`).join("")}</datalist></div>${this._btn("lay-traits", "pencil", "Resists", `data-g="${gid}"`)}</div>`;
+      if (d && d.resist && d.resist.length) h += `<div class="small mut" style="margin:-4px 0 10px">${esc(vr)} resists ${esc(d.resist.map((k) => (cur.diseases.find((x) => x.key === k) || { name: k }).name).join(", "))}. Rotation alerts allow for that.</div>`;
+      h += `<div class="seg">${[["weight", "Harvest weight"], ["plants", "Plants"], ["length", "Row length"]].map(([m, t2]) => `<button class="${mode === m ? "on" : ""}" data-act="lay-mode" data-g="${gid}" data-m="${m}">${t2}</button>`).join("")}</div>`;
+      const lab = { weight: "Pounds you want to harvest", plants: "Number of plants", length: "Feet of row" }[mode];
+      h += `<div class="grid6" style="margin-top:10px"><div style="grid-column:span 6"><label>${lab}</label><input type="number" inputmode="decimal" min="0" step="any" value="${d && d.value ? num(d.value, 2) : ""}" data-draft="value" data-g="${gid}"></div>`;
+      if (mode === "weight") h += `<div style="grid-column:span 3"><label>Pounds per plant</label><input type="number" inputmode="decimal" min="0" step="any" value="${cur.yield_lb ? num(cur.yield_lb, 3) : ""}" data-draft="yield_lb" data-g="${gid}"></div>`;
+      h += `<div style="grid-column:span ${mode === "weight" ? 3 : 6}"><label>Inches between plants</label><input type="number" inputmode="decimal" min="1" step="any" value="${num(cur.spacing_in, 2)}" data-draft="spacing_in" data-g="${gid}"></div></div>`;
+      h += `<div class="small mut" style="margin-top:6px">${esc(cur.name)}: ${this._layDesc(L, cur)}${cur.support === "tpost" ? `, T-post every ${num(cur.post_ft, 1)} ft` : cur.support === "cage" ? ", one cage each" : cur.support === "corral" ? `, ${cur.post_kind === "tpost" ? "T-post" : "stake"} corral every ${num(cur.post_ft, 1)} ft with ${cur.twine_levels} twine line${cur.twine_levels === 1 ? "" : "s"}` : ""}</div>`;
+      if (d && d.ready) {
+        h += `<div class="stats" style="margin-top:10px">${d.plants_needed ? `<div class="stat"><span>Plants needed</span><b>${d.plants_needed}</b></div>` : ""}<div class="stat"><span>Row length</span><b>${num(d.length_ft, 1)} ft</b></div><div class="stat"><span>Plants that fit</span><b>${d.plants}</b></div>${d.est_lb ? `<div class="stat"><span>Harvest</span><b>${num(d.est_lb, 1)} lb</b></div>` : ""}</div>`;
+        h += `<div class="small mut" style="margin-top:6px">${d.plants} plants in ${num(d.length_ft, 1)} ft of ${L.row_in} in row (${d.lines} line${d.lines === 1 ? "" : "s"})${d.rows > 1 ? `, which is ${num(d.rows, 1)} rows` : ""}.</div>`;
+        const opts = L.rows.map((r) => { const f = d.flags[r.i]; return `<option value="${r.i}" ${String(this._placeRow || "0") === String(r.i) ? "selected" : ""}>Row ${r.i + 1}${r.used_ft ? `, ${num(r.used_ft, 1)} ft planted` : ", empty"}${f ? ` (${f.level === "same" ? "same crop" : f.level === "resistant" ? "resistant" : "shared disease"}: ${f.text})` : ""}</option>`; }).join("");
+        h += `<div class="grid6" style="margin-top:10px"><div style="grid-column:span 4"><label>Put it in</label><select data-placerow>${opts}</select></div><div style="grid-column:span 2"><label>Start (ft)</label><input type="number" inputmode="decimal" min="0" step="any" placeholder="0" value="${esc(this._placeStart || "")}" data-placestart></div></div>`;
+        h += `<div class="row" style="margin-top:10px">${this._btn("lay-place", "plus", "Add to garden", `data-g="${gid}"`, "primary grow")}</div>`;
+      } else if (d && d.need) {
+        h += `<div class="small mut" style="margin-top:10px">${{ value: "Enter an amount to see how much row it needs.", yield: "Enter the pounds each plant should give to turn weight into plants.", size: "That is more than the garden can hold." }[d.need]}</div>`;
+      } else h += `<div class="small mut" style="margin-top:10px">Enter an amount to see how much row it needs.</div>`;
+      h += `</div>`;
+    }
+    h += `<div class="card"><div class="sec">${past ? `${past} layout` : "Layout"}${past ? "" : ". Tap a row to plant it with the crop above, or enter feet to plant part of a row"}</div>`;
+    if (!past) {
+      const brush = this._brushFor(L);
+      h += `<label>Feet of the row to plant (leave empty for the whole row)</label><input type="number" inputmode="decimal" min="0.5" step="any" placeholder="Whole row" value="${esc(this._brushLen || "")}" data-brushlen style="margin-bottom:10px">`;
+    }
+    h += this._layoutSvg(L, g, !!past);
+    const start = ["top", "right", "bottom", "left"][(L.rotation || 0) / 90];
+    h += `<div class="small mut" style="margin-top:6px;text-align:center">${num(L.width_ft, 1)} ft wide, ${num(L.length_ft, 1)} ft long. Rows start at the ${start}.</div>`;
+    const sel = !past && this._selRow !== null && this._selRow !== undefined ? L.rows[this._selRow] : null;
+    if (sel) {
+      h += `<div class="card" style="margin:10px 0 0"><div class="row"><div class="sec grow" style="margin:0">Row ${sel.i + 1}: ${num(sel.used_ft, 1)} of ${num(L.length_ft, 1)} ft planted</div>${sel.segments.length ? this._btn("lay-row-clear", "", "Clear row", `data-g="${gid}" data-r="${sel.i}"`) : ""}</div>`;
+      if (!sel.segments.length) h += `<div class="small mut" style="margin-top:6px">Empty. Tap the row to plant it. To split it between crops, enter feet above and tap once for each crop, or use Plan a crop and pick where it goes.</div>`;
+      sel.segments.forEach((sg, k) => { h += `<div class="lg"><div class="t">${esc(sg.name)}${sg.variety ? ` (${esc(sg.variety)})` : ""}<span>${num(sg.start_in / 12, 1)} to ${num((sg.start_in + sg.len_in) / 12, 1)} ft, ${sg.plants} plants</span></div>${this._btn("lay-seg-rm", "close", "", `data-g="${gid}" data-r="${sel.i}" data-i="${k}"`, "ic")}</div>`; });
+      h += `</div>`;
+    }
+    h += `<div class="row" style="margin-top:10px">${this._btn("lay-rot", "", "Turn left", `data-g="${gid}" data-n="-90"`, "grow")}${this._btn("lay-rot", "", "Turn right", `data-g="${gid}" data-n="90"`, "grow")}</div>`;
+    if (!past) h += `<div class="row" style="margin-top:10px">${this._btn("lay-fill", "", "Fill every row", `data-g="${gid}"`, "grow")}${this._btn("lay-clear", "", "Clear rows", `data-g="${gid}"`)}</div>`;
+    h += `</div>`;
+    h += `<div class="card"><div class="sec">What you need</div><div class="stats"><div class="stat"><span>Plants</span><b>${t.plants}</b></div><div class="stat"><span>Per sq ft</span><b>${num(t.density, 2)}</b></div><div class="stat"><span>Rows planted</span><b>${t.planted_rows} of ${t.rows}</b></div><div class="stat"><span>T-posts</span><b>${t.posts}</b></div><div class="stat"><span>Stakes</span><b>${t.stakes}</b></div><div class="stat"><span>Twine</span><b>${num(t.twine_ft, 0)} ft</b></div><div class="stat"><span>Cages</span><b>${t.cages}</b></div><div class="stat"><span>Garden area</span><b>${num(t.area_sqft, 0)} sq ft</b></div></div>`;
+    if (t.planted_rows) h += `<div class="small mut" style="margin-top:8px">Inside the planted rows it is ${num(t.bed_density, 2)} plants per sq ft.</div>`;
+    if (L.crops.length) {
+      h += `<table class="tbl" style="margin-top:10px"><tr><th>Crop</th><th>Planted</th><th>Plants</th><th>Support</th></tr>`;
+      for (const c of L.crops) h += `<tr><td>${esc(c.name)}<div class="small mut">${this._layDesc(L, c)}</div></td><td>${num(c.feet, 1)} ft<div class="small mut">${c.rows} row${c.rows === 1 ? "" : "s"}</div></td><td>${c.plants}</td><td>${c.support === "tpost" ? `${c.posts} T-posts` : c.support === "cage" ? `${c.cages} cages` : c.support === "corral" ? `${c.posts || c.stakes} ${c.posts ? "T-posts" : "stakes"}, ${num(c.twine_ft, 0)} ft twine` : "none"}</td></tr>`;
+      h += `</table>`;
+    }
+    h += `<div class="small mut" style="margin-top:8px">T-posts go at both ends of a planted section and then at the spacing set for the crop. A double line shares one set of posts down its middle. A corral puts a post on each side at every station, with twine run along both sides and across the ends.</div></div>`;
+    if (!past) {
+      h += `<div class="card">${this._confirm === "season" ? `<div class="conf">Keep ${L.year}'s layout and start ${L.year + 1} with empty rows? ${L.year}'s layout stays here to look up, and your rotation is checked against it.<div class="row"><button data-act="cancel-del">Not yet</button><button class="primary" data-act="do-season" data-g="${gid}">Start ${L.year + 1}</button></div></div>` : `<button data-act="ask-season">Start the ${L.year + 1} season</button>`}</div>`;
+      h += `<div class="card">${this._confirm === "lay" ? `<div class="conf">Remove this season's layout? Your plants are not affected.<div class="row"><button data-act="cancel-del">Keep</button><button class="danger" data-act="do-lay" data-g="${gid}">Remove</button></div></div>` : `<button class="danger" data-act="ask-lay">Remove layout</button>`}</div>`;
+    }
+    return h;
+  }
+  _fTraits(g, crop, variety) {
+    const L = g.layout, c = L.available.find((a) => a.key === crop);
+    const have = (name) => (this._snap.variety_traits || []).find((t) => t.crop === crop && t.name.toLowerCase() === name.toLowerCase());
+    return {
+      title: `${c.name}: disease resistance`, submitLabel: "Save",
+      fields: [
+        { name: "variety", label: "Variety", type: "text", req: true, value: variety, placeholder: "Roma VF" },
+        { name: "resist", label: "Resistant to (tap the letters on the seed packet)", type: "multi", options: c.diseases.map((x) => [x.key, x.code ? `${x.name} (${x.code})` : x.name]), value: ((have(variety) || {}).resist || []).join(",") },
+      ],
+      note: "A resistant variety can follow its own family sooner, because the diseases it resists are left out of the rotation wait. It lowers the risk but does not remove it.",
+      submit: async (x) => {
+        await this._call("set_variety_traits", { crop, variety: x.variety, resist: (x.resist || "").split(",").filter(Boolean) });
+        await this._call("set_layout_draft", { garden: g.id, crop, variety: x.variety });
+      },
+    };
+  }
+  _fLayCrop(g, key) {
+    const L = g.layout, c = L.available.find((a) => a.key === key);
+    return {
+      title: `Spacing: ${c.name}`, submitLabel: "Save",
+      fields: [
+        { name: "pattern", label: "How the plants sit across the row", type: "select", options: Object.entries(L.patterns), value: c.pattern },
+        { name: "spacing_in", label: "Inches between plants", type: "number", step: "any", value: c.spacing_in, req: true },
+        { name: "stagger", label: "The two lines", type: "select", options: [["0", "Side by side"], ["1", "Staggered"]], value: c.stagger ? "1" : "0", show: (v) => v.pattern === "double" },
+        { name: "yield_lb", label: "Pounds harvested per plant (optional)", type: "number", step: "any", value: c.yield_lb || "" },
+        { name: "support", label: "Support", type: "select", options: Object.entries(L.supports), value: c.support },
+        { name: "post_kind", label: "Corral posts", type: "select", options: Object.entries(L.totals.post_kinds), value: c.post_kind, show: (v) => v.support === "corral" },
+        { name: "post_ft", label: "Feet between posts", type: "number", step: "any", value: c.post_ft, show: (v) => v.support === "tpost" || v.support === "corral" },
+        { name: "twine_levels", label: "Lines of twine up the posts", type: "number", step: "1", value: c.twine_levels, show: (v) => v.support === "corral" },
+      ],
+      submit: (x) => this._call("set_layout_crop", { garden: g.id, crop: key, spacing_in: x.spacing_in, support: x.support, post_ft: x.post_ft, post_kind: x.post_kind, twine_levels: x.twine_levels, pattern: x.pattern, stagger: x.pattern === "double" ? x.stagger === "1" : undefined, yield_lb: x.yield_lb }),
     };
   }
   _fAType(g) {
