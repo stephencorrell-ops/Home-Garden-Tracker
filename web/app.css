@@ -19,3 +19,18 @@ dialog input[type=text],dialog input[type=search]{width:100%;font:inherit;paddin
 dialog .row{display:flex;gap:8px;margin-top:12px;justify-content:flex-end;flex-wrap:wrap}
 dialog ul{list-style:none;margin:8px 0 0;padding:0}dialog li button{width:100%;text-align:left;margin-top:6px}
 .small{font-size:12px;color:var(--secondary-text-color)}
+
+@media (max-width:600px){
+.bar{gap:6px;padding:calc(6px + env(safe-area-inset-top)) 10px 6px}
+.brand{font-size:16px;gap:6px;min-width:0}.brand img{width:26px;height:26px}
+.bar button{min-height:40px;padding:6px 10px;font-size:14px}
+main{padding:8px 10px calc(24px + env(safe-area-inset-bottom))}
+.notice{width:calc(100% - 20px);flex-direction:column;align-items:stretch;gap:8px;font-size:14px}
+.notice button{min-height:44px;width:100%}
+footer{font-size:11px}
+dialog{width:100%;max-width:none;margin:auto 0 0;border-radius:16px 16px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom));max-height:85vh}
+dialog input[type=text],dialog input[type=search]{font-size:16px;min-height:44px}
+dialog li button,dialog .row button{min-height:44px}
+dialog .row button{flex:1}
+}
+@media (max-width:360px){.bar #backup,.bar #restore{padding:6px 8px;font-size:13px}.brand span{display:none}}

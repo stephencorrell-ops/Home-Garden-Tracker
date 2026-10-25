@@ -46,6 +46,7 @@ label{display:block;font-size:12px;color:var(--mut);margin-bottom:4px}
 .ttl{font-size:18px;font-weight:500}.sub{font-size:12px;color:var(--mut)}.mut{color:var(--mut)}.small{font-size:12px}
 .card{background:var(--ha-card-background,var(--card-background-color));border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
 .sec{font-size:12px;color:var(--mut);margin:0 0 6px}
+.pdays{text-align:right;flex:none;align-self:flex-start}.pdays span{display:block;font-size:11px;color:var(--mut)}.pdays b{font-size:16px;font-weight:500}
 .tile{cursor:pointer}.tile:hover{border-color:var(--primary-color)}
 .pic{width:56px;height:56px;border-radius:12px;flex:none;display:flex;align-items:center;justify-content:center}
 .pill{font-size:12px;padding:2px 10px;border-radius:8px;display:inline-block;margin-top:4px;color:var(--c);background:color-mix(in srgb,var(--c) 16%,transparent)}
@@ -83,6 +84,31 @@ label{display:block;font-size:12px;color:var(--mut);margin-bottom:4px}
 .pips{display:flex;gap:4px;margin-top:5px}.pips i{width:14px;height:6px;border-radius:3px;background:var(--line)}.pips i.f{background:var(--c)}
 svg .ax{fill:var(--secondary-text-color);font-size:10px}
 ha-icon{--mdc-icon-size:20px}
+`;
+
+// Phone layout for the standalone web app only (the card is given web:true there). The Home Assistant card never gets these rules.
+const WEB_PHONE_CSS = `
+@media (max-width:600px){
+ha-card.web{padding:4px 0;background:none;box-shadow:none;border:none}
+.web button{min-height:44px;padding:8px 12px}
+.web button.on,.web button.bad{padding:7px 11px}
+.web button.ic{min-width:44px;padding:10px}
+.web .chip{min-height:36px;display:inline-flex;align-items:center;padding:6px 12px;font-size:13px}
+.web .chips{padding-bottom:4px;scrollbar-width:none;margin-left:-4px;margin-right:-4px}
+.web input,.web select,.web textarea{font-size:16px;min-height:44px;padding:10px}
+.web label{font-size:13px}
+.web .card{padding:12px;margin-bottom:12px}
+.web .hd{position:sticky;top:52px;z-index:2;background:var(--page,var(--card-background-color));margin:0 0 10px;padding:4px 0}
+.web .ttl{font-size:20px}
+.web .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+.web .stat b{font-size:18px}
+.web .seg button{font-size:13px;min-height:44px}
+.web .row.wrap>button,.web .conf button{flex:1 1 40%}
+.web .tbl{font-size:14px}
+.web .lg{padding:12px 0}
+.web .plant{padding:12px}
+.web .phases{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
 `;
 
 // Plant pictures (56x56 viewBox), one per built-in plant type. Anything else gets the generic sprout.
@@ -363,7 +389,7 @@ class GardenTrackerCard extends HTMLElement {
     const banner = (this._err && this._snap ? `<div class="err">${esc(this._err)}</div>` : "") +
       (this._undo && this._snap && this._snap.can_undo && !this._form
         ? `<div class="undo"><span>Entry removed</span><button data-act="undo">Undo</button></div>` : "");
-    this.shadowRoot.innerHTML = `<style>${CSS}</style><ha-card>${banner}${body}</ha-card>`;
+    this.shadowRoot.innerHTML = `<style>${CSS}${this._web ? WEB_PHONE_CSS : ""}</style><ha-card${this._web ? ' class="web"' : ""}>${banner}${body}</ha-card>`;
   }
 
   _icon(name) { return `<ha-icon icon="mdi:${name}"></ha-icon>`; }
@@ -735,8 +761,10 @@ class GardenTrackerCard extends HTMLElement {
     const inPlace = v.location_kind !== "garden";
     const sub = [v.species_name, tree ? null : `${v.alive} of ${v.count} plants`, inPlace ? v.container : null].filter(Boolean).join(", ");
     const pest = tree ? v.pests.find((p) => p.status && p.status.next_dd) : null;
-    let h = `<div class="card tile" data-act="open-v" data-v="${v.id}"><div class="row">${this._picBox(v)}<div class="grow"><div style="font-size:15px;font-weight:500">${esc(v.name)}</div><div class="sub">${esc(sub)}</div><span class="pill ${v.status.level}">${esc(v.status.text)}</span></div></div>`;
-    h += this._statGrid(this._stats(v).slice(0, 3));
+    const stats = this._stats(v).slice(0, 3), planted = this._web ? stats.find((x) => x[0] === "Planted") : null;
+    let h = `<div class="card tile" data-act="open-v" data-v="${v.id}"><div class="row">${this._picBox(v)}<div class="grow"><div style="font-size:15px;font-weight:500">${esc(v.name)}</div><div class="sub">${esc(sub)}</div><span class="pill ${v.status.level}">${esc(v.status.text)}</span></div>${planted ? `<div class="pdays"><span>Planted</span><b>${esc(planted[1])}</b></div>` : ""}</div>`;
+    const rest = stats.filter((x) => x !== planted);
+    if (rest.length) h += this._statGrid(rest);
     if (pest) {
       const s = pest.status;
       h += `<div style="margin-top:10px;font-size:12px" class="row"><span class="mut grow">${esc(pest.name)} degree days</span><b>${s.dd} / ${s.next_dd}</b></div><div class="bar"><i style="width:${Math.min(100, (s.dd / s.next_dd) * 100)}%"></i></div>`;
