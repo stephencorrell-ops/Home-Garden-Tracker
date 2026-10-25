@@ -912,14 +912,95 @@ class GardenModel:
         I.setdefault("crops", {}).pop(crop, None)
         self._touch()
 
-    def set_fertigation(self, garden: str, product: Any = None, n_pct: Any = None, p_pct: Any = None, k_pct: Any = None,
-                        ppm_n: Any = None, ratio: Any = None, per_week: Any = None) -> None:
+    def _fert_of(self, garden: str) -> dict:
         g, I = self._irrigation_of(garden)
+        I["fert"] = irr.fert_of(I.get("fert"))
+        return I["fert"]
+
+    def set_fertigation(self, garden: str, every_days: Any = None, active: Any = None) -> None:
+        F = self._fert_of(garden)
         try:
-            vals = irr.validate_fert(product, n_pct, p_pct, k_pct, ppm_n, ratio, per_week)
+            vals = irr.validate_fert(every_days, active)
         except irr.IrrigationError as e:
             raise GardenError(str(e)) from None
-        I.setdefault("fert", irr.blank()["fert"]).update(vals)
+        if "active" in vals and vals["active"] not in F["mixes"]:
+            raise GardenError("Pick one of the mixes")
+        F.update(vals)
+        self._touch()
+
+    def set_injector(self, garden: str, name: Any = None, min_ratio: Any = None, max_ratio: Any = None, min_gpm: Any = None,
+                     max_gpm: Any = None, tank_gal: Any = None, flush_min: Any = None) -> None:
+        F = self._fert_of(garden)
+        try:
+            new = {**F["injector"], **irr.validate_injector(name, min_ratio, max_ratio, min_gpm, max_gpm, tank_gal, flush_min)}
+            if new["min_ratio"] > new["max_ratio"]:
+                raise irr.IrrigationError("The strongest dilution (1:50) must be a smaller number than the weakest (1:500)")
+            if new["min_gpm"] > new["max_gpm"]:
+                raise irr.IrrigationError("The lowest flow must be less than the highest")
+        except irr.IrrigationError as e:
+            raise GardenError(str(e)) from None
+        F["injector"] = new
+        self._touch()
+
+    def set_fert_mix(self, garden: str, mix: str | None = None, name: Any = None, ppm_n: Any = "keep") -> str:
+        """Change a mix, or start a new one when `mix` is empty. Returns its key."""
+        F = self._fert_of(garden)
+        try:
+            vals = irr.validate_mix(name, ppm_n)
+        except irr.IrrigationError as e:
+            raise GardenError(str(e)) from None
+        if mix:
+            if mix not in F["mixes"]:
+                raise GardenError("Unknown mix")
+            F["mixes"][mix].update(vals)
+        else:
+            if not vals.get("name"):
+                raise GardenError("A mix needs a name")
+            base = re.sub(r"[^a-z0-9]+", "_", vals["name"].lower()).strip("_") or "mix"
+            mix, n = base, 2
+            while mix in F["mixes"]:
+                mix, n = f"{base}_{n}", n + 1
+            F["mixes"][mix] = {"name": vals["name"], "ppm_n": vals.get("ppm_n"), "components": []}
+        self._touch()
+        return mix
+
+    def remove_fert_mix(self, garden: str, mix: str) -> None:
+        F = self._fert_of(garden)
+        if mix not in F["mixes"]:
+            raise GardenError("Unknown mix")
+        if len(F["mixes"]) == 1:
+            raise GardenError("Keep at least one mix")
+        del F["mixes"][mix]
+        if F["active"] == mix:
+            F["active"] = next(iter(F["mixes"]))
+        self._touch()
+
+    def set_fert_component(self, garden: str, mix: str, index: Any = None, name: Any = None, n: Any = None, p: Any = None,
+                           k: Any = None, ca: Any = None, mg: Any = None, parts: Any = None, tank: Any = None) -> None:
+        """Change fertilizer number `index` in a mix, or add one when index is empty."""
+        F = self._fert_of(garden)
+        if mix not in F["mixes"]:
+            raise GardenError("Unknown mix")
+        comps = F["mixes"][mix]["components"]
+        try:
+            vals = irr.validate_component(name, n, p, k, ca, mg, parts, tank)
+        except irr.IrrigationError as e:
+            raise GardenError(str(e)) from None
+        if index is None or index == "":
+            if not vals.get("name"):
+                raise GardenError("A fertilizer needs a name")
+            comps.append({"name": "", "n": 0.0, "p": 0.0, "k": 0.0, "ca": 0.0, "mg": 0.0, "parts": 1.0, "tank": "A", **vals})
+        else:
+            if not 0 <= int(index) < len(comps):
+                raise GardenError("No such fertilizer")
+            comps[int(index)].update(vals)
+        self._touch()
+
+    def remove_fert_component(self, garden: str, mix: str, index: Any) -> None:
+        F = self._fert_of(garden)
+        if mix not in F["mixes"] or not 0 <= int(index) < len(F["mixes"][mix]["components"]):
+            raise GardenError("No such fertilizer")
+        del F["mixes"][mix]["components"][int(index)]
         self._touch()
 
     def set_layout_draft(self, garden: str, crop: str | None = None, mode: str | None = None, value: Any = None,

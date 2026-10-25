@@ -1044,10 +1044,18 @@ class GardenTrackerCard extends HTMLElement {
       case "open-micro": return this._go({ v: "micro" });
       case "open-layout": this._season = null; this._placeRow = "0"; this._placeStart = ""; this._brush = null; this._selRow = null; this._brushLen = ""; return this._go({ v: "layout", id: d.g });
       case "open-water": return this._go({ v: "water", id: d.g });
+      case "form-extra": {
+        const f = this._form;
+        return f.extra.act().then(() => { this._form = null; this._err = null; }, (e) => { f.err = e.message || String(e); }).then(() => this._render());
+      }
       case "irr-method": return this._act("set_irrigation", { garden: d.g, method: d.m });
       case "irr-set": return this._open(this._fIrr(this._garden(d.g)));
       case "irr-crop": return this._open(this._fIrrCrop(this._garden(d.g), d.c));
-      case "irr-fert": return this._open(this._fFert(this._garden(d.g)));
+      case "irr-inj": return this._open(this._fInj(this._garden(d.g)));
+      case "irr-sched": return this._open(this._fSched(this._garden(d.g)));
+      case "irr-mix": return this._open(this._fMix(this._garden(d.g), d.k));
+      case "irr-mix-sel": return this._act("set_fertigation", { garden: d.g, active: d.k });
+      case "irr-comp": return this._open(this._fComp(this._garden(d.g), d.k, d.i === undefined ? undefined : Number(d.i)));
       case "irr-auto": return this._act("set_irrigation", { garden: d.g, run_min: null });
       case "lay-start": {
         const val = (k) => Number(this.shadowRoot.querySelector(`[data-lay="${k}"]`).value);
@@ -1229,7 +1237,7 @@ class GardenTrackerCard extends HTMLElement {
       h += `<div style="grid-column:span ${x.span || 6}"><label>${esc(label)}${x.req ? " *" : ""}</label>${ctl}</div>`;
     }
     h += `</div>${f.note ? `<p class="small mut">${f.note}</p>` : ""}<div id="pv">${f.preview ? f.preview(vals) : ""}</div>`;
-    h += `<div class="row" style="margin-top:12px"><button class="grow" data-act="form-cancel">Cancel</button><button class="grow primary" data-act="form-submit">${esc(f.submitLabel || "Save")}</button></div></div>`;
+    h += `<div class="row" style="margin-top:12px"><button class="grow" data-act="form-cancel">Cancel</button><button class="grow primary" data-act="form-submit">${esc(f.submitLabel || "Save")}</button></div>${f.extra ? `<div class="row" style="margin-top:8px"><button class="grow" data-act="form-extra">${esc(f.extra.label)}</button></div>` : ""}</div>`;
     return h;
   }
 
@@ -1687,17 +1695,29 @@ class GardenTrackerCard extends HTMLElement {
       for (const o of W.order) h += `<div class="row" style="margin:8px 0;align-items:flex-start"><div class="grow"><div style="font-weight:500">${esc(o.label)}</div><div class="small mut">${o.emitters} emitters, ${num(o.feet, 0)} ft laid</div></div><div style="text-align:right"><b>${o.order_ft} ft</b><div class="small mut">${o.rolls.map((r) => `${r.count} x ${r.len} ft`).join(" + ")}</div></div></div>`;
       h += `<div class="row" style="margin-top:8px"><div class="grow"><b>Total</b></div><b>${num(T.feet, 0)} ft laid</b></div><div class="small mut" style="margin-top:6px">Feet are for the drip line in the rows, with ${Math.round((W.waste - 1) * 100)}% added for cuts and fittings when ordering. Supply tubing from the valve to the garden is not counted. Flows (${W.flows.join(", ")} gph), spacings (${W.spacings.join(", ")} in) and rolls (${W.rolls.join(", ")} ft) are for <a href="https://www.dripdepot.com/half-inch-polyethylene-pressure-compensating-drip-line" target="_blank" rel="noopener">Drip Depot's 1/2 inch pressure compensating drip line</a>; check them on the product page when you order.</div></div>`;
     }
-    const F = W.fert;
-    h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">Fertigation</div>${this._btn("irr-fert", "pencil", "Fertilizer", `data-g="${gid}"`)}</div>`;
-    if (!F.ready) h += `<div class="small mut">Enter a fertilizer with some nitrogen to see amounts.</div>`;
+    const F = W.fert, inj = F.injector;
+    h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("flask-outline")} Fertigation</div>${this._btn("irr-inj", "cog", "Pump", `data-g="${gid}"`)}</div>`;
+    h += `<div class="small mut" style="margin:4px 0 8px">${esc(inj.name)}: 1:${num(inj.min_ratio, 0)} to 1:${num(inj.max_ratio, 0)}, ${num(inj.min_gpm, 2)} to ${num(inj.max_gpm, 1)} GPM, stock tank up to ${num(inj.tank_gal, 1)} gal. Feeding every ${F.every_days} days.</div>`;
+    h += `<div class="chips">${F.mixes.map((m) => `<button class="chip ${m.active ? "on" : ""}" data-act="irr-mix-sel" data-g="${gid}" data-k="${esc(m.key)}">${esc(m.name)}</button>`).join("")}<button class="chip" data-act="irr-mix" data-g="${gid}">+ Mix</button></div>`;
+    if (F.mix) {
+      h += `<div class="row" style="margin:8px 0 4px;flex-wrap:wrap;gap:6px"><div class="grow small mut">${F.mix.ppm_n ? `Strength set to ${num(F.mix.ppm_n, 0)} ppm nitrogen.` : "Strength worked out from your plants' needs."}</div>${this._btn("irr-mix", "pencil", "Edit mix", `data-g="${gid}" data-k="${esc(F.mix.key)}"`)}${this._btn("irr-comp", "plus", "Fertilizer", `data-g="${gid}" data-k="${esc(F.mix.key)}"`)}</div>`;
+      F.mix.components.forEach((c, i) => { h += `<div class="row small" style="margin:3px 0"><div class="grow">${esc(c.name)} <span class="mut">${esc(c.name).includes(`${num(c.n, 1)}-${num(c.p, 1)}-${num(c.k, 1)}`) ? "" : `${num(c.n, 1)}-${num(c.p, 1)}-${num(c.k, 1)}, `}${c.ca ? `${num(c.ca, 1)}% Ca, ` : ""}${c.mg ? `${num(c.mg, 1)}% Mg, ` : ""}${num(c.parts, 2)} part${c.parts === 1 ? "" : "s"}, tank ${esc(c.tank)}</span></div>${this._btn("irr-comp", "pencil", "", `data-g="${gid}" data-k="${esc(F.mix.key)}" data-i="${i}"`, "ic")}</div>`; });
+    }
+    if (F.warnings.length) for (const w of F.warnings) h += `<div class="alarm" style="--hold:var(--spray)"><div class="small">${this._icon("alert")} ${esc(w)}</div></div>`;
+    if (!F.ready) h += `<div class="small mut" style="margin-top:8px">Add a fertilizer with some nitrogen to see amounts.</div>`;
     else {
-      h += `<div class="small mut" style="margin:6px 0">${esc(F.product || "Fertilizer")} (${num(F.n_pct, 0)}-${num(F.p_pct, 0)}-${num(F.k_pct, 0)}) at ${num(F.ppm_n, 0)} ppm nitrogen, ${F.per_week} feeding${F.per_week === 1 ? "" : "s"} a week.</div>`;
-      h += `<div class="stats"><div class="stat"><span>Water per feeding</span><b>${num(F.gal, 0)} gal</b></div><div class="stat"><span>Fertilizer</span><b>${num(F.fert_g, 0)} g</b></div><div class="stat"><span>Fertilizer</span><b>${num(F.fert_oz, 1)} oz</b></div><div class="stat"><span>Nitrogen</span><b>${num(F.n_g, 0)} g</b></div></div>`;
-      h += `<div class="small mut" style="margin-top:8px">Injector at 1:${F.ratio}: mix ${num(F.fert_g, 0)} g into ${num(F.stock_gal, 2)} gal of stock (${num(F.stock_g_per_gal, 0)} g a gallon) for the whole garden. That is ${num(F.lb_n_1000, 2)} lb of nitrogen per 1,000 sq ft a feeding, ${num(F.lb_n_week, 2)} lb of nitrogen a week in all.</div>`;
+      h += `<div class="sec" style="margin-top:12px">Each feeding</div><div class="stats"><div class="stat"><span>Nitrogen strength</span><b>${num(F.ppm_n, 0)} ppm</b></div><div class="stat"><span>Water through the pump</span><b>${num(F.water_gal, 0)} gal</b></div><div class="stat"><span>Injector on for</span><b>${num(F.inject_min, 0)} min</b></div><div class="stat"><span>Then plain water</span><b>${num(F.flush_min, 0)} min</b></div></div>`;
+      for (const t of F.tanks) {
+        h += `<div class="card" style="margin:10px 0 0;background:color-mix(in srgb,var(--c,var(--ok)) 6%,transparent)"><div class="row"><div class="sec grow" style="margin:0">Tank ${esc(t.tank)}${t.batches > 1 ? `, ${t.batches} batches` : ""}</div><b>Dial ${esc(t.dial)}</b></div>`;
+        for (const c of t.components) h += `<div class="row" style="margin:4px 0"><div class="grow">${esc(c.name)}</div><div style="text-align:right"><b>${num(c.g, 0)} g</b> <span class="small mut">${num(c.oz, 1)} oz${c.lb >= 0.5 ? `, ${num(c.lb, 2)} lb` : ""}</span></div></div>`;
+        h += `<div class="small mut">Dissolve in water to make ${num(t.stock_gal, 2)} gal${t.batches > 1 ? " each batch" : ""} (${num(t.g_per_gal, 0)} g a gallon). Set the pump to ${esc(t.dial)} and run it for ${num(F.inject_min, 0)} minutes with the zone, then ${num(F.flush_min, 0)} minutes of plain water.</div></div>`;
+      }
+      const an = F.analysis;
+      h += `<div class="small mut" style="margin-top:10px">What the plants get in the water: ${num(an.N, 0)} ppm N, ${num(an.P2O5, 0)} ppm P2O5, ${num(an.K2O, 0)} ppm K2O${an.Ca ? `, ${num(an.Ca, 0)} ppm Ca` : ""}${an.Mg ? `, ${num(an.Mg, 0)} ppm Mg` : ""}. The blend is ${num(F.n_pct, 1)}% nitrogen. That is ${num(F.lb_n_1000, 2)} lb of nitrogen per 1,000 sq ft a feeding, ${num(F.lb_n_week, 3)} lb a week for the garden.</div><div style="margin-top:6px">${this._btn("irr-sched", "calendar-clock", `Every ${F.every_days} days`, `data-g="${gid}"`)}</div>`;
       if (F.plants.length) {
         h += `<div class="sec" style="margin-top:12px">Per plant, each feeding</div>`;
-        for (const p of F.plants) h += `<div class="row" style="margin:6px 0;flex-wrap:wrap"><div class="grow"><b>${esc(p.name)}</b> <span class="small mut">${num(p.gal, 2)} gal</span></div><div class="small" style="text-align:right">${num(p.n_mg, 0)} mg N, ${num(p.fert_g, 2)} g fertilizer ${p.high ? `<span class="pill warn" style="margin:0">above its ${num(p.your_ppm, 0)} ppm</span>` : p.low ? `<span class="pill info" style="margin:0">below its ${num(p.your_ppm, 0)} ppm</span>` : ""}</div></div>`;
-        h += `<div class="small mut">All crops in a zone get the same strength, so the plants that want more or less need a different number of feedings. Each crop's own ppm is set with its pencil above.</div>`;
+        for (const p of F.plants) h += `<div class="row" style="margin:6px 0;flex-wrap:wrap"><div class="grow"><b>${esc(p.name)}</b> <span class="small mut">${num(p.gal, 2)} gal</span></div><div class="small" style="text-align:right">${num(p.n_mg, 0)} mg N, ${num(p.blend_g, 2)} g of blend ${p.high ? `<span class="pill warn" style="margin:0">above its ${num(p.your_ppm, 0)} ppm</span>` : p.low ? `<span class="pill info" style="margin:0">below its ${num(p.your_ppm, 0)} ppm</span>` : ""}</div></div>`;
+        h += `<div class="small mut">Every crop in a zone gets the same strength. A crop that wants more or less is flagged; its own ppm is set with its pencil above, and it counts toward the strength when the mix has none of its own.</div>`;
       }
     }
     return h + `</div>`;
@@ -1733,21 +1753,64 @@ class GardenTrackerCard extends HTMLElement {
       submit: (x) => this._call("set_irrigation_crop", { garden: g.id, crop: key, water_in_week: x.water_in_week, ppm_n: x.ppm_n, lines: x.lines, flow_gph: drip ? (x.flow_gph ? Number(x.flow_gph) : null) : undefined, emit_in: drip ? (x.emit_in ? Number(x.emit_in) : null) : undefined }),
     };
   }
-  _fFert(g) {
-    const F = g.irrigation.fert_settings;
+  _fInj(g) {
+    const i = g.irrigation.fert.injector;
     return {
-      title: `Fertilizer: ${g.name}`, submitLabel: "Save",
+      title: "Injector and stock tank", submitLabel: "Save",
       fields: [
-        { name: "product", label: "Product", type: "text", value: F.product || "", placeholder: "Water soluble 20-20-20" },
-        { name: "n_pct", label: "Nitrogen %", type: "number", step: "any", value: F.n_pct, req: true },
-        { name: "p_pct", label: "Phosphate %", type: "number", step: "any", value: F.p_pct },
-        { name: "k_pct", label: "Potash %", type: "number", step: "any", value: F.k_pct },
-        { name: "ppm_n", label: "Nitrogen in the water (ppm)", type: "number", step: "any", value: F.ppm_n, req: true },
-        { name: "ratio", label: "Injector ratio (100 for 1:100)", type: "number", step: "1", value: F.ratio },
-        { name: "per_week", label: "Feedings a week", type: "number", step: "1", value: F.per_week },
+        { name: "name", label: "Injector", type: "text", value: i.name },
+        { name: "min_ratio", label: "Strongest dilution (the 50 in 1:50)", type: "number", step: "any", value: i.min_ratio, req: true },
+        { name: "max_ratio", label: "Weakest dilution (the 500 in 1:500)", type: "number", step: "any", value: i.max_ratio, req: true },
+        { name: "min_gpm", label: "Lowest flow (GPM)", type: "number", step: "any", value: i.min_gpm },
+        { name: "max_gpm", label: "Highest flow (GPM)", type: "number", step: "any", value: i.max_gpm },
+        { name: "tank_gal", label: "Most stock solution to mix (gallons)", type: "number", step: "any", value: i.tank_gal, req: true },
+        { name: "flush_min", label: "Plain water at the end of a run (minutes)", type: "number", step: "any", value: i.flush_min },
       ],
-      note: "Common fertigation strengths are 50 to 150 ppm nitrogen. Parts per million is milligrams of nitrogen in a litre of water.",
-      submit: (x) => this._call("set_fertigation", { garden: g.id, product: x.product === undefined ? "" : x.product, n_pct: x.n_pct, p_pct: x.p_pct === undefined ? 0 : x.p_pct, k_pct: x.k_pct === undefined ? 0 : x.k_pct, ppm_n: x.ppm_n, ratio: x.ratio, per_week: x.per_week }),
+      note: "A 5 gallon bucket is easiest to mix at about 4 gallons. The flush pushes the last of the feed out of the lines and is skipped for short runs.",
+      submit: (x) => this._call("set_injector", { garden: g.id, ...x }),
+    };
+  }
+  _fSched(g) {
+    const F = g.irrigation.fert;
+    return {
+      title: "Feeding schedule", submitLabel: "Save",
+      fields: [{ name: "every_days", label: "Days between feedings", type: "number", step: "1", value: F.every_days, req: true }],
+      note: "A feeding runs on one watering. Waterings between feedings use plain water.",
+      submit: (x) => this._call("set_fertigation", { garden: g.id, every_days: x.every_days }),
+    };
+  }
+  _fMix(g, key) {
+    const m = key ? g.irrigation.fert.mixes.find((x) => x.key === key) : null;
+    const mix = key ? g.irrigation.fert.mix && g.irrigation.fert.mix.key === key ? g.irrigation.fert.mix : null : null;
+    return {
+      title: m ? `Mix: ${m.name}` : "New mix", submitLabel: "Save",
+      fields: [
+        { name: "name", label: "Name", type: "text", value: m ? m.name : "", req: true, placeholder: "Early growth" },
+        { name: "ppm_n", label: "Nitrogen strength, ppm (empty to work it out from the plants)", type: "number", step: "any", value: mix && mix.ppm_n ? mix.ppm_n : "" },
+      ],
+      note: "A mix is a set of fertilizers in proportion by weight. Add the fertilizers after saving.",
+      submit: async (x) => { await this._call("set_fert_mix", { garden: g.id, mix: key || undefined, name: x.name, ppm_n: x.ppm_n === undefined ? null : x.ppm_n }); if (!key) { const f = this._garden(g.id).irrigation.fert; await this._call("set_fertigation", { garden: g.id, active: f.mixes[f.mixes.length - 1].key }); } },
+      extra: m && g.irrigation.fert.mixes.length > 1 ? { label: "Remove this mix", act: () => this._call("remove_fert_mix", { garden: g.id, mix: key }) } : null,
+    };
+  }
+  _fComp(g, mix, idx) {
+    const F = g.irrigation.fert, cur = F.mix && F.mix.key === mix ? F.mix.components : [];
+    const c = idx === undefined ? { name: "", n: "", p: "", k: "", ca: "", mg: "", parts: 1, tank: "A" } : cur[idx];
+    return {
+      title: idx === undefined ? "Add a fertilizer" : `Fertilizer: ${c.name}`, submitLabel: "Save",
+      fields: [
+        { name: "name", label: "Name", type: "text", value: c.name, req: true, placeholder: "MasterBlend 4-18-38" },
+        { name: "n", label: "Nitrogen (N) %", type: "number", step: "any", value: c.n },
+        { name: "p", label: "Phosphate (P2O5) %", type: "number", step: "any", value: c.p },
+        { name: "k", label: "Potash (K2O) %", type: "number", step: "any", value: c.k },
+        { name: "ca", label: "Calcium %", type: "number", step: "any", value: c.ca },
+        { name: "mg", label: "Magnesium %", type: "number", step: "any", value: c.mg },
+        { name: "parts", label: "Parts by weight in the mix", type: "number", step: "any", value: c.parts, req: true },
+        { name: "tank", label: "Stock tank (letter)", type: "text", value: c.tank },
+      ],
+      note: "Percentages are what the label says. Parts are the proportion by weight to the other fertilizers in the mix; 2 of MasterBlend, 2 of calcium nitrate and 1 of Epsom salt is 2:2:1. Fertilizers that cannot be mixed strong, like calcium nitrate with sulfates and phosphates, go in different tanks.",
+      submit: (x) => this._call("set_fert_component", { garden: g.id, mix, index: idx, name: x.name, n: x.n === undefined ? 0 : x.n, p: x.p === undefined ? 0 : x.p, k: x.k === undefined ? 0 : x.k, ca: x.ca === undefined ? 0 : x.ca, mg: x.mg === undefined ? 0 : x.mg, parts: x.parts, tank: x.tank || "A" }),
+      extra: idx === undefined ? null : { label: "Remove", act: () => this._call("remove_fert_component", { garden: g.id, mix, index: idx }) },
     };
   }
   _layoutSvg(L, g, ro) {

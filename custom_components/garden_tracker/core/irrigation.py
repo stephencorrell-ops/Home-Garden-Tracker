@@ -53,10 +53,28 @@ class IrrigationError(ValueError):
     pass
 
 
+def default_fert() -> dict:
+    """The Dosatron D14MZ2 and two starting mixes: a high nitrogen one for growth, then MasterBlend 4-18-38 with
+    calcium nitrate and Epsom salt for fruiting. Everything here is a starting value and can be edited."""
+    return {
+        "every_days": 14, "active": "growth",
+        "injector": {"name": "Dosatron D14MZ2", "min_ratio": 50, "max_ratio": 500, "min_gpm": 0.05, "max_gpm": 14.0,
+                     "tank_gal": 4.0, "flush_min": 5.0},
+        "mixes": {
+            "growth": {"name": "Growth (high nitrogen)", "ppm_n": None, "components": [
+                {"name": "High nitrogen 20-10-20", "n": 20.0, "p": 10.0, "k": 20.0, "ca": 0.0, "mg": 0.0, "parts": 1.0, "tank": "A"}]},
+            "fruiting": {"name": "Fruiting (MasterBlend tomato)", "ppm_n": None, "components": [
+                {"name": "MasterBlend 4-18-38", "n": 4.0, "p": 18.0, "k": 38.0, "ca": 0.0, "mg": 0.0, "parts": 2.0, "tank": "B"},
+                {"name": "Calcium nitrate 15.5-0-0", "n": 15.5, "p": 0.0, "k": 0.0, "ca": 19.0, "mg": 0.0, "parts": 2.0, "tank": "A"},
+                {"name": "Epsom salt", "n": 0.0, "p": 0.0, "k": 0.0, "ca": 0.0, "mg": 9.8, "parts": 1.0, "tank": "B"}]},
+        },
+    }
+
+
 def blank() -> dict:
     return {"method": "drip", "soil": DEFAULT_SOIL, "per_week": 3, "run_min": None, "sprinkler_in_hr": 0.75,
             "sprinkler_gpm": None, "max_line_gph": DEFAULT_MAX_LINE_GPH, "crops": {},
-            "fert": {"product": "", "n_pct": 20.0, "p_pct": 20.0, "k_pct": 20.0, "ppm_n": 100.0, "ratio": 100, "per_week": 1}}
+            "fert": default_fert()}
 
 
 def _num(v: Any, name: str, lo: float, hi: float) -> float:
@@ -120,20 +138,77 @@ def validate_crop(water_in_week: Any = None, lines: Any = None, flow_gph: Any = 
     return out
 
 
-def validate_fert(product: Any = None, n_pct: Any = None, p_pct: Any = None, k_pct: Any = None, ppm_n: Any = None,
-                  ratio: Any = None, per_week: Any = None) -> dict:
+def validate_fert(every_days: Any = None, active: Any = None) -> dict:
     out: dict[str, Any] = {}
-    if product is not None:
-        out["product"] = str(product).strip()[:80]
-    for k, v in (("n_pct", n_pct), ("p_pct", p_pct), ("k_pct", k_pct)):
+    if every_days is not None:
+        out["every_days"] = int(_num(every_days, "Days between feedings", 1, 90))
+    if active is not None:
+        out["active"] = str(active)
+    return out
+
+
+def validate_injector(name: Any = None, min_ratio: Any = None, max_ratio: Any = None, min_gpm: Any = None, max_gpm: Any = None,
+                      tank_gal: Any = None, flush_min: Any = None) -> dict:
+    out: dict[str, Any] = {}
+    if name is not None:
+        out["name"] = str(name).strip()[:60] or "Injector"
+    if min_ratio is not None:
+        out["min_ratio"] = _num(min_ratio, "Strongest dilution (1:N)", 1, 5000)
+    if max_ratio is not None:
+        out["max_ratio"] = _num(max_ratio, "Weakest dilution (1:N)", 1, 5000)
+    if min_gpm is not None:
+        out["min_gpm"] = _num(min_gpm, "Lowest flow", 0, 1000)
+    if max_gpm is not None:
+        out["max_gpm"] = _num(max_gpm, "Highest flow", 0.01, 1000)
+    if tank_gal is not None:
+        out["tank_gal"] = _num(tank_gal, "Most solution to mix", 0.1, 1000)
+    if flush_min is not None:
+        out["flush_min"] = _num(flush_min, "Flush time", 0, 120)
+    return out
+
+
+def validate_mix(name: Any = None, ppm_n: Any = "keep") -> dict:
+    out: dict[str, Any] = {}
+    if name is not None:
+        n = str(name).strip()[:60]
+        if not n:
+            raise IrrigationError("A mix needs a name")
+        out["name"] = n
+    if ppm_n != "keep":  # empty means work it out from the plants
+        out["ppm_n"] = None if ppm_n in (None, "", 0) else _num(ppm_n, "Nitrogen ppm", 1, 1000)
+    return out
+
+
+def validate_component(name: Any = None, n: Any = None, p: Any = None, k: Any = None, ca: Any = None, mg: Any = None,
+                       parts: Any = None, tank: Any = None) -> dict:
+    out: dict[str, Any] = {}
+    if name is not None:
+        nm = str(name).strip()[:60]
+        if not nm:
+            raise IrrigationError("A fertilizer needs a name")
+        out["name"] = nm
+    for key, v, label in (("n", n, "Nitrogen"), ("p", p, "Phosphate"), ("k", k, "Potash"), ("ca", ca, "Calcium"), ("mg", mg, "Magnesium")):
         if v is not None:
-            out[k] = _num(v, k[0].upper() + " percent", 0, 100)
-    if ppm_n is not None:
-        out["ppm_n"] = _num(ppm_n, "Nitrogen ppm", 1, 1000)
-    if ratio is not None:
-        out["ratio"] = int(_num(ratio, "Injector ratio", 1, 2000))
-    if per_week is not None:
-        out["per_week"] = int(_num(per_week, "Feedings per week", 1, 14))
+            out[key] = _num(v, label + " percent", 0, 100)
+    if parts is not None:
+        out["parts"] = _num(parts, "Parts by weight", 0.01, 1000)
+    if tank is not None:
+        t = str(tank).strip().upper()[:1]
+        if not t.isalpha():
+            raise IrrigationError("The tank is a letter, like A or B")
+        out["tank"] = t
+    return out
+
+
+def fert_of(f: dict | None) -> dict:
+    """The fertigation settings with anything missing filled in from the defaults."""
+    d = default_fert()
+    if not f or "mixes" not in f:
+        return d
+    out = {"every_days": f.get("every_days") or d["every_days"], "active": f.get("active") or d["active"],
+           "injector": {**d["injector"], **(f.get("injector") or {})}, "mixes": {}}
+    for k, m in f["mixes"].items():
+        out["mixes"][k] = {"name": m.get("name") or k, "ppm_n": m.get("ppm_n"), "components": [dict(c) for c in m.get("components") or []]}
     return out
 
 
@@ -141,7 +216,7 @@ def settings_for(s: dict | None) -> dict:
     base = blank()
     if s:
         base.update({k: v for k, v in s.items() if k not in ("fert", "crops")})
-        base["fert"].update(s.get("fert") or {})
+        base["fert"] = fert_of(s.get("fert"))
         base["crops"] = {k: dict(v) for k, v in (s.get("crops") or {}).items()}
     return base
 
@@ -191,7 +266,7 @@ def plan(layout: dict, settings: dict | None, names: dict[str, str] | None = Non
             "soil": st["soil"], "soils": [{"key": k, "name": v[0], "max_gph": v[1], "note": v[3]} for k, v in SOILS.items()],
             "soil_note": soil[3], "per_week": st["per_week"], "flows": list(DRIP_FLOWS), "spacings": list(DRIP_SPACINGS),
             "rolls": list(ROLLS), "max_line_gph": st["max_line_gph"], "sprinkler_in_hr": st["sprinkler_in_hr"],
-            "sprinkler_gpm": st["sprinkler_gpm"], "fert_settings": st["fert"]}
+            "sprinkler_gpm": st["sprinkler_gpm"], "fert_settings": fert_of(st["fert"])}
     if not base["configured"]:
         return base
     row_in = layout["row_in"]
@@ -307,7 +382,7 @@ def _drip(base: dict, st: dict, layout: dict, info: dict, soil: tuple, row_in: i
             "totals": {"gph": round(total_gph, 1), "gpm": round(total_gph / 60, 2), "gal_watering": round(total_gph * run_min / 60, 1),
                        "gal_week": round(gal_week, 1), "emitters": sum(o["emitters"] for o in order),
                        "feet": round(sum(o["feet"] for o in order), 1), "lines_over": line_flag},
-            "fert": fert(st["fert"], crops, total_gph * run_min / 60, "drip", layout["width_ft"] * layout["length_ft"])}
+            "fert": fert(st["fert"], crops, total_gph * run_min / 60, "drip", layout["width_ft"] * layout["length_ft"], run_min, total_gph / 60)}
 
 
 def _sprinkler(base: dict, st: dict, layout: dict, crops_in: list[dict], area: float) -> dict:
@@ -325,31 +400,88 @@ def _sprinkler(base: dict, st: dict, layout: dict, crops_in: list[dict], area: f
     return {**base, "run_min": run_min, "run_min_set": None, "hours_week": round(hours, 2), "need_in_week": need_in, "crops": crops,
             "rows": [], "order": [], "totals": {"gph": round(gpm * 60, 1), "gpm": gpm, "gal_watering": gal_watering, "gal_week": round(gal_week, 1),
                                                 "gpm_given": bool(st["sprinkler_gpm"]), "area_sqft": round(area, 1)},
-            "fert": fert(st["fert"], crops, gal_watering, "sprinkler", area)}
+            "fert": fert(st["fert"], crops, gal_watering, "sprinkler", area, run_min, gpm)}
 
 
-def fert(f: dict, crops: list[dict], gal: float, method: str, area: float) -> dict:
-    """What to inject for one watering at the nitrogen strength chosen. `gal` is the garden's water for one watering."""
-    n = f["n_pct"] / 100
-    ppm = f["ppm_n"]
-    out = {"ppm_n": ppm, "n_pct": f["n_pct"], "p_pct": f["p_pct"], "k_pct": f["k_pct"], "product": f["product"], "ratio": f["ratio"],
-           "per_week": f["per_week"], "gal": round(gal, 1), "ready": n > 0 and gal > 0}
-    if not out["ready"]:
+def fert(f: dict | None, crops: list[dict], gal: float, method: str, area: float, run_min: float, gpm: float) -> dict:
+    """What to put in the stock tank, where to set the injector and how long to run it for one feeding.
+
+    `gal` is the water the whole garden gets in one watering, `run_min` how long the zone runs and `gpm` its flow. The
+    injector is on for the run less the flush at the end, which pushes the last of the feed out of the lines. The
+    nitrogen strength is the mix's own setting or, if that is empty, the average of what the crops in the garden like,
+    weighted by the water each one gets. Each fertilizer's share is its parts by weight, and fertilizers that cannot
+    sit together in a concentrate (calcium nitrate with sulfates and phosphates) go in separate tanks."""
+    f = fert_of(f)
+    inj, mixes = f["injector"], f["mixes"]
+    active = f["active"] if f["active"] in mixes else next(iter(mixes), None)
+    out: dict[str, Any] = {"mixes": [{"key": k, "name": m["name"], "active": k == active} for k, m in mixes.items()],
+                           "active": active, "every_days": f["every_days"], "injector": inj, "ready": False, "gal_watering": round(gal, 1),
+                           "run_min": run_min, "gpm": round(gpm, 2), "warnings": [], "components": [], "tanks": [], "plants": [],
+                           "mix": None}
+    if not active:
         return out
-    mg_n = gal * 3.78541 * ppm  # parts per million is milligrams in a litre
-    g_fert = mg_n / 1000 / n
-    stock_gal = gal / f["ratio"]
-    out.update({"n_g": round(mg_n / 1000, 1), "fert_g": round(g_fert, 1), "fert_oz": round(g_fert / 28.3495, 2),
-                "stock_gal": round(stock_gal, 2), "stock_g_per_gal": round(g_fert / stock_gal, 1) if stock_gal else None,
-                "stock_ppm": round(ppm * f["ratio"]), "lb_n_1000": round(mg_n / 1000 / 453.592 * 1000 / area, 2) if area else None,
-                "lb_n_week": round(mg_n / 1000 / 453.592 * f["per_week"], 2)})
-    out["plants"] = []
+    mix = mixes[active]
+    out["mix"] = {"key": active, "name": mix["name"], "ppm_n": mix["ppm_n"], "components": mix["components"]}
+    flush = inj["flush_min"] if run_min > 3 * inj["flush_min"] else 0.0
+    frac = (run_min - flush) / run_min if run_min else 1.0
+    water = gal * frac
+    inject_min = round(run_min - flush, 1)
+    out.update({"flush_min": flush, "inject_min": inject_min, "water_gal": round(water, 1)})
+    weights = [(c.get("gal_week") or c.get("plants") or 1, c["ppm_n"]) for c in crops if c.get("plants")]
+    avg = sum(w * p for w, p in weights) / sum(w for w, _ in weights) if weights else 100.0
+    ppm = mix["ppm_n"] or round(avg)
+    out["ppm_n"], out["ppm_from"] = ppm, "mix" if mix["ppm_n"] else "plants"
+    comps = mix["components"]
+    psum = sum(c["parts"] for c in comps)
+    n_frac = sum(c["parts"] * c["n"] / 100 for c in comps) / psum if psum else 0.0
+    if not comps or n_frac <= 0 or water <= 0:
+        out["warnings"].append("This mix needs a fertilizer with nitrogen in it." if comps else "Add a fertilizer to this mix.")
+        return out
+    litres = water * 3.78541
+    n_g = litres * ppm / 1000
+    blend_g = n_g / n_frac
+    out["ready"] = True
+    out["n_pct"] = round(100 * n_frac, 2)
+    out["blend_g"] = round(blend_g)
+    for c in comps:
+        g = blend_g * c["parts"] / psum
+        out["components"].append({**c, "g": round(g, 1), "oz": round(g / 28.3495, 2), "lb": round(g / 453.592, 2)})
+
+    def ppm_of(key: str, share: float = 1.0) -> int:
+        return round(sum(c["g"] * c[key] / 100 for c in out["components"]) * 1000 / litres * share)
+
+    out["analysis"] = {"N": round(ppm), "P2O5": ppm_of("p"), "K2O": ppm_of("k"), "Ca": ppm_of("ca"), "Mg": ppm_of("mg")}
+    for t in sorted({c["tank"] for c in out["components"]}):
+        mine = [c for c in out["components"] if c["tank"] == t]
+        grams = sum(c["g"] for c in mine)
+        ratio = max(inj["min_ratio"], math.ceil(water / inj["tank_gal"] - 1e-9))
+        batches = 1
+        if ratio > inj["max_ratio"]:
+            ratio = inj["max_ratio"]
+            batches = math.ceil(water / ratio / inj["tank_gal"] - 1e-9)
+        stock = water / ratio
+        per_batch = stock / batches
+        tk = {"tank": t, "components": [{"name": c["name"], "g": round(c["g"] / batches, 1), "oz": round(c["g"] / batches / 28.3495, 2),
+                                         "lb": round(c["g"] / batches / 453.592, 3)} for c in mine],
+              "grams": round(grams / batches, 1), "ratio": int(ratio), "percent": round(100 / ratio, 3), "stock_gal": round(per_batch, 2),
+              "batches": batches, "g_per_gal": round(grams / batches / per_batch) if per_batch else None,
+              "dial": f"1:{int(ratio)} ({100 / ratio:.2f}%)"}
+        if tk["g_per_gal"] and tk["g_per_gal"] > 570:  # about 150 g a litre, more than most fertilizers dissolve
+            out["warnings"].append(f"Tank {t} is very strong ({tk['g_per_gal']} g a gallon) and may not dissolve all the way. Use a bigger tank or a weaker dilution.")
+        out["tanks"].append(tk)
+    if len(out["tanks"]) > 1:
+        out["warnings"].append("Keep tanks " + " and ".join(t["tank"] for t in out["tanks"]) + " apart: calcium nitrate turns cloudy and drops out when mixed strong with sulfates and phosphates. With one injector, run one tank on one watering and the other on the next, at the same run time, so the plants get every fertilizer in the feeding.")
+    if gpm and not inj["min_gpm"] <= gpm <= inj["max_gpm"]:
+        out["warnings"].append(f"The garden runs at {gpm:g} GPM, outside the {inj['name']}'s {inj['min_gpm']:g} to {inj['max_gpm']:g} GPM range.")
+    lb_n = n_g / 453.592
+    out.update({"n_g": round(n_g, 1), "lb_n_1000": round(lb_n * 1000 / area, 3) if area else None,
+                "lb_n_week": round(lb_n * 7 / f["every_days"], 3)})
     if method == "drip":
         for c in crops:
-            if not c["plants"]:
+            if not c.get("plants"):
                 continue
-            water = c["gal_plant_watering"]
-            mg = water * 3.78541 * ppm
-            out["plants"].append({"key": c["key"], "name": c["name"], "gal": water, "n_mg": round(mg), "fert_g": round(mg / 1000 / n, 2),
-                                  "your_ppm": c["ppm_n"], "high": ppm > c["ppm_n"] * 1.25, "low": ppm < c["ppm_n"] * 0.75})
+            w = c["gal_plant_watering"] * frac
+            mg = w * 3.78541 * ppm
+            out["plants"].append({"key": c["key"], "name": c["name"], "gal": round(w, 2), "n_mg": round(mg), "your_ppm": c["ppm_n"],
+                                  "blend_g": round(mg / 1000 / n_frac, 2), "high": ppm > c["ppm_n"] * 1.25, "low": ppm < c["ppm_n"] * 0.75})
     return out
