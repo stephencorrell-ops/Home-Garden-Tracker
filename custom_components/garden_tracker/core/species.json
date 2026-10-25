@@ -419,5 +419,10 @@
   "name": "Sage",
   "kind": "plant",
   "pests": []
+ },
+ "strawberry": {
+  "name": "Strawberries",
+  "kind": "plant",
+  "pests": []
  }
 }
