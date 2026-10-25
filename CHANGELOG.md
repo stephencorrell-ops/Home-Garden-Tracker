@@ -4,6 +4,15 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.20.0 - 2026-10-25
+
+### Added
+- **Berries.** Blackberries, raspberries and blueberries join the plant list, with spacing, T-post support and heights. Raspberries and blackberries join the verticillium rotation check.
+- **Blueberry soil warning.** Planting blueberries in a garden with a tested or estimated pH above 5.5 shows a strong red warning, and so does planting them with no pH reading at all.
+
+### Fixed
+- Layout warnings (corn blocks, shade, blueberries) now show on their own, not only when a crop rotation alert is also showing.
+
 ## 0.19.0 - 2026-10-25
 
 ### Added
