@@ -468,13 +468,52 @@ class Irrigation(unittest.TestCase):
         self.m.set_irrigation_crop(self.gid, "pepper", flow_gph=None, emit_in=None)
         self.assertFalse(self.crop("pepper")["pinned"])
 
-    def test_sprinklers_work_out_run_time_and_gpm(self):
-        self.m.set_irrigation(self.gid, method="sprinkler", sprinkler_in_hr=0.5, sprinkler_gpm=4)
+    def test_a_moved_sprinkler_gets_places_minutes_and_how_often(self):
+        self.m.set_irrigation(self.gid, method="sprinkler")
+        self.m.set_sprinkler(self.gid, gpm=4, radius_ft=20)
         w = self.water()
+        s = w["sprinkler"]
         self.assertEqual(w["method"], "sprinkler")
-        self.assertAlmostEqual(w["hours_week"], 3.0, 1)  # tomatoes want 1.5 in at 0.5 in an hour
-        self.assertEqual(w["totals"]["gpm"], 4)
-        self.assertEqual(w["fert"]["overfed"], [])  # no sections to valve off without drip
+        self.assertAlmostEqual(s["pr"], 96.3 * 4 / 400, 2)  # 0.96 in an hour on 400 sq ft a head
+        self.assertEqual((s["mode"], s["needed"], s["sets"]), ("moved", 2, 2))  # the 20 x 40 garden is two places
+        self.assertEqual((s["per_week"], s["per_week_auto"]), (2, True))  # clay loam does better with fewer, deeper waterings
+        self.assertAlmostEqual(s["depth_in"], 0.75, 2)  # tomatoes want 1.5 in a week
+        self.assertEqual(s["minutes"], round(0.75 / s["pr"] * 60))
+        self.assertEqual(s["session_min"], s["minutes"] * 2)
+        self.assertTrue(s["over_intake"])  # 0.96 in an hour is faster than clay loam takes it in
+        self.assertLess(s["cycle_min"], s["minutes"])
+        self.assertTrue(s["warnings"])
+        self.assertEqual(w["totals"]["gpm"], 4)  # one sprinkler at a time
+        self.assertAlmostEqual(s["gal_session"], 4 * s["session_min"], delta=2)
+        self.assertEqual(w["fert"]["overfed"], [])  # no drip lines to valve off
+        self.m.set_sprinkler(self.gid, per_week=3)
+        self.assertEqual(self.water()["sprinkler"]["per_week"], 3)
+
+    def test_fixed_sprinklers_run_together_and_can_be_measured(self):
+        self.m.set_irrigation(self.gid, method="sprinkler")
+        self.m.set_sprinkler(self.gid, mode="fixed", gpm=2, radius_ft=20, heads=1)
+        s = self.water()["sprinkler"]
+        self.assertEqual((s["heads"], s["sets"], s["covered"]), (1, 1, 0.5))
+        self.assertTrue(any("50%" in w for w in s["warnings"]))
+        self.m.set_sprinkler(self.gid, heads=None)
+        w = self.water()
+        self.assertEqual(w["sprinkler"]["heads"], 2)
+        self.assertEqual(w["totals"]["gpm"], 4)  # two at 2 GPM, all on together
+        self.m.set_sprinkler(self.gid, pr_mode="measured", pr_in_hr=0.25)
+        s = self.water()["sprinkler"]
+        self.assertEqual(s["pr"], 0.25)  # catch cans beat the arithmetic
+        self.assertFalse(s["over_intake"])
+        self.assertEqual(s["cycle_min"], None)
+        with self.assertRaises(GardenError):
+            self.m.set_sprinkler(self.gid, mode="flood")
+
+    def test_fertigation_works_with_sprinklers(self):
+        self.m.set_irrigation(self.gid, method="sprinkler")
+        f = self.water()["fert"]
+        s = self.water()["sprinkler"]
+        self.assertTrue(f["ready"])
+        self.assertAlmostEqual(f["gal_watering"], s["gal_session"], delta=1)  # the water through the pump over the whole watering
+        self.assertLessEqual(f["tanks"][0]["stock_gal"], 4.0)
 
     def test_a_crop_that_would_be_over_fed_gets_a_shorter_feeding_for_its_section(self):
         f = self.water()["fert"]

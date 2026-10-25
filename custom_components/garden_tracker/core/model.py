@@ -889,12 +889,22 @@ class GardenModel:
         return g, g["irrigation"]
 
     def set_irrigation(self, garden: str, method: Any = None, soil: Any = None, per_week: Any = None, run_min: Any = "keep",
-                       sprinkler_in_hr: Any = None, sprinkler_gpm: Any = "keep", max_line_gph: Any = None) -> None:
+                       max_line_gph: Any = None) -> None:
         g, I = self._irrigation_of(garden)
         try:
-            I.update(irr.validate_settings(method, soil, per_week, run_min, sprinkler_in_hr, sprinkler_gpm, max_line_gph))
+            I.update(irr.validate_settings(method, soil, per_week, run_min, max_line_gph))
         except irr.IrrigationError as e:
             raise GardenError(str(e)) from None
+        self._touch()
+
+    def set_sprinkler(self, garden: str, mode: Any = None, pr_mode: Any = None, gpm: Any = None, radius_ft: Any = None, arc: Any = None,
+                      pr_in_hr: Any = "keep", heads: Any = "keep", per_week: Any = "keep") -> None:
+        g, I = self._irrigation_of(garden)
+        try:
+            vals = irr.validate_sprinkler(mode, pr_mode, gpm, radius_ft, arc, pr_in_hr, heads, per_week)
+        except irr.IrrigationError as e:
+            raise GardenError(str(e)) from None
+        I["sprinkler"] = {**irr.default_sprinkler(), **(I.get("sprinkler") or {}), **vals}
         self._touch()
 
     def set_irrigation_crop(self, garden: str, crop: str, water_in_week: Any = None, lines: Any = None, flow_gph: Any = "keep",

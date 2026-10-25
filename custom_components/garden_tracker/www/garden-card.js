@@ -1055,6 +1055,7 @@ class GardenTrackerCard extends HTMLElement {
       case "irr-pump": return this._open(this._fPump(this._garden(d.g), d.k));
       case "irr-tanks": return this._open(this._fTanks(this._garden(d.g)));
       case "toggle-sec": this._exp = { ...(this._exp || {}), [d.s]: !(this._exp || {})[d.s] }; return this._render();
+      case "irr-sprk": return this._open(this._fSprk(this._garden(d.g)));
       case "irr-lime": return this._open(this._fLime(this._garden(d.g)));
       case "irr-acid-log": return this._open(this._fAcidLog(this._garden(d.g), d.q === "1"));
       case "irr-sched": return this._open(this._fSched(this._garden(d.g)));
@@ -1679,9 +1680,17 @@ class GardenTrackerCard extends HTMLElement {
     if (!W.configured) return h + `<div class="card"><div class="small mut">Lay out the garden first (rows and crops), then this page works out the drip line and run times.</div></div>`;
     const T = W.totals, soil = W.soils.find((x) => x.key === W.soil);
     h += `<div class="card"><div class="seg">${Object.entries(W.methods).map(([k, n]) => `<button class="${W.method === k ? "on" : ""}" data-act="irr-method" data-g="${gid}" data-m="${k}">${esc(n)}</button>`).join("")}</div>`;
+    if (!drip) h += this._sprinklerPlan(W, gid);
+    else {
     h += `<div class="stats" style="margin-top:10px"><div class="stat"><span>Run time</span><b>${num(W.run_min, 0)} min</b></div><div class="stat"><span>Waterings a week</span><b>${W.per_week}</b></div><div class="stat"><span>Whole garden</span><b>${num(T.gpm, 2)} GPM</b></div><div class="stat"><span>Each watering</span><b>${num(T.gal_watering, 0)} gal</b></div><div class="stat"><span>Each week</span><b>${num(T.gal_week, 0)} gal</b></div>${drip ? `<div class="stat"><span>Emitters</span><b>${T.emitters}</b></div>` : ""}</div>`;
     h += `<div class="small mut" style="margin-top:8px">${drip ? (W.run_min_set ? `Run time set by you (${num(W.auto_run_min, 0)} min would be the shortest that fits). ` : "Run time worked out from the thirstiest crop at about 1 gph per plant. ") : (W.sprinkler_gpm ? "" : "Sprinkler GPM worked out from the water needed and the run time. ")}${esc(soil.name)} soil: ${esc(W.soil_note)}</div>`;
+    }
     h += `<div class="row" style="margin-top:8px;flex-wrap:wrap;gap:6px">${this._btn("irr-set", "cog", "Soil and run time", `data-g="${gid}"`)}${W.run_min_set ? this._btn("irr-auto", "auto-fix", "Work out run time", `data-g="${gid}"`) : ""}</div></div>`;
+    if (!drip) {
+      const sk = W.sprinkler, start = h.length;
+      h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("sprinkler-variant")} Sprinkler setup</div>${this._btn("irr-sprk", "pencil", "Edit", `data-g="${gid}"`)}${this._btn("toggle-sec", "chevron-up", "", `data-s="sprk"`, "ic")}</div><div class="small mut" style="margin-top:6px">${esc(sk.modes[sk.mode])}, ${num(sk.gpm, 1)} GPM, ${num(sk.radius_ft, 0)} ft ${sk.arc === 360 ? "full circle" : `${sk.arc} degree arc`}. ${sk.pr_mode === "measured" && sk.pr_in_hr ? `Rate measured at ${num(sk.pr_in_hr, 2)} in an hour.` : `Works out to ${num(sk.pr_calc, 2)} in an hour over ${num(sk.cover_sqft, 0)} sq ft a sprinkler.`} ${sk.mode === "fixed" ? `${sk.heads} fixed sprinkler${sk.heads === 1 ? "" : "s"}${sk.needed > sk.heads ? ` (${sk.needed} would cover the garden)` : ""}.` : `The garden is ${sk.needed} place${sk.needed === 1 ? "" : "s"} for it.`}</div></div>`;
+      h = this._collapsible(h, start, "sprk", "sprinkler-variant", "Sprinkler setup", `${sk.modes[sk.mode]}, ${num(sk.gpm, 1)} GPM, ${num(sk.radius_ft, 0)} ft: ${num(sk.pr, 2)} in an hour`);
+    }
     if (drip && T.lines_over.length) h += `<div class="alarm" style="--hold:var(--spray)"><b>${this._icon("alert")} Too much water for one line</b><div class="small">Row${T.lines_over.length === 1 ? "" : "s"} ${T.lines_over.map((i) => i + 1).join(", ")} would put more than ${num(W.max_line_gph, 0)} gph through a single run of 1/2 inch line. Feed the line from the middle or split the row.</div></div>`;
     h += `<div class="card"><div class="sec">By crop</div>`;
     for (const c of W.crops) {
@@ -1774,6 +1783,34 @@ class GardenTrackerCard extends HTMLElement {
     if ((this._exp || {})[key]) return h;
     return h.slice(0, start) + `<div class="card tile" data-act="toggle-sec" data-s="${key}"><div class="row"><div class="grow"><div class="sec" style="margin:0">${this._icon(icon)} ${esc(title)}</div><div class="small mut" style="margin-top:2px">${esc(summary)}</div></div>${this._icon("chevron-down")}</div></div>`;
   }
+  _sprinklerPlan(W, gid) {
+    const sk = W.sprinkler, T = W.totals;
+    let h = `<div class="sec" style="margin-top:12px">How to water</div>`;
+    if (sk.mode === "fixed") h += `<div class="stats"><div class="stat"><span>Run all ${sk.heads} sprinkler${sk.heads === 1 ? "" : "s"} for</span><b>${sk.minutes} min</b></div><div class="stat"><span>Times a week</span><b>${sk.per_week}</b></div><div class="stat"><span>Whole garden</span><b>${num(T.gpm, 1)} GPM</b></div><div class="stat"><span>Each watering</span><b>${num(sk.gal_session, 0)} gal</b></div></div>`;
+    else h += `<div class="stats"><div class="stat"><span>Each place</span><b>${sk.minutes} min</b></div><div class="stat"><span>Places in the garden</span><b>${sk.sets}</b></div><div class="stat"><span>Times a week</span><b>${sk.per_week}</b></div><div class="stat"><span>A watering takes</span><b>${num(sk.session_hours, 1)} h</b></div></div>`;
+    h += `<div class="small" style="margin-top:8px">${sk.mode === "fixed" ? `Run the sprinklers ${sk.minutes} minutes, ${sk.per_week} times a week` : `Set the sprinkler in ${sk.sets} place${sk.sets === 1 ? "" : "s"} across the garden, overlapping them so each throws to the next, and run it ${sk.minutes} minutes in each, ${sk.per_week} times a week`}. That puts down ${num(sk.depth_in, 2)} in a watering, ${num(W.need_in_week, 2)} in a week, the most the thirstiest crop wants.${sk.per_week_auto ? " The number of days suits the soil; change it in the setup." : ""}</div>`;
+    if (sk.over_intake) h += `<div class="alarm" style="--hold:var(--spray)"><div class="small">${this._icon("alert")} Water in ${sk.cycles} cycle${sk.cycles === 1 ? "" : "s"} of ${sk.cycle_min} minutes with about ${sk.soak_min} minutes between, because the sprinkler puts down ${num(sk.pr, 2)} in an hour and this soil takes in about ${num(sk.intake_in_hr, 1)}.</div></div>`;
+    for (const w of sk.warnings.filter((x) => !x.includes("takes in about"))) h += `<div class="alarm" style="--hold:var(--spray)"><div class="small">${this._icon("alert")} ${esc(w)}</div></div>`;
+    return h;
+  }
+  _fSprk(g) {
+    const sk = g.irrigation.sprinkler;
+    return {
+      title: "Sprinkler setup", submitLabel: "Save",
+      fields: [
+        { name: "mode", label: "How they are used", type: "select", options: Object.entries(sk.modes), value: sk.mode },
+        { name: "gpm", label: "Gallons a minute through one sprinkler", type: "number", step: "any", value: sk.gpm, req: true },
+        { name: "radius_ft", label: "How far it throws (feet)", type: "number", step: "any", value: sk.radius_ft, req: true },
+        { name: "arc", label: "Arc", type: "select", options: sk.arcs.map((a) => [String(a), a === 360 ? "Full circle" : `${a} degrees`]), value: String(sk.arc) },
+        { name: "pr_mode", label: "Rate of water", type: "select", options: [["calc", "Work it out from flow and radius"], ["measured", "I measured it (catch cans)"]], value: sk.pr_mode },
+        { name: "pr_in_hr", label: "Measured inches an hour", type: "number", step: "any", value: sk.pr_in_hr || "", show: (v) => v.pr_mode === "measured" },
+        { name: "heads", label: "Fixed sprinklers in this garden (empty for as many as it needs)", type: "number", step: "1", value: sk.mode === "fixed" ? (sk.heads || "") : "", show: (v) => v.mode === "fixed" },
+        { name: "per_week", label: "Waterings a week (empty to suit the soil)", type: "number", step: "1", value: sk.per_week_auto ? "" : sk.per_week },
+      ],
+      note: "Set this up once a year. A sprinkler's rate is about 96 x gallons a minute / the square feet it waters, with the sprinklers laid head to head, so each one throws as far as the next one is placed. To measure it, put straight-sided cans around the garden, run it for 15 minutes and average the depth. A moved sprinkler is placed so its throw reaches the next place.",
+      submit: (x) => this._call("set_sprinkler", { garden: g.id, mode: x.mode, gpm: x.gpm, radius_ft: x.radius_ft, arc: Number(x.arc), pr_mode: x.pr_mode, pr_in_hr: x.pr_mode === "measured" ? (x.pr_in_hr === undefined ? null : x.pr_in_hr) : null, heads: x.mode === "fixed" ? (x.heads === undefined ? null : x.heads) : null, per_week: x.per_week === undefined ? null : x.per_week }),
+    };
+  }
   _fIrr(g) {
     const W = g.irrigation;
     return {
@@ -1783,11 +1820,9 @@ class GardenTrackerCard extends HTMLElement {
         { name: "per_week", label: "Waterings a week", type: "number", step: "1", value: W.per_week, req: true },
         { name: "run_min", label: "Minutes each watering (empty to work it out)", type: "number", step: "any", value: W.run_min_set || "" },
         { name: "max_line_gph", label: "Most gph through one run of drip line", type: "number", step: "any", value: W.max_line_gph, show: () => W.method === "drip" },
-        { name: "sprinkler_in_hr", label: "Sprinklers put down (inches an hour)", type: "number", step: "any", value: W.sprinkler_in_hr, show: () => W.method === "sprinkler" },
-        { name: "sprinkler_gpm", label: "Sprinkler flow (GPM, empty to work it out)", type: "number", step: "any", value: W.sprinkler_gpm || "", show: () => W.method === "sprinkler" },
       ],
       note: "Clay soaks in slowly and only takes 1/2 gph emitters; the other soils take 1 gph. Each garden is its own irrigation zone, so its lines all run together for the same time.",
-      submit: (x) => this._call("set_irrigation", { garden: g.id, soil: x.soil, per_week: x.per_week, run_min: x.run_min === undefined ? null : x.run_min, max_line_gph: x.max_line_gph, sprinkler_in_hr: x.sprinkler_in_hr, sprinkler_gpm: W.method === "sprinkler" ? (x.sprinkler_gpm === undefined ? null : x.sprinkler_gpm) : undefined }),
+      submit: (x) => this._call("set_irrigation", { garden: g.id, soil: x.soil, per_week: x.per_week, run_min: x.run_min === undefined ? null : x.run_min, max_line_gph: x.max_line_gph }),
     };
   }
   _fIrrCrop(g, key) {

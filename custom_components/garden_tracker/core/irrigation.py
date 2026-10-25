@@ -82,9 +82,19 @@ def default_fert() -> dict:
     }
 
 
+def default_sprinkler() -> dict:
+    """A sprinkler that is moved around the garden, 3 gallons a minute reaching 20 feet. All of this is yours to change."""
+    return {"mode": "moved", "pr_mode": "calc", "gpm": 3.0, "radius_ft": 20.0, "arc": 360, "pr_in_hr": None, "heads": None, "per_week": None}
+
+
+# soil -> (inches of water the soil takes in an hour once wet, waterings a week that suit it)
+INTAKE = {"sand": (2.0, 4), "sandy_loam": (0.8, 3), "loam": (0.5, 3), "silt_loam": (0.4, 2), "clay_loam": (0.3, 2), "clay": (0.2, 2)}
+PR_FACTOR = 96.3  # inches an hour = 96.3 x gallons a minute / square feet watered
+PUDDLE_IN = 0.1   # water a surface holds before it runs off
+
+
 def blank() -> dict:
-    return {"method": "drip", "soil": DEFAULT_SOIL, "per_week": 3, "run_min": None, "sprinkler_in_hr": 0.75,
-            "sprinkler_gpm": None, "max_line_gph": DEFAULT_MAX_LINE_GPH, "crops": {},
+    return {"method": "drip", "soil": DEFAULT_SOIL, "per_week": 3, "run_min": None, "sprinkler": default_sprinkler(), "max_line_gph": DEFAULT_MAX_LINE_GPH, "crops": {},
             "fert": default_fert(), "acid": default_acid(), "lime": default_lime()}
 
 
@@ -98,8 +108,7 @@ def _num(v: Any, name: str, lo: float, hi: float) -> float:
     return x
 
 
-def validate_settings(method: Any = None, soil: Any = None, per_week: Any = None, run_min: Any = "keep", sprinkler_in_hr: Any = None,
-                      sprinkler_gpm: Any = "keep", max_line_gph: Any = None) -> dict:
+def validate_settings(method: Any = None, soil: Any = None, per_week: Any = None, run_min: Any = "keep", max_line_gph: Any = None) -> dict:
     out: dict[str, Any] = {}
     if method is not None:
         if method not in METHODS:
@@ -113,12 +122,35 @@ def validate_settings(method: Any = None, soil: Any = None, per_week: Any = None
         out["per_week"] = int(_num(per_week, "Waterings per week", 1, 14))
     if run_min != "keep":  # empty means work it out
         out["run_min"] = None if run_min in (None, "", 0) else _num(run_min, "Run time", 1, 1440)
-    if sprinkler_in_hr is not None:
-        out["sprinkler_in_hr"] = _num(sprinkler_in_hr, "Sprinkler rate", 0.05, 10)
-    if sprinkler_gpm != "keep":
-        out["sprinkler_gpm"] = None if sprinkler_gpm in (None, "", 0) else _num(sprinkler_gpm, "Sprinkler flow", 0.1, 500)
     if max_line_gph is not None:
         out["max_line_gph"] = _num(max_line_gph, "Most water in one line", 10, 2000)
+    return out
+
+
+def validate_sprinkler(mode: Any = None, pr_mode: Any = None, gpm: Any = None, radius_ft: Any = None, arc: Any = None,
+                       pr_in_hr: Any = "keep", heads: Any = "keep", per_week: Any = "keep") -> dict:
+    out: dict[str, Any] = {}
+    if mode is not None:
+        if mode not in ("moved", "fixed"):
+            raise IrrigationError("Sprinklers are moved around or fixed in place")
+        out["mode"] = mode
+    if pr_mode is not None:
+        if pr_mode not in ("calc", "measured"):
+            raise IrrigationError("The rate is worked out from flow and radius, or measured")
+        out["pr_mode"] = pr_mode
+    if gpm is not None:
+        out["gpm"] = _num(gpm, "Flow of one sprinkler (GPM)", 0.05, 500)
+    if radius_ft is not None:
+        out["radius_ft"] = _num(radius_ft, "Radius (feet)", 1, 200)
+    if arc is not None:
+        a = int(_num(arc, "Arc (degrees)", 10, 360))
+        out["arc"] = a
+    if pr_in_hr != "keep":
+        out["pr_in_hr"] = None if pr_in_hr in (None, "", 0) else _num(pr_in_hr, "Sprinkler rate (inches an hour)", 0.05, 20)
+    if heads != "keep":  # empty means as many as the garden needs
+        out["heads"] = None if heads in (None, "", 0) else int(_num(heads, "Sprinklers", 1, 500))
+    if per_week != "keep":
+        out["per_week"] = None if per_week in (None, "", 0) else int(_num(per_week, "Waterings per week", 1, 14))
     return out
 
 
@@ -257,7 +289,8 @@ def pump_for(f: dict, tank: str) -> tuple[str, dict]:
 def settings_for(s: dict | None) -> dict:
     base = blank()
     if s:
-        base.update({k: v for k, v in s.items() if k not in ("fert", "crops", "acid")})
+        base.update({k: v for k, v in s.items() if k not in ("fert", "crops", "acid", "sprinkler")})
+        base["sprinkler"] = {**default_sprinkler(), **(s.get("sprinkler") or {})}
         base["acid"] = {**default_acid(), **(s.get("acid") or {})}
         base["lime"] = {**default_lime(), **(s.get("lime") or {})}
         base["fert"] = fert_of(s.get("fert"))
@@ -309,8 +342,7 @@ def plan(layout: dict, settings: dict | None, names: dict[str, str] | None = Non
     base = {"configured": bool(layout and layout.get("configured")), "method": st["method"], "methods": METHODS,
             "soil": st["soil"], "soils": [{"key": k, "name": v[0], "max_gph": v[1], "note": v[3]} for k, v in SOILS.items()],
             "soil_note": soil[3], "per_week": st["per_week"], "flows": list(DRIP_FLOWS), "spacings": list(DRIP_SPACINGS),
-            "rolls": list(ROLLS), "max_line_gph": st["max_line_gph"], "sprinkler_in_hr": st["sprinkler_in_hr"],
-            "sprinkler_gpm": st["sprinkler_gpm"], "fert_settings": fert_of(st["fert"]),
+            "rolls": list(ROLLS), "max_line_gph": st["max_line_gph"], "fert_settings": fert_of(st["fert"]),
             "lime": lime(st["lime"], st["soil"], soil_ph, (layout.get("width_ft", 0) * layout.get("length_ft", 0)) if layout and layout.get("configured") else None)}
     if not base["configured"]:
         return base
@@ -434,22 +466,55 @@ def _drip(base: dict, st: dict, layout: dict, info: dict, soil: tuple, row_in: i
 
 
 def _sprinkler(base: dict, st: dict, layout: dict, crops_in: list[dict], area: float) -> dict:
+    """How long, how often and (for a moved sprinkler) how many places, from the sprinkler's flow and reach.
+
+    One sprinkler waters about radius x radius x arc/360 square feet when its neighbours are placed head to head, which is
+    how both a fixed layout and a moved sprinkler are laid out, so inches an hour = 96.3 x GPM / that area unless you have
+    measured the rate with catch cans. A soil that takes water in more slowly than that rate is watered in short cycles."""
+    sp = {**default_sprinkler(), **(st["sprinkler"] or {})}
+    soil_in, soil_wk = INTAKE.get(st["soil"], INTAKE[DEFAULT_SOIL])
     need_in = max((i["water_in_week"] for i in crops_in), default=0.0)
-    rate = st["sprinkler_in_hr"]
-    hours = need_in / rate if rate else 0.0
-    per = st["per_week"]
-    run_min = round(hours * 60 / per, 1)
-    gal_week = need_in * area * GAL_PER_IN_SQFT
-    gpm = st["sprinkler_gpm"] or (round(gal_week / (hours * 60), 1) if hours else 0.0)
+    cover = sp["radius_ft"] ** 2 * sp["arc"] / 360  # square feet one sprinkler waters, head to head
+    calc_pr = PR_FACTOR * sp["gpm"] / cover if cover else 0.0
+    pr = sp["pr_in_hr"] if sp["pr_mode"] == "measured" and sp["pr_in_hr"] else calc_pr
+    needed = max(1, math.ceil(area / cover - 1e-9)) if cover else 1  # sprinklers, or places to put one, to cover the garden
+    per = sp["per_week"] or soil_wk
+    depth = need_in / per  # inches each watering
+    minutes = max(1, round(depth / pr * 60)) if pr else 0  # whole minutes a place, so the plan adds up
+    fixed = sp["mode"] == "fixed"
+    heads = (sp["heads"] or needed) if fixed else 1
+    sets = 1 if fixed else needed
+    gpm_total = heads * sp["gpm"]
+    session_min = minutes * sets  # a watering takes this long in all
+    gal_session = gpm_total * session_min if fixed else sp["gpm"] * session_min
+    over = pr > soil_in * 1.05
+    cycle = None
+    if over:
+        t = PUDDLE_IN / (pr - soil_in) * 60  # minutes before the water starts to run off
+        cycle = max(5, min(round(t), round(minutes)))
     crops = [{"key": i["key"], "name": i["name"], "water_in_week": i["water_in_week"], "ppm_n": i["ppm_n"], "plants": i["plants"],
               "custom_water": i["custom_water"], "pct": round(100 * need_in / i["water_in_week"]) if i["water_in_week"] else None}
              for i in sorted(crops_in, key=lambda i: i["name"].lower())]
-    gal_watering = round(gal_week / per, 1)
-    ft = fert(st["fert"], crops, gal_watering, "sprinkler", area, run_min, gpm)
-    return {**base, "run_min": run_min, "run_min_set": None, "hours_week": round(hours, 2), "need_in_week": need_in, "crops": crops,
-            "rows": [], "order": [], "totals": {"gph": round(gpm * 60, 1), "gpm": gpm, "gal_watering": gal_watering, "gal_week": round(gal_week, 1),
-                                                "gpm_given": bool(st["sprinkler_gpm"]), "area_sqft": round(area, 1)},
-            "fert": ft, "acid": _acid_for(st, gal_watering, run_min, ft)}
+    flow = gpm_total if fixed else sp["gpm"]
+    ft = fert(st["fert"], crops, gal_session, "sprinkler", area, session_min, flow)
+    covered = min(1.0, heads * cover / area) if (fixed and area) else 1.0
+    s_out = {**sp, "cover_sqft": round(cover, 1), "pr_calc": round(calc_pr, 2), "pr": round(pr, 2), "needed": needed, "heads": heads, "sets": sets,
+             "per_week": per, "per_week_auto": sp["per_week"] is None, "depth_in": round(depth, 2), "minutes": round(minutes), "session_min": round(session_min),
+             "session_hours": round(session_min / 60, 1), "intake_in_hr": soil_in, "over_intake": over, "cycle_min": cycle,
+             "cycles": math.ceil(minutes / cycle) if cycle else 1, "soak_min": 45 if over else 0, "covered": round(covered, 2),
+             "arcs": [360, 270, 180, 90], "modes": {"moved": "One sprinkler, moved around", "fixed": "Fixed sprinklers"},
+             "weekly_hours": round(per * session_min / 60, 1), "gal_session": round(gal_session), "gal_week": round(gal_session * per)}
+    warn = []
+    if fixed and sp["heads"] and sp["heads"] < needed:
+        warn.append(f"{sp['heads']} sprinklers water about {round(100 * covered)}% of the garden. It takes {needed} to cover it head to head.")
+    if over:
+        warn.append(f"The sprinkler puts down {pr:.2f} in an hour but this soil takes in about {soil_in:g}, so water in cycles of {cycle} minutes with about 45 minutes between, or it will run off.")
+    s_out["warnings"] = warn
+    return {**base, "run_min": round(minutes, 1), "run_min_set": None, "hours_week": round(per * session_min / 60, 2), "need_in_week": need_in,
+            "crops": crops, "rows": [], "order": [], "sprinkler": s_out,
+            "totals": {"gph": round(flow * 60, 1), "gpm": round(flow, 2), "gal_watering": round(gal_session, 1), "gal_week": round(gal_session * per, 1),
+                       "area_sqft": round(area, 1)},
+            "fert": ft, "acid": _acid_for(st, gal_session, session_min, ft)}
 
 
 PK1, PK2, KW = 6.35, 10.33, 1e-14  # carbonic acid at 25 C
