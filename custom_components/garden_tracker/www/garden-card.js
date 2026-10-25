@@ -85,6 +85,31 @@ svg .ax{fill:var(--secondary-text-color);font-size:10px}
 ha-icon{--mdc-icon-size:20px}
 `;
 
+// Phone layout for the standalone web app only (the card is given web:true there). The Home Assistant card never gets these rules.
+const WEB_PHONE_CSS = `
+@media (max-width:600px){
+ha-card.web{padding:4px 0;background:none;box-shadow:none;border:none}
+.web button{min-height:44px;padding:8px 12px}
+.web button.on,.web button.bad{padding:7px 11px}
+.web button.ic{min-width:44px;padding:10px}
+.web .chip{min-height:36px;display:inline-flex;align-items:center;padding:6px 12px;font-size:13px}
+.web .chips{padding-bottom:4px;scrollbar-width:none;margin-left:-4px;margin-right:-4px}
+.web input,.web select,.web textarea{font-size:16px;min-height:44px;padding:10px}
+.web label{font-size:13px}
+.web .card{padding:12px;margin-bottom:12px}
+.web .hd{position:sticky;top:52px;z-index:2;background:var(--page,var(--card-background-color));margin:0 0 10px;padding:4px 0}
+.web .ttl{font-size:20px}
+.web .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+.web .stat b{font-size:18px}
+.web .seg button{font-size:13px;min-height:44px}
+.web .row.wrap>button,.web .conf button{flex:1 1 40%}
+.web .tbl{font-size:14px}
+.web .lg{padding:12px 0}
+.web .plant{padding:12px}
+.web .phases{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+`;
+
 // Plant pictures (56x56 viewBox), one per built-in plant type. Anything else gets the generic sprout.
 const ICONS = {
  "apple": "<svg viewBox=\"0 0 56 56\" width=\"44\" height=\"44\" aria-hidden=\"true\"><path d=\"M28 18 C22 13 10 16 10 29 C10 41 19 51 24 51 C26 51 27 50 28 50 C29 50 30 51 32 51 C37 51 46 41 46 29 C46 16 34 13 28 18Z\" fill=\"#d93a3a\"/><path d=\"M17 24 C18 20 21 18 24 18\" stroke=\"#fff\" stroke-opacity=\".35\" stroke-width=\"3\" stroke-linecap=\"round\" fill=\"none\"/><path d=\"M28 18 C28 13 29 9 32 6\" stroke=\"#6d4c41\" stroke-width=\"3\" stroke-linecap=\"round\" fill=\"none\"/><path transform=\"translate(31 12) rotate(-20) scale(1.1)\" d=\"M0 0 C5 -7 13 -7 16 -3 C12 3 5 4 0 0Z\" fill=\"#4f9a2a\"/></svg>",
@@ -363,7 +388,7 @@ class GardenTrackerCard extends HTMLElement {
     const banner = (this._err && this._snap ? `<div class="err">${esc(this._err)}</div>` : "") +
       (this._undo && this._snap && this._snap.can_undo && !this._form
         ? `<div class="undo"><span>Entry removed</span><button data-act="undo">Undo</button></div>` : "");
-    this.shadowRoot.innerHTML = `<style>${CSS}</style><ha-card>${banner}${body}</ha-card>`;
+    this.shadowRoot.innerHTML = `<style>${CSS}${this._web ? WEB_PHONE_CSS : ""}</style><ha-card${this._web ? ' class="web"' : ""}>${banner}${body}</ha-card>`;
   }
 
   _icon(name) { return `<ha-icon icon="mdi:${name}"></ha-icon>`; }
