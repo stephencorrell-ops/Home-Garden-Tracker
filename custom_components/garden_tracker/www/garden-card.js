@@ -902,7 +902,7 @@ class GardenTrackerCard extends HTMLElement {
     if (g.kind !== "garden") return this._placeView(g);
     const ph = g.ph, gid = g.id;
     let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="grow"><div class="ttl">${esc(g.name)}</div><div class="sub">${this._vars().filter((v) => v.garden === gid).length} plants</div></div>${this._btn("edit-g", "cog", "", `data-g="${gid}"`, "ic")}</div>`;
-    h += this._frostPill(g, false) + this._sensorBanner(g) + this._layoutTile(g) + this._irrTile(g);
+    h += this._frostPill(g, false) + this._sensorBanner(g) + this._layoutTile(g) + this._irrTile(g) + this._seasonCard(g);
     h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">Soil pH</div>${ph.level ? `<span class="pill ${ph.level === "ok" ? "ok" : "warn"}" style="margin:0">${ph.level === "ok" ? "In range" : ph.level === "low" ? "Below target" : "Above target"}</span>` : ""}</div>`;
     if (ph.current !== null) {
       const d = ph.first && ph.first.date !== ph.date ? ph.current - ph.first.value : null;
@@ -1811,6 +1811,29 @@ class GardenTrackerCard extends HTMLElement {
     if (!show) return `<div class="card tile" data-act="toggle-sec" data-s="sun"><div class="row"><div class="grow"><div class="sec" style="margin:0">${this._icon("weather-sunny")} Sun and shade</div><div class="small mut">${esc(sum)}</div></div>${this._icon("chevron-down")}</div></div>`;
     return `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("weather-sunny")} Sun and shade</div>${this._btn("toggle-sec", "chevron-up", "", `data-s="sun"`, "ic")}</div>${body}${turnBtn}</div>`;
   }
+  _seasonCard(g) {
+    const S = g.season;
+    if (!S) return "";
+    const dt = (iso) => fmtDate(iso);
+    const left = S.days_to_frost;
+    const frost = left >= 0 ? `First frost ${dt(S.first_frost)}, in ${left} days` : `First frost was ${dt(S.first_frost)}`;
+    const sum = `${frost}. ${S.now ? `${S.now} crop${S.now === 1 ? "" : "s"} can still be planted` : "Nothing more to plant until spring"}`;
+    if (!(this._exp || {}).season) return `<div class="card tile" data-act="toggle-sec" data-s="season"><div class="row"><div class="pic" style="background:color-mix(in srgb,var(--spray) 18%,transparent);color:var(--spray)">${this._icon("snowflake-alert")}</div><div class="grow"><div style="font-size:15px;font-weight:500">Time before frost</div><div class="small mut">${esc(sum)}</div></div>${this._icon("chevron-down")}</div></div>`;
+    const group = (title, rows, empty) => rows.length ? `<div class="sec" style="margin-top:12px">${title}</div>` + rows.map((c) => {
+      const cls = c.status === "plant" ? "ok" : c.status === "tight" ? "warn" : c.status === "short" || c.status === "late" ? "bad" : "none";
+      const extra = c.rounds > 1 && (c.status === "plant" || c.status === "tight" || c.status === "wait") ? `, up to ${c.rounds} plantings back to back` : "";
+      return `<div class="row" style="align-items:flex-start;margin:6px 0;gap:8px"><div class="grow"><div style="font-weight:500">${esc(c.name)}${c.planted ? ` <span class="mut small">in your layout</span>` : ""}</div><div class="small mut">${c.fall ? "Harvest next summer" : `${c.days} days to harvest${extra}`}</div></div><span class="pill ${cls}" style="margin:0;text-align:right">${esc(c.text)}</span></div>`;
+    }).join("") : (empty ? `<div class="small mut" style="margin-top:8px">${empty}</div>` : "");
+    const by = (st) => S.crops.filter((c) => st.includes(c.status));
+    let h = `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("snowflake-alert")} Time before frost</div>${this._btn("toggle-sec", "chevron-up", "", `data-s="season"`, "ic")}</div>`;
+    h += `<div class="small" style="margin-top:6px">${esc(frost)}. Last spring frost ${dt(S.last_frost)}, so the season runs about ${S.season_days} days.</div>`;
+    h += group("Plant now", by(["plant", "tight"]), "Nothing is left to plant this year except what is listed below.");
+    h += group("Opens later", by(["wait"]));
+    h += group("Too late this year", by(["late"]));
+    h += group("Season too short", by(["short"]));
+    h += `<div class="small mut" style="margin-top:10px">Planting windows come from the frost dates of this garden (change them on the frost pill) and typical days to harvest. Frost-hardy crops go out up to four weeks early and keep growing a little past the first frost, tender ones wait until after the last frost. Fast crops like radishes can be sown again as soon as the last is out. Garlic goes in around the first frost for harvest next summer. A guide, not a promise.</div></div>`;
+    return h;
+  }
   _wxCard(W) {
     const x = W.weather;
     if (!W.use_weather) return `<div class="card"><div class="small mut">${this._icon("weather-sunny")} Watering is not adjusted for the weather. Turn it on in Soil and run time.</div></div>`;
@@ -2082,6 +2105,7 @@ class GardenTrackerCard extends HTMLElement {
       h += `<div class="small mut" style="margin-top:8px">Fits ${t.rows} row${t.rows === 1 ? "" : "s"} of ${L.row_in} in with ${num(L.path_in, 0)} in paths between them. Each crop has its own pattern: a single line, a double line or an offset grid.</div></div>`;
       if (L.alerts.length) {
         h += `<div class="card"><div class="sec">Crop rotation</div>`;
+        h += (L.warnings || []).map((w) => `<div class="alarm" style="--hold:var(--spray)"><div class="small">${this._icon("alert")} ${esc(w.text)}</div></div>`).join("");
         h += L.alerts.map((a) => `<div class="alarm" ${a.level === "family" ? 'style="--hold:var(--spray)"' : a.level === "resistant" ? 'style="--hold:var(--ok)"' : ""}><b>${this._icon(a.level === "resistant" ? "check" : "alert")} ${esc(a.name)}${a.variety ? ` (${esc(a.variety)})` : ""}, row ${a.row + 1}</b><div class="small" style="margin-top:4px">${esc(a.text)}</div></div>`).join("");
         h += `<div class="small mut">Rest times follow <a href="${L.rotation_sources[0]}" target="_blank" rel="noopener">WSU Extension</a> and <a href="${L.rotation_sources[1]}" target="_blank" rel="noopener">Cornell Vegetable MD Online</a>.</div></div>`;
       }
@@ -2092,6 +2116,7 @@ class GardenTrackerCard extends HTMLElement {
       const vr = (d && d.variety) || "";
       h += `<label>Variety (optional)</label><div class="row" style="margin-bottom:10px"><div class="grow"><input type="text" list="vl" placeholder="Roma VF" value="${esc(vr)}" data-dvar data-g="${gid}"><datalist id="vl">${names.map((n) => `<option value="${esc(n)}"></option>`).join("")}</datalist></div>${this._btn("lay-traits", "pencil", "Height and resists", `data-g="${gid}"`)}</div>`;
       if (d && d.resist && d.resist.length) h += `<div class="small mut" style="margin:-4px 0 10px">${esc(vr)} resists ${esc(d.resist.map((k) => (cur.diseases.find((x) => x.key === k) || { name: k }).name).join(", "))}. Rotation alerts allow for that.</div>`;
+      if (cur.min_row_in && L.row_in < cur.min_row_in) h += `<div class="alarm" style="--hold:var(--spray)"><div class="small">${this._icon("alert")} ${esc(cur.name)} is pollinated by wind, so it needs a block at least ${cur.min_row_in / 12} ft across. Your rows are ${L.row_in} in wide: set the row width to ${cur.min_row_in} in, or grow it where the rows are ${cur.min_row_in} in.</div></div>`;
       if (d && d.height_ft) h += `<div class="small mut" style="margin:-4px 0 10px">${vr ? esc(vr) : esc(cur.name)} grows about ${num(d.height_ft, 1)} ft tall, which is what the shade check uses.</div>`;
       h += `<div class="seg">${[["weight", "Harvest weight"], ["plants", "Plants"], ["length", "Row length"]].map(([m, t2]) => `<button class="${mode === m ? "on" : ""}" data-act="lay-mode" data-g="${gid}" data-m="${m}">${t2}</button>`).join("")}</div>`;
       const lab = { weight: "Pounds you want to harvest", plants: "Number of plants", length: "Feet of row" }[mode];

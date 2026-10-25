@@ -457,6 +457,40 @@ class Layout(unittest.TestCase):
         self.assertEqual(by["corn"]["height_ft"], 7)
         self.assertEqual(v["sun"]["tallest"]["name"], "Hops")
 
+    def test_corn_wants_a_48_inch_block(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 30, 40, 30, 0)
+        m.assign_layout_rows(gid, "corn", [0])
+        w = self.view(m, gid)["warnings"]
+        self.assertTrue(any("48" in x["text"] for x in w), w)
+        m.set_layout(gid, None, None, 48)
+        self.assertEqual(self.view(m, gid)["row_in"], 48)
+        self.assertEqual(self.view(m, gid)["warnings"], [])
+        m.add_layout_segment(gid, 1, "corn", 3, 0)  # a stretch under 4 ft is too small a block
+        w = self.view(m, gid)["warnings"]
+        self.assertTrue(any("row 2" in x["text"] for x in w), w)
+        with self.assertRaises(GardenError):
+            m.set_layout(gid, None, None, 40)
+
+    def test_season_shows_what_has_time_before_frost(self):
+        from datetime import date as d
+        from custom_components.garden_tracker.core import season
+        names = {"radish": "Radish", "tomato": "Tomato", "garlic": "Garlic", "pumpkin": "Pumpkin", "hops": "Hops"}
+        aug = {c["key"]: c for c in season.analyse(names, "04-25", "10-15", d(2026, 8, 10))["crops"]}
+        self.assertEqual(aug["radish"]["status"], "plant")
+        self.assertGreater(aug["radish"]["rounds"], 3)  # quick crops fit many back-to-back
+        self.assertEqual(aug["tomato"]["status"], "late")  # 75 days will not finish by Oct 15
+        self.assertEqual(aug["garlic"]["status"], "wait")
+        self.assertNotIn("hops", aug)  # a perennial is not in the table
+        late = {c["key"]: c for c in season.analyse(names, "04-25", "10-15", d(2026, 10, 25))["crops"]}
+        self.assertEqual(late["garlic"]["status"], "plant")  # garlic goes in around the first frost
+        self.assertEqual(late["radish"]["status"], "late")
+        short = {c["key"]: c for c in season.analyse(names, "05-20", "08-25", d(2026, 5, 25))["crops"]}
+        self.assertEqual(short["pumpkin"]["status"], "short")  # 100 days do not fit between May 27 and Aug 25
+        m, gid = self.garden()
+        g = next(x for x in m.snapshot()["gardens"] if x["id"] == gid)
+        self.assertTrue(g["season"]["crops"])
+
     def test_best_row_angle_follows_the_sun_and_the_heights(self):
         from custom_components.garden_tracker.core import sun
         b = sun.best_heading(47.3, 4.0, 30, 24, 0)

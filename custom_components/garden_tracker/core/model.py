@@ -13,6 +13,7 @@ from . import irrigation as irr
 from . import layout as lay
 from . import rotation as rot
 from . import microclimate as mc
+from . import season as season_mod
 from . import sun as sun_mod
 
 
@@ -2142,6 +2143,7 @@ class GardenModel:
             "fertility": self._fertility_view(g, metrics, today) if soil else None,
             "layout": lay.plan(g.get("layout"), self._plant_names(), self._history(g), today.year, self.data["variety_traits"], self._lat()) if soil else None,
             "irrigation": self._irrigation_view(g, today) if soil else None,
+            "season": self._season_view(g, today) if soil and kind == "garden" else None,
             "layout_history": ({y: lay.plan(h, self._plant_names(), None, int(y)) for y, h in g["layout_history"].items()} if soil else {}),
             "trays": g.get("trays", 0), "water": self._water_view(g, today),
             "trays_calc": self._trays_calc(g) if kind != "garden" else None,
@@ -2156,6 +2158,13 @@ class GardenModel:
             "adjuncts": [calc.adjunct_status(t, g["adjuncts"], today) for t in g["adjunct_types"].values()],
             "adjunct_log": [{**e, "type_name": names.get(e["type"], e["type"])} for e in log],
         }
+
+    def _season_view(self, g: dict, today: date) -> dict:
+        st = self.data["settings"]
+        last = (g.get("frost") or {}).get("last") or st["frost_last"]
+        first = (g.get("frost") or {}).get("first") or st["frost_first"]
+        planted = {c["key"] for c in (lay.plan(g.get("layout"), self._plant_names(), None, today.year).get("crops") or [])} if g.get("layout") else set()
+        return season_mod.analyse(self._plant_names(), last, first, today, planted)
 
     def _lat(self) -> float | None:
         """Where the garden is, north to south: the place you set, otherwise Home Assistant's own latitude."""

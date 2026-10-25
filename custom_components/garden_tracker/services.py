@@ -66,7 +66,7 @@ SERVICES: dict[str, dict] = {
         O("group"): vol.In(["moisture_ec", "soil_temp", "air_temp", "out_temp", "par", "all"])},
     "log_garden_reading": {R("garden"): cv.string, R("metric"): vol.In(list(METRICS)),
         R("value"): NUM, O("date"): cv.date},
-    "set_layout": {R("garden"): cv.string, O("width_ft"): NUM, O("length_ft"): NUM, O("row_in"): vol.All(vol.Coerce(int), vol.In([24, 30, 36])),
+    "set_layout": {R("garden"): cv.string, O("width_ft"): NUM, O("length_ft"): NUM, O("row_in"): vol.All(vol.Coerce(int), vol.In([24, 30, 36, 48])),
                 O("rotation"): vol.All(vol.Coerce(float), vol.Range(min=-720, max=720)), O("path_in"): vol.All(vol.Coerce(float), vol.Range(min=0, max=120))},
     "assign_layout_rows": {R("garden"): cv.string, O("crop"): vol.Any(None, cv.string), O("rows"): vol.All(cv.ensure_list, [vol.All(vol.Coerce(int), vol.Range(min=0, max=199))]), O("variety"): cv.string},
     "add_layout_segment": {R("garden"): cv.string, R("row"): vol.All(vol.Coerce(int), vol.Range(min=0, max=199)), R("crop"): cv.string,

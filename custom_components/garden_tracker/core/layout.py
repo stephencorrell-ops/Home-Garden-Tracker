@@ -11,7 +11,7 @@ from typing import Any
 from . import rotation as rot
 from . import sun
 
-ROW_WIDTHS = (24, 30, 36)  # inches across a planted row
+ROW_WIDTHS = (24, 30, 36, 48)  # inches across a planted row; corn wants a 48 in block
 DEFAULT_PATH_IN = 24  # the access path left between rows
 PAIR_GAP_IN = 12  # distance between the two plant lines of a double row
 SUPPORTS = {"none": "No support", "tpost": "T-posts", "cage": "Cages", "corral": "Corral (posts and twine)"}
@@ -39,16 +39,24 @@ DEFAULTS: dict[str, tuple[float, str, bool, str, float]] = {
     "corn": (12, "grid", True, "none", 4), "hops": (36, "single", False, "tpost", 10),  # hops climb a string or pole 10 to 20 ft up
 }
 GENERIC = (12, "grid", True, "none", 4)
+# Corn is pollinated by wind, so it needs a block at least 4 ft across (and 4 ft long) instead of a narrow row.
+BLOCKS: dict[str, int] = {"corn": 48}
 
 
 class LayoutError(ValueError):
     pass
 
 
+def block_text(name: str, need: int, row_in: int) -> str:
+    return (f"{name} is pollinated by wind, so it needs a block at least {need // 12} ft across, not a narrow row. "
+            f"Your rows are {row_in} in wide. Set the row width to {need} in for a block, or grow {name.lower()} where the rows are {need} in.")
+
+
 def defaults_for(key: str) -> dict:
     sp, pattern, stagger, sup, post = DEFAULTS.get(key, GENERIC)
     return {"spacing_in": sp, "pattern": pattern, "stagger": stagger, "support": sup, "post_ft": post,
-            "post_kind": "stake", "twine_levels": 2, "yield_lb": None, "height_ft": sun.height_for(key)}
+            "post_kind": "stake", "twine_levels": 2, "yield_lb": None, "height_ft": sun.height_for(key),
+            "min_row_in": BLOCKS.get(key)}
 
 
 def blank(year: int) -> dict:
@@ -126,7 +134,7 @@ def validate_size(layout: dict, width_ft: Any = None, length_ft: Any = None, row
         layout["length_ft"] = _num(length_ft, "Length", 1, MAX_FT)
     if row_in is not None:
         if int(row_in) not in ROW_WIDTHS:
-            raise LayoutError("Rows must be 24, 30 or 36 inches wide")
+            raise LayoutError("Rows must be 24, 30, 36 or 48 inches wide")
         layout["row_in"] = int(row_in)
     if rotation is not None:
         r = round(_num(rotation, "Angle", -720, 720) % 360, 1)  # any angle: the rows run this many degrees off north
@@ -353,12 +361,21 @@ def plan(layout: dict | None, names: dict[str, str], history: dict[int, dict] | 
         c["feet"] = round(c["feet"], 2)
     area = layout["width_ft"] * layout["length_ft"]
     plants = sum(c["plants"] for c in crops.values())
+    warnings = []
+    for c in crops.values():
+        need = BLOCKS.get(c["key"])
+        if need and row_in < need:
+            warnings.append({"crop": c["key"], "name": c["name"], "text": block_text(c["name"], need, row_in)})
+        for r in rows:
+            for sg in r["segments"]:
+                if need and sg["crop"] == c["key"] and sg["len_in"] < need - 1e-6:
+                    warnings.append({"crop": c["key"], "name": c["name"], "text": f"{c['name']} in row {r['i'] + 1} is only {sg['len_in'] / 12:.1f} ft long. It needs a block at least {need // 12} ft by {need // 12} ft to pollinate."})
     alerts.sort(key=lambda a: ({"same": 0, "family": 1}.get(a["level"], 2), a["row"]))
     return {
         "configured": True, "year": year, "width_ft": layout["width_ft"], "length_ft": layout["length_ft"], "row_in": row_in,
         "path_in": path_in(layout), "rotation": layout.get("rotation") or 0,
         "sun": sun.analyse(rows, row_in, path_in(layout), float(layout.get("rotation") or 0), lat, {k: c["height_ft"] for k, c in crops.items()}),
-        "pair_gap_in": PAIR_GAP_IN, "rows": rows, "crops": list(crops.values()), "available": available,
+        "pair_gap_in": PAIR_GAP_IN, "rows": rows, "crops": list(crops.values()), "available": available, "warnings": warnings,
         "row_widths": list(ROW_WIDTHS), "supports": SUPPORTS, "patterns": PATTERNS, "alerts": alerts,
         "draft": draft_result(layout, names, history, year, traits), "rotation_sources": rot.SOURCES,
         "totals": {"rows": n, "planted_rows": sum(1 for r in rows if r["segments"]), "plants": plants, "area_sqft": round(area, 1),
