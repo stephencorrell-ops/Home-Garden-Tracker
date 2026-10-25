@@ -14,16 +14,25 @@ POST_KINDS = {"stake": "Stakes", "tpost": "T-posts"}
 MAX_FT = 500
 MAX_ROWS = 200
 
-# crop key -> (in-row spacing in inches, support, T-post spacing in feet). Starter values, all editable per garden.
-DEFAULTS: dict[str, tuple[float, str, float]] = {
-    "tomato": (24, "tpost", 4), "pepper": (18, "corral", 3), "jalapeno": (18, "corral", 3), "habanero": (18, "corral", 3),
-    "cucumber": (12, "tpost", 6), "bean": (4, "tpost", 6), "pea": (2, "tpost", 6),
-    "garlic": (6, "none", 4), "onion": (4, "none", 4), "onion_red": (4, "none", 4), "onion_white": (4, "none", 4),
-    "onion_sweet": (4, "none", 4), "carrot": (2, "none", 4), "potato": (12, "none", 4), "horseradish": (18, "none", 4),
-    "watermelon": (36, "none", 4), "cantaloupe": (24, "none", 4), "pumpkin": (48, "none", 4),
-    "cabbage": (18, "none", 4), "lettuce": (8, "none", 4), "cauliflower": (18, "none", 4),
+PATTERNS = {"single": "Single line", "double": "Double line", "grid": "Grid (offset)"}
+HEX = 0.8660254  # an offset grid keeps every plant the same distance from its neighbours; lines sit this much closer
+
+# crop key -> (spacing in inches, pattern, offset the two lines of a double, support, post spacing in feet).
+# For a grid the spacing is the distance between neighbouring plants. Starter values, all editable per garden.
+DEFAULTS: dict[str, tuple[float, str, bool, str, float]] = {
+    "tomato": (24, "single", False, "tpost", 4), "pepper": (18, "single", False, "corral", 3),
+    "jalapeno": (18, "single", False, "corral", 3), "habanero": (18, "single", False, "corral", 3),
+    "cucumber": (12, "single", False, "tpost", 6), "pea": (2, "double", True, "tpost", 6),
+    "bean": (4, "grid", True, "none", 6),  # a bush bean; for a climber use a single or double line with T-posts
+    "garlic": (6, "grid", True, "none", 4), "onion": (4, "grid", True, "none", 4), "onion_red": (4, "grid", True, "none", 4),
+    "onion_white": (4, "grid", True, "none", 4), "onion_sweet": (4, "grid", True, "none", 4),
+    "carrot": (2, "grid", True, "none", 4), "potato": (12, "grid", True, "none", 4),
+    "horseradish": (18, "grid", True, "none", 4), "watermelon": (36, "grid", True, "none", 4),
+    "cantaloupe": (24, "grid", True, "none", 4), "pumpkin": (48, "grid", True, "none", 4),
+    "cabbage": (18, "grid", True, "none", 4), "lettuce": (8, "grid", True, "none", 4),
+    "cauliflower": (18, "grid", True, "none", 4),
 }
-GENERIC = (12, "none", 4)
+GENERIC = (12, "grid", True, "none", 4)
 
 
 class LayoutError(ValueError):
@@ -31,13 +40,13 @@ class LayoutError(ValueError):
 
 
 def defaults_for(key: str) -> dict:
-    sp, sup, post = DEFAULTS.get(key, GENERIC)
-    return {"spacing_in": sp, "support": sup, "post_ft": post, "post_kind": "stake", "twine_levels": 2,
-            "across_in": None, "stagger": False}
+    sp, pattern, stagger, sup, post = DEFAULTS.get(key, GENERIC)
+    return {"spacing_in": sp, "pattern": pattern, "stagger": stagger, "support": sup, "post_ft": post,
+            "post_kind": "stake", "twine_levels": 2}
 
 
 def blank() -> dict:
-    return {"width_ft": 20.0, "length_ft": 20.0, "row_in": 30, "double": False, "stagger": False, "rotation": 0, "rows": [], "crops": {}}
+    return {"width_ft": 20.0, "length_ft": 20.0, "row_in": 30, "rotation": 0, "rows": [], "crops": {}}
 
 
 def _num(v: Any, name: str, lo: float, hi: float) -> float:
@@ -59,7 +68,7 @@ def settings_for(layout: dict, key: str) -> dict:
 
 
 def validate_crop(spacing_in: Any = None, support: Any = None, post_ft: Any = None, post_kind: Any = None,
-                  twine_levels: Any = None, across_in: Any = None, stagger: Any = None) -> dict:
+                  twine_levels: Any = None, pattern: Any = None, stagger: Any = None) -> dict:
     out: dict = {}
     if spacing_in is not None:
         out["spacing_in"] = _num(spacing_in, "Spacing", 1, 240)
@@ -75,15 +84,16 @@ def validate_crop(spacing_in: Any = None, support: Any = None, post_ft: Any = No
         out["post_kind"] = post_kind
     if twine_levels is not None:
         out["twine_levels"] = int(_num(twine_levels, "Twine lines", 1, 6))
-    if across_in is not None:  # 0 goes back to following the row's single or double setting
-        out["across_in"] = None if float(across_in) == 0 else _num(across_in, "Spacing across the row", 1, 120)
+    if pattern is not None:
+        if pattern not in PATTERNS:
+            raise LayoutError("Pattern must be single, double or grid")
+        out["pattern"] = pattern
     if stagger is not None:
         out["stagger"] = bool(stagger)
     return out
 
 
-def validate_size(layout: dict, width_ft: Any = None, length_ft: Any = None, row_in: Any = None, double: Any = None,
-                  stagger: Any = None, rotation: Any = None) -> None:
+def validate_size(layout: dict, width_ft: Any = None, length_ft: Any = None, row_in: Any = None, rotation: Any = None) -> None:
     if width_ft is not None:
         layout["width_ft"] = _num(width_ft, "Width", 1, MAX_FT)
     if length_ft is not None:
@@ -92,10 +102,6 @@ def validate_size(layout: dict, width_ft: Any = None, length_ft: Any = None, row
         if int(row_in) not in ROW_WIDTHS:
             raise LayoutError("Rows must be 24, 30 or 36 inches wide")
         layout["row_in"] = int(row_in)
-    if double is not None:
-        layout["double"] = bool(double)
-    if stagger is not None:
-        layout["stagger"] = bool(stagger)
     if rotation is not None:
         if int(rotation) % 90:
             raise LayoutError("Turn the garden in steps of 90 degrees")
@@ -125,16 +131,20 @@ def row_segments(layout: dict, i: int, names: dict[str, str] | None = None) -> l
 
 
 def _segment(layout: dict, i: int, cx: float, start_in: float, seg_in: float, key: str, name: str) -> dict:
-    row_in, double = layout["row_in"], layout["double"]
+    row_in = layout["row_in"]
     s = settings_for(layout, key)
-    grid = bool(s.get("across_in"))
-    if grid:  # a grid fills the width of the row: as many lines as fit, centred
-        n_lines = max(1, int((row_in + 1e-6) // s["across_in"]))
-        xs = [cx + (k - (n_lines - 1) / 2) * s["across_in"] for k in range(n_lines)]
-        stagger = bool(s["stagger"] and n_lines > 1)
+    pattern = s["pattern"]
+    if pattern == "grid":  # offset rows of plants, every plant the same distance from its neighbours
+        pitch = s["spacing_in"] * HEX
+        n_lines = max(1, round(row_in / pitch))
+        xs = [cx + (k - (n_lines - 1) / 2) * pitch for k in range(n_lines)]
+        stagger = n_lines > 1
+    elif pattern == "double":
+        xs = [cx - PAIR_GAP_IN / 2, cx + PAIR_GAP_IN / 2]
+        stagger = bool(s["stagger"])
     else:
-        xs = [cx - PAIR_GAP_IN / 2, cx + PAIR_GAP_IN / 2] if double else [cx]
-        stagger = bool(double and layout.get("stagger"))
+        xs, stagger = [cx], False
+    grid = pattern == "grid"
     sp = s["spacing_in"]
     extra = sp / 2 if stagger else 0  # offset lines are shifted half a step, so they need half a step more room
     per = max(0, int((seg_in - extra + 1e-6) // sp))
@@ -161,9 +171,9 @@ def plan(layout: dict | None, names: dict[str, str]) -> dict:
     available = [{"key": k, "name": n, **defaults_for(k), **((layout or {}).get("crops", {}).get(k) or {})}
                  for k, n in sorted(names.items(), key=lambda kv: kv[1].lower())]
     if not layout:
-        return {"configured": False, "available": available, "row_widths": list(ROW_WIDTHS), "supports": SUPPORTS}
+        return {"configured": False, "available": available, "row_widths": list(ROW_WIDTHS), "supports": SUPPORTS, "patterns": PATTERNS}
     w_in, l_in = layout["width_ft"] * 12, layout["length_ft"] * 12
-    n, row_in, double = row_count(layout), layout["row_in"], layout["double"]
+    n, row_in = row_count(layout), layout["row_in"]
     pad = (w_in - n * row_in) / 2
     rows, crops = [], {}
     bed_ft2 = 0.0
@@ -192,10 +202,9 @@ def plan(layout: dict | None, names: dict[str, str]) -> dict:
     area = layout["width_ft"] * layout["length_ft"]
     plants = sum(c["plants"] for c in crops.values())
     return {
-        "configured": True, "width_ft": layout["width_ft"], "length_ft": layout["length_ft"], "row_in": row_in, "double": double,
-        "stagger": bool(double and layout.get("stagger")), "rotation": int(layout.get("rotation") or 0),
+        "configured": True, "width_ft": layout["width_ft"], "length_ft": layout["length_ft"], "row_in": row_in, "rotation": int(layout.get("rotation") or 0),
         "pair_gap_in": PAIR_GAP_IN, "pad_in": pad, "rows": rows, "crops": list(crops.values()), "available": available,
-        "row_widths": list(ROW_WIDTHS), "supports": SUPPORTS,
+        "row_widths": list(ROW_WIDTHS), "supports": SUPPORTS, "patterns": PATTERNS,
         "totals": {"rows": n, "planted_rows": sum(1 for r in rows if r["segments"]), "plants": plants, "area_sqft": round(area, 1),
                    "density": round(plants / area, 2) if area else 0,
                    "bed_density": round(plants / bed_ft2, 2) if bed_ft2 else 0,
