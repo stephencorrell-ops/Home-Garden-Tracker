@@ -83,7 +83,7 @@ SERVICES: dict[str, dict] = {
     "set_variety_traits": {R("crop"): cv.string, R("variety"): cv.string, O("resist"): vol.All(cv.ensure_list, [cv.string])},
     "remove_variety_traits": {R("crop"): cv.string, R("variety"): cv.string},
     "set_irrigation": {R("garden"): cv.string, O("method"): vol.In(["drip", "sprinkler"]), O("soil"): cv.string,
-        O("per_week"): vol.All(vol.Coerce(int), vol.Range(min=1, max=14)), O("run_min"): vol.Any(None, NUM), O("max_line_gph"): NUM},
+        O("per_week"): vol.All(vol.Coerce(int), vol.Range(min=1, max=14)), O("run_min"): vol.Any(None, NUM), O("max_line_gph"): NUM, O("weather"): cv.boolean},
     "set_sprinkler": {R("garden"): cv.string, O("mode"): vol.In(["moved", "fixed"]), O("pr_mode"): vol.In(["calc", "measured"]), O("gpm"): NUM,
         O("radius_ft"): NUM, O("arc"): vol.All(vol.Coerce(int), vol.Range(min=10, max=360)), O("pr_in_hr"): vol.Any(None, NUM),
         O("heads"): vol.Any(None, vol.All(vol.Coerce(int), vol.Range(min=1, max=500))), O("per_week"): vol.Any(None, vol.All(vol.Coerce(int), vol.Range(min=1, max=14)))},

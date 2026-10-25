@@ -1686,6 +1686,7 @@ class GardenTrackerCard extends HTMLElement {
     h += `<div class="small mut" style="margin-top:8px">${drip ? (W.run_min_set ? `Run time set by you (${num(W.auto_run_min, 0)} min would be the shortest that fits). ` : "Run time worked out from the thirstiest crop at about 1 gph per plant. ") : (W.sprinkler_gpm ? "" : "Sprinkler GPM worked out from the water needed and the run time. ")}${esc(soil.name)} soil: ${esc(W.soil_note)}</div>`;
     }
     h += `<div class="row" style="margin-top:8px;flex-wrap:wrap;gap:6px">${this._btn("irr-set", "cog", "Soil and run time", `data-g="${gid}"`)}${W.run_min_set ? this._btn("irr-auto", "auto-fix", "Work out run time", `data-g="${gid}"`) : ""}</div></div>`;
+    h += this._wxCard(W);
     if (!drip) {
       const sk = W.sprinkler, start = h.length;
       h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("sprinkler-variant")} Sprinkler setup</div>${this._btn("irr-sprk", "pencil", "Edit", `data-g="${gid}"`)}${this._btn("toggle-sec", "chevron-up", "", `data-s="sprk"`, "ic")}</div><div class="small mut" style="margin-top:6px">${esc(sk.modes[sk.mode])}, ${num(sk.gpm, 1)} GPM, ${num(sk.radius_ft, 0)} ft ${sk.arc === 360 ? "full circle" : `${sk.arc} degree arc`}. ${sk.pr_mode === "measured" && sk.pr_in_hr ? `Rate measured at ${num(sk.pr_in_hr, 2)} in an hour.` : `Works out to ${num(sk.pr_calc, 2)} in an hour over ${num(sk.cover_sqft, 0)} sq ft a sprinkler.`} ${sk.mode === "fixed" ? `${sk.heads} fixed sprinkler${sk.heads === 1 ? "" : "s"}${sk.needed > sk.heads ? ` (${sk.needed} would cover the garden)` : ""}.` : `The garden is ${sk.needed} place${sk.needed === 1 ? "" : "s"} for it.`}</div></div>`;
@@ -1698,7 +1699,7 @@ class GardenTrackerCard extends HTMLElement {
       h += `<div class="row" style="align-items:flex-start;margin:8px 0;gap:8px"><div class="grow"><div style="font-weight:500">${esc(c.name)} <span class="mut small">${num(c.water_in_week, 2)} in a week${c.custom_water ? "" : ", default"}</span></div>`;
       if (drip) {
         h += `<div class="small"><b>${esc(c.label)}</b>, ${c.lines} line${c.lines === 1 ? "" : "s"} a row${c.pinned ? " (your choice)" : ""}</div><div class="small mut">${num(c.plant_gph, 2)} gph a plant, ${num(c.gal_plant_watering, 2)} gal a plant each watering${c.alternatives.length ? `. Other options: ${c.alternatives.map((a) => `${esc(a.label)} (${a.minutes} min to meet need)`).join(", ")}` : ""}</div>`;
-      } else h += `<div class="small mut">${num(c.water_in_week, 2)} in a week; sprinklers put down ${num(W.need_in_week, 2)} in</div>`;
+      } else h += `<div class="small mut">${num(c.water_in_week, 2)} in a week${c.usual_in_week !== c.water_in_week ? ` (usually ${num(c.usual_in_week, 2)})` : ""}; sprinklers put down ${num(W.need_in_week, 2)} in</div>`;
       h += `</div>${note}${this._btn("irr-crop", "pencil", "", `data-g="${gid}" data-c="${esc(c.key)}"`, "ic")}</div>`;
     }
     h += `</div>`;
@@ -1783,6 +1784,16 @@ class GardenTrackerCard extends HTMLElement {
     if ((this._exp || {})[key]) return h;
     return h.slice(0, start) + `<div class="card tile" data-act="toggle-sec" data-s="${key}"><div class="row"><div class="grow"><div class="sec" style="margin:0">${this._icon(icon)} ${esc(title)}</div><div class="small mut" style="margin-top:2px">${esc(summary)}</div></div>${this._icon("chevron-down")}</div></div>`;
   }
+  _wxCard(W) {
+    const x = W.weather;
+    if (!W.use_weather) return `<div class="card"><div class="small mut">${this._icon("weather-sunny")} Watering is not adjusted for the weather. Turn it on in Soil and run time.</div></div>`;
+    if (!x) return `<div class="card"><div class="small mut">${this._icon("weather-sunny")} No temperatures recorded yet, so these are the usual amounts. Pick a temperature sensor (or in the web app set a location) and the plan follows the weather.</div></div>`;
+    const sign = x.pct > 0 ? "+" : "", cls = x.pct >= 30 ? "warn" : "info";
+    let t = `Last ${x.days} day${x.days === 1 ? "" : "s"}: highs averaged ${x.avg_high}°F (hottest ${x.hottest}°F), lows ${x.avg_low}°F, so plants lose about ${num(x.et_week, 1)} in a week against ${num(x.ref_week, 1)} in a typical warm one.`;
+    t += x.rain_in ? ` Rain ${num(x.rain_in, 2)} in, ${num(x.rain_credit, 2)} in of it counted.` : " No rain recorded.";
+    if (x.lat_assumed) t += " Set your location for a closer figure.";
+    return `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("weather-sunny")} This week's weather</div><span class="pill ${cls}" style="margin:0">${x.pct === 0 ? "usual" : `${sign}${x.pct}% water`}</span></div><div class="small" style="margin-top:6px">${esc(x.word[0].toUpperCase() + x.word.slice(1))} week. ${esc(t)}</div></div>`;
+  }
   _sprinklerPlan(W, gid) {
     const sk = W.sprinkler, T = W.totals;
     let h = `<div class="sec" style="margin-top:12px">How to water</div>`;
@@ -1819,10 +1830,11 @@ class GardenTrackerCard extends HTMLElement {
         { name: "soil", label: "Soil", type: "select", options: W.soils.map((x) => [x.key, x.name]), value: W.soil },
         { name: "per_week", label: "Waterings a week", type: "number", step: "1", value: W.per_week, req: true },
         { name: "run_min", label: "Minutes each watering (empty to work it out)", type: "number", step: "any", value: W.run_min_set || "" },
+        { name: "weather", label: "Adjust for the week's weather", type: "select", options: [["1", "Yes, from my temperature and rain sensors"], ["0", "No, use the usual amounts"]], value: W.use_weather ? "1" : "0" },
         { name: "max_line_gph", label: "Most gph through one run of drip line", type: "number", step: "any", value: W.max_line_gph, show: () => W.method === "drip" },
       ],
-      note: "Clay soaks in slowly and only takes 1/2 gph emitters; the other soils take 1 gph. Each garden is its own irrigation zone, so its lines all run together for the same time.",
-      submit: (x) => this._call("set_irrigation", { garden: g.id, soil: x.soil, per_week: x.per_week, run_min: x.run_min === undefined ? null : x.run_min, max_line_gph: x.max_line_gph }),
+      note: "Clay soaks in slowly and only takes 1/2 gph emitters; the other soils take 1 gph. Each garden is its own irrigation zone, so its lines all run together for the same time. The weather adjustment uses the daily low and high and the rain your sensors recorded over the last week, so a hot week asks for more water and a cool or rainy one for less.",
+      submit: (x) => this._call("set_irrigation", { garden: g.id, soil: x.soil, per_week: x.per_week, run_min: x.run_min === undefined ? null : x.run_min, max_line_gph: x.max_line_gph, weather: x.weather === "1" }),
     };
   }
   _fIrrCrop(g, key) {
@@ -1830,7 +1842,7 @@ class GardenTrackerCard extends HTMLElement {
     return {
       title: `Water: ${c.name}`, submitLabel: "Save",
       fields: [
-        { name: "water_in_week", label: "Inches of water a week", type: "number", step: "any", value: c.water_in_week, req: true },
+        { name: "water_in_week", label: "Inches of water a week in a typical warm week", type: "number", step: "any", value: c.usual_in_week, req: true },
         { name: "ppm_n", label: "Nitrogen it likes (ppm)", type: "number", step: "any", value: c.ppm_n },
         { name: "lines", label: "Runs of drip line along each row", type: "number", step: "1", value: c.lines, show: () => drip },
         { name: "flow_gph", label: "Emitter flow", type: "select", options: [["", "Suggested"], ...W.flows.map((f) => [String(f), `${f} gph`])], value: c.pinned ? String(c.flow_gph) : "", show: () => drip },

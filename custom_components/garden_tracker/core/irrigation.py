@@ -13,6 +13,7 @@ Pure functions, no Home Assistant imports."""
 from __future__ import annotations
 
 import math
+from datetime import date, timedelta
 from typing import Any
 
 DRIP_FLOWS = (0.5, 1.0)            # gallons per hour per emitter
@@ -94,7 +95,7 @@ PUDDLE_IN = 0.1   # water a surface holds before it runs off
 
 
 def blank() -> dict:
-    return {"method": "drip", "soil": DEFAULT_SOIL, "per_week": 3, "run_min": None, "sprinkler": default_sprinkler(), "max_line_gph": DEFAULT_MAX_LINE_GPH, "crops": {},
+    return {"method": "drip", "soil": DEFAULT_SOIL, "per_week": 3, "run_min": None, "sprinkler": default_sprinkler(), "max_line_gph": DEFAULT_MAX_LINE_GPH, "weather": True, "crops": {},
             "fert": default_fert(), "acid": default_acid(), "lime": default_lime()}
 
 
@@ -108,8 +109,64 @@ def _num(v: Any, name: str, lo: float, hi: float) -> float:
     return x
 
 
-def validate_settings(method: Any = None, soil: Any = None, per_week: Any = None, run_min: Any = "keep", max_line_gph: Any = None) -> dict:
+# Weather. The weekly water of each crop is what it wants in a typical warm week; a hotter week asks for more and a cool one
+# for less. The evaporation is worked out from the daily lowest and highest temperature (Hargreaves) and the sun at your latitude.
+REF_ET_DAY = 0.20      # inches a day of reference evaporation in a typical warm week, which the crop figures are for
+FACTOR_RANGE = (0.3, 2.0)
+RAIN_USEFUL = 0.8      # share of a day's rain that gets to the roots
+RAIN_MIN_DAY = 0.1     # lighter rain than this wets the leaves and little else
+MIN_NEED_SHARE = 0.15  # the plan never goes under this share of the usual need
+DEFAULT_LAT = 40.0
+
+
+def et0_day(tmin_f: float, tmax_f: float, lat: float, day: date) -> float:
+    """Reference evaporation in inches for one day (Hargreaves)."""
+    tmin, tmax = (tmin_f - 32) * 5 / 9, (tmax_f - 32) * 5 / 9
+    j = day.timetuple().tm_yday
+    phi = math.radians(max(-66.0, min(66.0, lat)))
+    dr = 1 + 0.033 * math.cos(2 * math.pi / 365 * j)
+    dec = 0.409 * math.sin(2 * math.pi / 365 * j - 1.39)
+    ws = math.acos(max(-1.0, min(1.0, -math.tan(phi) * math.tan(dec))))
+    ra = 24 * 60 / math.pi * 0.0820 * dr * (ws * math.sin(phi) * math.sin(dec) + math.cos(phi) * math.cos(dec) * math.sin(ws))
+    et_mm = 0.0023 * ((tmin + tmax) / 2 + 17.8) * math.sqrt(max(tmax - tmin, 2.0)) * 0.408 * ra
+    return max(0.0, et_mm) / 25.4
+
+
+def weather_need(daily: dict, rain: dict, today: date, lat: float | None = None, days: int = 7) -> dict | None:
+    """How the last week's weather moves the watering. `daily` maps a date to [lowest, highest] temperature in F and
+    `rain` a date to inches. Returns None until there is a day of temperatures to go on."""
+    lat_used = DEFAULT_LAT if lat is None else lat
+    ets, lows, highs, rain_in, credit = [], [], [], 0.0, 0.0
+    for n in range(days):
+        d = today - timedelta(days=n)
+        k = d.isoformat()
+        row = daily.get(k)
+        if row and len(row) >= 2 and row[0] is not None and row[1] is not None:
+            ets.append(et0_day(row[0], row[1], lat_used, d))
+            lows.append(row[0])
+            highs.append(row[1])
+        r = float(rain.get(k) or 0)
+        rain_in += r
+        if r >= RAIN_MIN_DAY:
+            credit += min(r, 1.0) * RAIN_USEFUL
+    if not ets:
+        return None
+    et_week = sum(ets) / len(ets) * 7
+    ref = REF_ET_DAY * 7
+    factor = max(FACTOR_RANGE[0], min(FACTOR_RANGE[1], et_week / ref))
+    avg_hi = sum(highs) / len(highs)
+    word = "hot and dry" if factor >= 1.3 else "warm" if factor >= 1.05 else "mild" if factor >= 0.75 else "cool"
+    return {"days": len(ets), "factor": round(factor, 2), "pct": round(100 * (factor - 1)), "et_week": round(et_week, 2),
+            "ref_week": round(ref, 2), "avg_high": round(avg_hi), "avg_low": round(sum(lows) / len(lows)),
+            "hottest": round(max(highs)), "rain_in": round(rain_in, 2), "rain_credit": round(credit, 2), "word": word,
+            "lat_assumed": lat is None}
+
+
+def validate_settings(method: Any = None, soil: Any = None, per_week: Any = None, run_min: Any = "keep", max_line_gph: Any = None,
+                      weather: Any = None) -> dict:
     out: dict[str, Any] = {}
+    if weather is not None:
+        out["weather"] = bool(weather)
     if method is not None:
         if method not in METHODS:
             raise IrrigationError("Method must be drip or sprinklers")
@@ -335,14 +392,16 @@ def _lines_for(cfg: dict, pattern: str, row_in: int) -> int:
     return 2 if pattern == "grid" and row_in >= 30 else 1
 
 
-def plan(layout: dict, settings: dict | None, names: dict[str, str] | None = None, soil_ph: float | None = None) -> dict:
+def plan(layout: dict, settings: dict | None, names: dict[str, str] | None = None, soil_ph: float | None = None,
+         weather: dict | None = None) -> dict:
     """Watering for a laid-out garden. `layout` is the result of layout.plan."""
     st = settings_for(settings)
     soil = SOILS.get(st["soil"], SOILS[DEFAULT_SOIL])
     base = {"configured": bool(layout and layout.get("configured")), "method": st["method"], "methods": METHODS,
             "soil": st["soil"], "soils": [{"key": k, "name": v[0], "max_gph": v[1], "note": v[3]} for k, v in SOILS.items()],
             "soil_note": soil[3], "per_week": st["per_week"], "flows": list(DRIP_FLOWS), "spacings": list(DRIP_SPACINGS),
-            "rolls": list(ROLLS), "max_line_gph": st["max_line_gph"], "fert_settings": fert_of(st["fert"]),
+            "rolls": list(ROLLS), "max_line_gph": st["max_line_gph"], "fert_settings": fert_of(st["fert"]), "use_weather": st["weather"],
+            "weather": weather if st["weather"] else None,
             "lime": lime(st["lime"], st["soil"], soil_ph, (layout.get("width_ft", 0) * layout.get("length_ft", 0)) if layout and layout.get("configured") else None)}
     if not base["configured"]:
         return base
@@ -356,7 +415,11 @@ def plan(layout: dict, settings: dict | None, names: dict[str, str] | None = Non
                      "lines": _lines_for(cfg, c["pattern"], row_in), "ppm_n": cfg.get("ppm_n") or PPM_N.get(key, DEFAULT_PPM_N),
                      "pin_flow": cfg.get("flow_gph"), "pin_emit": cfg.get("emit_in"), "ft": c["feet"], "plants": c["plants"],
                      "custom_water": bool(cfg.get("water_in_week")), "custom_lines": bool(cfg.get("lines"))}
+    wx = weather if st["weather"] else None
     for i in info.values():
+        i["usual_in_week"] = i["water_in_week"]
+        if wx:  # a hot week asks for more, a cool or rainy one for less
+            i["water_in_week"] = round(max(i["usual_in_week"] * MIN_NEED_SHARE, i["usual_in_week"] * wx["factor"] - wx["rain_credit"]), 2)
         i["need_ft"] = i["water_in_week"] * row_in / 12 * GAL_PER_IN_SQFT  # gallons a week for each foot of row
         i["need_gal"] = round(i["need_ft"] * i["ft"], 1)
     area = layout["width_ft"] * layout["length_ft"]
@@ -441,7 +504,7 @@ def _drip(base: dict, st: dict, layout: dict, info: dict, soil: tuple, row_in: i
         gal_watering = s["gph"] * run_min / 60
         gal_week = s["gph"] * hours
         crops.append({"key": i["key"], "name": i["name"], "pattern": i["pattern"], "spacing_in": i["spacing_in"], "ft": i["ft"],
-                      "plants": i["plants"], "water_in_week": i["water_in_week"], "lines": i["lines"], "ppm_n": i["ppm_n"], "rows_list": sorted(rows_of.get(i["key"], ())),
+                      "plants": i["plants"], "water_in_week": i["water_in_week"], "usual_in_week": i["usual_in_week"], "lines": i["lines"], "ppm_n": i["ppm_n"], "rows_list": sorted(rows_of.get(i["key"], ())),
                       "custom_water": i["custom_water"], "custom_lines": i["custom_lines"],
                       "pinned": bool(i["pin_flow"] or i["pin_emit"]), "flow_gph": b["flow"], "emit_in": b["emit_in"],
                       "label": label(b["flow"], b["emit_in"]), "emitters": s["emitters"], "gph": round(s["gph"], 1),
@@ -492,7 +555,7 @@ def _sprinkler(base: dict, st: dict, layout: dict, crops_in: list[dict], area: f
     if over:
         t = PUDDLE_IN / (pr - soil_in) * 60  # minutes before the water starts to run off
         cycle = max(5, min(round(t), round(minutes)))
-    crops = [{"key": i["key"], "name": i["name"], "water_in_week": i["water_in_week"], "ppm_n": i["ppm_n"], "plants": i["plants"],
+    crops = [{"key": i["key"], "name": i["name"], "water_in_week": i["water_in_week"], "usual_in_week": i["usual_in_week"], "ppm_n": i["ppm_n"], "plants": i["plants"],
               "custom_water": i["custom_water"], "pct": round(100 * need_in / i["water_in_week"]) if i["water_in_week"] else None}
              for i in sorted(crops_in, key=lambda i: i["name"].lower())]
     flow = gpm_total if fixed else sp["gpm"]

@@ -157,6 +157,7 @@ class GardenModel:
         self._air_now: dict[str, tuple[float, float]] = {}
         self._air_touched = 0.0
         self.now_fn: Callable[[], float] = time.time  # seconds since the epoch; the manager sets a Home Assistant clock
+        self.home_lat: float | None = None  # Home Assistant's own latitude, used when no location was set
         self.outdoor_entity: str | None = None  # the main outdoor temperature sensor, used when a place has none of its own
         self._today_fn = today_fn
         self._notify = notify or (lambda: None)
@@ -889,10 +890,10 @@ class GardenModel:
         return g, g["irrigation"]
 
     def set_irrigation(self, garden: str, method: Any = None, soil: Any = None, per_week: Any = None, run_min: Any = "keep",
-                       max_line_gph: Any = None) -> None:
+                       max_line_gph: Any = None, weather: Any = None) -> None:
         g, I = self._irrigation_of(garden)
         try:
-            I.update(irr.validate_settings(method, soil, per_week, run_min, max_line_gph))
+            I.update(irr.validate_settings(method, soil, per_week, run_min, max_line_gph, weather))
         except irr.IrrigationError as e:
             raise GardenError(str(e)) from None
         self._touch()
@@ -2129,7 +2130,9 @@ class GardenModel:
     def _irrigation_view(self, g: dict, today: date) -> dict:
         hist = sorted(g["ph_readings"], key=lambda r: (r["date"], r["id"]))
         cur = hist[-1]["value"] if hist else None
-        w = irr.plan(lay.plan(g.get("layout"), self._plant_names(), None, today.year), g.get("irrigation"), None, cur)
+        loc = self.data["settings"].get("location")
+        wx = irr.weather_need(self.data["daily"], self.data["rain"], today, loc["lat"] if loc else self.home_lat)
+        w = irr.plan(lay.plan(g.get("layout"), self._plant_names(), None, today.year), g.get("irrigation"), None, cur, wx)
         log = sorted(g.get("acid_log", []), key=lambda e: (e["date"], e["id"]), reverse=True)
         year = [e for e in log if e["date"][:4] == str(today.year)]
         w["acid_log"] = {"entries": log[:60], "last": log[0]["date"] if log else None, "days_since": calc.days_since(log[0]["date"], today) if log else None,

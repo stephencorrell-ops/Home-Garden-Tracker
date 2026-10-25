@@ -507,6 +507,66 @@ class Irrigation(unittest.TestCase):
         with self.assertRaises(GardenError):
             self.m.set_sprinkler(self.gid, mode="flood")
 
+    def _weather(self, lo, hi, rain=0.0, lat=47.3):
+        today = self.m.today()
+        self.m.set_location(lat, -119.5, "Ephrata")
+        self.m.data["daily"].clear()
+        self.m.data["rain"].clear()
+        for n in range(7):
+            k = (today - timedelta(days=n)).isoformat()
+            self.m.data["daily"][k] = [lo, hi]
+            if rain:
+                self.m.data["rain"][k] = rain
+
+    def test_weather_scales_the_watering(self):
+        self._weather(55, 105)
+        hot = self.water()
+        self._weather(40, 60)
+        cool = self.water()
+        self.assertGreater(hot["weather"]["factor"], cool["weather"]["factor"])
+        self.assertLess(cool["weather"]["factor"], 1.0)
+        self.assertGreater(hot["run_min"], cool["run_min"])
+        pick = lambda w: next(x for x in w["crops"] if x["key"] == "tomato")
+        self.assertGreater(pick(hot)["water_in_week"], pick(cool)["water_in_week"])
+        self.assertEqual(pick(hot)["usual_in_week"], pick(cool)["usual_in_week"])
+
+    def test_a_hot_july_week_asks_for_more_than_the_usual(self):
+        from custom_components.garden_tracker.core import irrigation as irr
+        day = date(2026, 7, 15)
+        rows = lambda lo, hi: {(day - timedelta(days=n)).isoformat(): [lo, hi] for n in range(7)}
+        hot = irr.weather_need(rows(65, 102), {}, day, 47.3)
+        mild = irr.weather_need(rows(50, 75), {}, day, 47.3)
+        self.assertGreater(hot["factor"], 1.3)
+        self.assertLess(mild["factor"], 1.0)
+        self.assertEqual(irr.weather_need({}, {}, day), None)
+
+    def test_weather_can_be_turned_off_and_rain_counts(self):
+        self._weather(55, 90)
+        on = self.water()
+        self.m.set_irrigation(self.gid, weather=False)
+        off = self.water()
+        self.assertIsNone(off["weather"])
+        self.assertFalse(off["use_weather"])
+        self._weather(55, 90, rain=0.5)
+        self.m.set_irrigation(self.gid, weather=True)
+        wet = self.water()
+        self.assertLess(wet["run_min"], on["run_min"])
+        self.assertGreater(wet["weather"]["rain_credit"], 0)
+
+    def test_no_temperatures_means_the_usual_amounts(self):
+        self.m.data["daily"].clear()
+        w = self.water()
+        self.assertIsNone(w["weather"])
+        c = next(x for x in w["crops"] if x["key"] == "tomato")
+        self.assertEqual(c["water_in_week"], c["usual_in_week"])
+
+    def test_weather_moves_sprinkler_minutes(self):
+        self.m.set_irrigation(self.gid, method="sprinkler")
+        self._weather(55, 105)
+        hot = self.water()["sprinkler"]["minutes"]
+        self._weather(40, 60)
+        self.assertGreater(hot, self.water()["sprinkler"]["minutes"])
+
     def test_fertigation_works_with_sprinklers(self):
         self.m.set_irrigation(self.gid, method="sprinkler")
         f = self.water()["fert"]

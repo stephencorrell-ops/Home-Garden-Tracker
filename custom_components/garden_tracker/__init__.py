@@ -34,6 +34,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     mgr = GardenManager(hass)
     source = entry.options.get(CONF_TEMP_ENTITY, entry.data[CONF_TEMP_ENTITY])
     mgr.outdoor_entity = source
+    mgr.home_lat = hass.config.latitude
     await mgr.async_load()
     hass.data[DOMAIN] = mgr
 
