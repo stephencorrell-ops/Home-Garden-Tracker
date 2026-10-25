@@ -378,14 +378,70 @@ class Layout(unittest.TestCase):
         m.set_layout_draft(gid, "pepper")  # changing the crop drops the variety
         self.assertEqual(self.view(m, gid)["draft"]["variety"], "")
 
-    def test_the_garden_can_be_turned_in_90_degree_steps(self):
+    def test_the_rows_can_run_at_any_angle_off_north(self):
         m, gid = self.garden()
         m.set_layout(gid, 20, 40, 30, 90)
         self.assertEqual(self.view(m, gid)["rotation"], 90)
         m.set_layout(gid, None, None, None, 450)
         self.assertEqual(self.view(m, gid)["rotation"], 90)
+        m.set_layout(gid, None, None, None, 37.5)
+        self.assertEqual(self.view(m, gid)["rotation"], 37.5)
+        m.set_layout(gid, None, None, None, -20)
+        self.assertEqual(self.view(m, gid)["rotation"], 340)
         with self.assertRaises(GardenError):
-            m.set_layout(gid, None, None, None, 45)
+            m.set_layout(gid, None, None, None, "sideways")
+
+    def test_tall_crops_put_shade_on_shorter_ones_beside_them(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 20, 40, 30, 0)  # rows run north-south, stacked east to west
+        m.assign_layout_rows(gid, "tomato", [0])
+        m.assign_layout_rows(gid, "lettuce", [1])
+        sun = self.view(m, gid)["sun"]
+        names = [w["name"] for w in sun["shading"]]
+        self.assertTrue(any("ettuce" in n for n in names), sun["shading"])
+        self.assertGreaterEqual(sun["shading"][0]["pct"], 10)
+        # rows run east-west with a 9 ft crop: its shadow falls to the north, onto row 0 when it grows in row 1
+        m.set_layout_crop(gid, "tomato", height_ft=9)
+        m.set_layout(gid, None, None, None, 90)
+        m.assign_layout_rows(gid, "tomato", [1])
+        m.assign_layout_rows(gid, "lettuce", [0])
+        south_tall = self.view(m, gid)["sun"]
+        m.assign_layout_rows(gid, "tomato", [0])
+        m.assign_layout_rows(gid, "lettuce", [1])
+        north_tall = self.view(m, gid)["sun"]
+        loss = lambda v: sum(w["pct"] for w in v["shading"])
+        self.assertGreater(loss(south_tall), 0)
+        self.assertLess(loss(north_tall), loss(south_tall))
+
+    def test_best_row_angle_follows_the_sun_and_the_heights(self):
+        from custom_components.garden_tracker.core import sun
+        b = sun.best_heading(47.3, 4.0, 30, 24, 0)
+        self.assertEqual(b["best"], 90)  # tall crops on the north side, rows east-west
+        self.assertLess(b["best_pct"], b["current_pct"])
+        m, gid = self.garden()
+        m.set_layout(gid, 20, 40, 30, 0)
+        m.assign_layout_rows(gid, "tomato", [0, 1])
+        v = self.view(m, gid)["sun"]
+        self.assertTrue(v["even"])  # nothing stands over anything else
+        self.assertEqual(v["best"], 0)
+        self.assertEqual(v["shading"], [])
+
+    def test_sun_position_is_sane(self):
+        from custom_components.garden_tracker.core import sun
+        alt, az = sun.position(47.3, 172, 12)
+        self.assertAlmostEqual(alt, 66.1, delta=0.5)
+        self.assertAlmostEqual(az, 180, delta=1)
+        self.assertLess(sun.position(47.3, 172, 8)[1], 180)  # morning sun is in the east
+        self.assertGreater(sun.position(47.3, 172, 16)[1], 180)
+
+    def test_crop_height_can_be_changed(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 20, 40, 30, 0)
+        m.assign_layout_rows(gid, "tomato", [0])
+        m.set_layout_crop(gid, "tomato", height_ft=9)
+        self.assertEqual(self.view(m, gid)["sun"]["tallest"]["height"], 9)
+        with self.assertRaises(GardenError):
+            m.set_layout_crop(gid, "tomato", height_ft=-1)
 
     def test_bad_input_is_refused(self):
         m, gid = self.garden()

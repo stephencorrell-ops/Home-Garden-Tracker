@@ -1086,7 +1086,7 @@ class GardenTrackerCard extends HTMLElement {
       case "do-season": return this._act("start_layout_season", { garden: d.g }, () => { this._season = null; this._selRow = null; this._confirm = null; });
       case "lay-seg-rm": return this._act("remove_layout_segment", { garden: d.g, row: Number(d.r), index: Number(d.i) });
       case "lay-row-clear": return this._act("assign_layout_rows", { garden: d.g, crop: null, rows: [Number(d.r)] });
-      case "lay-rot": return this._act("set_layout", { garden: d.g, rotation: ((this._garden(d.g).layout.rotation || 0) + Number(d.n) + 360) % 360 });
+      case "lay-ang": return this._act("set_layout", { garden: d.g, rotation: Number(d.n) });
       case "lay-fill": return this._act("assign_layout_rows", { garden: d.g, crop: this._brushFor(this._garden(d.g).layout) });
       case "lay-clear": return this._act("assign_layout_rows", { garden: d.g, crop: null });
       case "lay-edit": return this._open(this._fLayCrop(this._garden(d.g), d.c));
@@ -1784,6 +1784,32 @@ class GardenTrackerCard extends HTMLElement {
     if ((this._exp || {})[key]) return h;
     return h.slice(0, start) + `<div class="card tile" data-act="toggle-sec" data-s="${key}"><div class="row"><div class="grow"><div class="sec" style="margin:0">${this._icon(icon)} ${esc(title)}</div><div class="small mut" style="margin-top:2px">${esc(summary)}</div></div>${this._icon("chevron-down")}</div></div>`;
   }
+  _shadeWarn(SU) {
+    if (!SU || !SU.shading.length) return "";
+    let h = "";
+    for (const w of SU.shading.slice(0, 4)) {
+      const by = w.by.length ? w.by.join(" and ") : "A taller crop";
+      h += `<div class="alarm" style="--hold:var(--spray);margin-top:8px"><div class="small">${this._icon("alert")} <b>${esc(by)}</b> shades <b>${esc(w.name)}</b> (${num(w.height, 1)} ft): about ${w.pct}% of its sun from ${SU.months}, mostly in the ${esc(w.when)}. Put the tall crops on the ${esc(SU.current_side)} side, so their shade falls off the garden.</div></div>`;
+    }
+    return h;
+  }
+  _sunCard(L, gid) {
+    const SU = L.sun;
+    const planted = SU.planted, ang = (n) => `${num(n, 0)} degrees`;
+    let t;
+    if (!planted) t = `Plant some rows to see the sun and shade. For tall crops beside short ones, rows running ${SU.best} degrees with the tall crops on the ${SU.tall_side} side lose the least sun.`;
+    else if (SU.even) t = `No crop stands more than ${num(1.5, 1)} ft over another, so shade between rows is small whichever way they run. Rows running north-south (0 degrees) give both sides of each row the same sun.`;
+    else {
+      const turn = Math.abs(((SU.best - SU.heading + 270) % 180) - 90) >= 5;
+      t = `Tallest is ${esc(SU.tallest.name)} at ${num(SU.tallest.height, 1)} ft, over ${esc(SU.shortest.name)} at ${num(SU.shortest.height, 1)} ft. At ${ang(SU.heading)} the shorter crops beside tall rows can lose about ${SU.current_pct}% of their sun, ${SU.months}, if they sit on the shaded side. ${turn ? `Rows at ${SU.best} degrees with the tall crops on the ${esc(SU.tall_side)} side cut that to ${SU.best_pct}%.` : `That is about the best angle for this garden.`} With your rows as they are, put the tall crops on the ${esc(SU.current_side)} side.`;
+    }
+    const show = (this._exp || {}).sun;
+    const body = `<div class="small" style="margin-top:6px">${t}</div><div class="small mut" style="margin-top:6px">Worked out from where the sun stands over ${SU.lat_assumed ? "a garden at 40 degrees north (set your location for a closer figure)" : `${num(SU.lat, 1)} degrees north`} on the 15th of each month, ${SU.months}, hour by hour. Shade is the sun a crop loses to a taller crop beside it. It is a guide, and trees, fences and buildings are not counted.</div>`;
+    const turnBtn = planted && !SU.even && Math.abs(((SU.best - SU.heading + 270) % 180) - 90) >= 5 ? `<div class="row" style="margin-top:8px">${this._btn("lay-ang", "", `Turn the rows to ${SU.best} degrees`, `data-g="${gid}" data-n="${SU.best}"`, "primary")}</div>` : "";
+    const sum = !planted ? `Best angle for tall crops: ${SU.best} degrees` : SU.even ? "Crops are about the same height" : SU.shading.length ? `${SU.shading.length} crop${SU.shading.length === 1 ? "" : "s"} shaded, best angle ${SU.best} degrees` : `No shading problems, best angle ${SU.best} degrees`;
+    if (!show) return `<div class="card tile" data-act="toggle-sec" data-s="sun"><div class="row"><div class="grow"><div class="sec" style="margin:0">${this._icon("weather-sunny")} Sun and shade</div><div class="small mut">${esc(sum)}</div></div>${this._icon("chevron-down")}</div></div>`;
+    return `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("weather-sunny")} Sun and shade</div>${this._btn("toggle-sec", "chevron-up", "", `data-s="sun"`, "ic")}</div>${body}${turnBtn}</div>`;
+  }
   _wxCard(W) {
     const x = W.weather;
     if (!W.use_weather) return `<div class="card"><div class="small mut">${this._icon("weather-sunny")} Watering is not adjusted for the weather. Turn it on in Soil and run time.</div></div>`;
@@ -1975,17 +2001,32 @@ class GardenTrackerCard extends HTMLElement {
     const COL = ["#e5372d", "#2e7d32", "#f28c38", "#8e24aa", "#039be5", "#c0a000", "#795548", "#d81b60"];
     const color = (k) => COL[Math.max(0, L.available.findIndex((a) => a.key === k)) % COL.length];
     const rot = L.rotation || 0, W = L.width_ft * 12, N = L.length_ft * 12, M = 24;
-    const LM = L.rows.some((r) => r.segments.length) ? 62 : 0; // room for the crop names, on the side the rows start at
-    const sw = rot % 180 ? N : W, sh = rot % 180 ? W : N;
-    const s = Math.min(300 / sw, 440 / sh);
-    const left = M + (rot === 270 ? LM : 0), right = M + (rot === 90 ? LM : 0), top = M + (rot === 0 ? LM : 0), bottom = M + (rot === 180 ? LM : 0);
-    const VW = sw * s + left + right, VH = sh * s + top + bottom;
-    const tf = { 0: "", 90: `translate(${N * s} 0) rotate(90)`, 180: `translate(${W * s} ${N * s}) rotate(180)`, 270: `translate(0 ${W * s}) rotate(270)` }[rot];
-    const P = (lx, ly) => [left + [lx, N * s - ly, W * s - lx, ly][rot / 90], top + [ly, lx, N * s - ly, W * s - lx][rot / 90]];
+    const th = rot * Math.PI / 180, cs0 = Math.cos(th), sn0 = Math.sin(th), named = L.rows.some((r) => r.segments.length);
+    const corners = [[0, 0], [W, 0], [W, N], [0, N]].map(([x, y]) => [x * cs0 - y * sn0, x * sn0 + y * cs0]);
+    const ux = corners.map((c) => c[0]), uy = corners.map((c) => c[1]);
+    const s = Math.min(300 / (Math.max(...ux) - Math.min(...ux)), 440 / (Math.max(...uy) - Math.min(...uy)));
+    const R = (lx, ly) => [(lx * cs0 - ly * sn0) * s, (lx * sn0 + ly * cs0) * s];
+    // the crop names sit just outside the start of each row; work out where they go before the picture is sized to hold them
+    const labels = [];
+    if (named) for (const r of L.rows) if (r.segments.length) {
+      const nm = r.segments[0].name + (r.segments.length > 1 ? ` +${r.segments.length - 1}` : ""), t = nm.length > 11 ? nm.slice(0, 10) + "." : nm;
+      const [px, py] = R(r.x, 0), ox = sn0, oy = -cs0, wd = t.length * 6.2;
+      const anchor = ox > 0.35 ? "start" : ox < -0.35 ? "end" : "middle";
+      labels.push({ t, x: px + ox * 7, y: py + oy * 7 + (oy < -0.35 ? -2 : oy > 0.35 ? 9 : 4), anchor, wd, color: color(r.segments[0].crop) });
+    }
+    let x0 = Math.min(...corners.map((c) => c[0] * s)), x1 = Math.max(...corners.map((c) => c[0] * s));
+    let y0 = Math.min(...corners.map((c) => c[1] * s)), y1 = Math.max(...corners.map((c) => c[1] * s));
+    for (const l of labels) {
+      x0 = Math.min(x0, l.anchor === "start" ? l.x : l.anchor === "end" ? l.x - l.wd : l.x - l.wd / 2); x1 = Math.max(x1, l.anchor === "start" ? l.x + l.wd : l.anchor === "end" ? l.x : l.x + l.wd / 2);
+      y0 = Math.min(y0, l.y - 10); y1 = Math.max(y1, l.y + 3);
+    }
+    const left = M - x0, top = M + 22 - y0, VW = x1 - x0 + 2 * M, VH = y1 - y0 + 2 * M + 22;
+    const tf = `translate(${left.toFixed(1)} ${top.toFixed(1)}) rotate(${rot})`;
+    const P = (lx, ly) => { const [a, b] = R(lx, ly); return [left + a, top + b]; };
     const total = L.rows.reduce((a, r) => a + r.segments.reduce((b, sg) => b + sg.ys.length * sg.lines.length, 0), 0);
     const dots = total <= 2500, fix = (n) => n.toFixed(1);
     const info = (k) => L.crops.find((c) => c.key === k) || {};
-    let o = `<g transform="translate(${left} ${top}) ${tf}"><rect width="${W * s}" height="${N * s}" fill="var(--secondary-background-color)" stroke="var(--line)"/>`;
+    let o = `<g transform="${tf}"><rect width="${W * s}" height="${N * s}" fill="var(--secondary-background-color)" stroke="var(--line)"/>`;
     let names = "";
     for (const r of L.rows) {
       const x0 = r.x0 * s, sel = !ro && this._selRow === r.i;
@@ -2009,12 +2050,9 @@ class GardenTrackerCard extends HTMLElement {
           for (const y of stations) for (const px of [xa, xb]) o += `<rect x="${fix(px - sz / 2)}" y="${fix(y * s - sz / 2)}" width="${sz}" height="${sz}" fill="var(--primary-text-color)" pointer-events="none"/>`;
         }
       }
-      if (r.segments.length) {
-        const nm = r.segments[0].name + (r.segments.length > 1 ? ` +${r.segments.length - 1}` : ""), t = esc(nm.length > 11 ? nm.slice(0, 10) + "." : nm), [px, py] = P(r.x * s, 0);
-        const at = { 0: `translate(${fix(px + 3)} ${fix(py - 6)}) rotate(-90)`, 90: `translate(${fix(px + 6)} ${fix(py + 4)})`, 180: `translate(${fix(px - 3)} ${fix(py + 6)}) rotate(90)`, 270: `translate(${fix(px - 6)} ${fix(py + 4)})` }[rot];
-        names += `<text class="ax" transform="${at}" font-size="11" fill="${color(r.segments[0].crop)}" text-anchor="${rot === 270 ? "end" : "start"}" pointer-events="none">${t}</text>`;
-      }
     }
+    for (const l of labels) names += `<text class="ax" x="${fix(left + l.x)}" y="${fix(top + l.y)}" font-size="11" fill="${l.color}" text-anchor="${l.anchor}" pointer-events="none">${esc(l.t)}</text>`;
+    names += `<g pointer-events="none" transform="translate(${fix(VW - 18)} 20)"><path d="M0 10 L0 -9 M-4 -4 L0 -10 L4 -4" stroke="var(--primary-text-color)" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/><text class="ax" y="22" font-size="10" text-anchor="middle" fill="var(--mut)">N</text></g>`;
     return `<svg viewBox="0 0 ${fix(VW)} ${fix(VH)}" width="100%" style="max-width:${Math.round(VW * 1.15)}px;display:block;margin:0 auto" role="img" aria-label="Garden layout, ${L.totals.rows} rows">${o}</g>${names}</svg>`;
   }
   _layoutView(g) {
@@ -2070,8 +2108,9 @@ class GardenTrackerCard extends HTMLElement {
       h += `<label>Feet of the row to plant (leave empty for the whole row)</label><input type="number" inputmode="decimal" min="0.5" step="any" placeholder="Whole row" value="${esc(this._brushLen || "")}" data-brushlen style="margin-bottom:10px">`;
     }
     h += this._layoutSvg(L, g, !!past);
-    const start = ["top", "right", "bottom", "left"][(L.rotation || 0) / 90];
-    h += `<div class="small mut" style="margin-top:6px;text-align:center">${num(L.length_ft, 1)} ft row length, ${num(L.width_ft, 1)} ft deep. Rows start at the ${start}.</div>`;
+    if (!past) h += this._shadeWarn(L.sun);
+    const SU = L.sun, rotv = L.rotation || 0;
+    h += `<div class="small mut" style="margin-top:6px;text-align:center">${num(L.length_ft, 1)} ft row length, ${num(L.width_ft, 1)} ft deep. Rows run ${esc(SU.runs)}, row 1 is on the ${esc(SU.x_side)} side and they start at the ${esc(SU.start_end)} end.</div>`;
     const sel = !past && this._selRow !== null && this._selRow !== undefined ? L.rows[this._selRow] : null;
     if (sel) {
       h += `<div class="card" style="margin:10px 0 0"><div class="row"><div class="sec grow" style="margin:0">Row ${sel.i + 1}: ${num(sel.used_ft, 1)} of ${num(L.length_ft, 1)} ft planted</div>${sel.segments.length ? this._btn("lay-row-clear", "", "Clear row", `data-g="${gid}" data-r="${sel.i}"`) : ""}</div>`;
@@ -2079,7 +2118,11 @@ class GardenTrackerCard extends HTMLElement {
       sel.segments.forEach((sg, k) => { h += `<div class="lg"><div class="t">${esc(sg.name)}${sg.variety ? ` (${esc(sg.variety)})` : ""}<span>${num(sg.start_in / 12, 1)} to ${num((sg.start_in + sg.len_in) / 12, 1)} ft, ${sg.plants} plants</span></div>${this._btn("lay-seg-rm", "close", "", `data-g="${gid}" data-r="${sel.i}" data-i="${k}"`, "ic")}</div>`; });
       h += `</div>`;
     }
-    h += `<div class="row" style="margin-top:10px">${this._btn("lay-rot", "", "Turn left", `data-g="${gid}" data-n="-90"`, "grow")}${this._btn("lay-rot", "", "Turn right", `data-g="${gid}" data-n="90"`, "grow")}</div>`;
+    if (!past) {
+      const chip = (n, t) => `<button class="chip ${Math.abs(rotv - n) < 0.05 ? "on" : ""}" data-act="lay-ang" data-g="${gid}" data-n="${n}">${t}</button>`;
+      h += `<div class="card" style="margin-top:10px"><div class="sec">Which way the rows run</div><div class="row" style="align-items:end;gap:10px"><div style="flex:1"><label>Degrees off north</label><input type="number" inputmode="decimal" step="any" min="0" max="360" value="${num(rotv, 1)}" data-lay="rotation" data-g="${gid}"></div></div><div class="chips" style="margin:8px 0 0">${chip(0, "North-south (0)")}${chip(90, "East-west (90)")}${chip(45, "45")}${chip(135, "135")}${chip(180, "180")}${chip(270, "270")}</div><div class="small mut" style="margin-top:6px">Any angle works. 0 runs rows north-south, 90 east-west, and an angle between runs them across the compass. The plan above turns to match, with north at the top.</div></div>`;
+      h += this._sunCard(L, gid);
+    }
     if (!past) h += `<div class="row" style="margin-top:10px">${this._btn("lay-fill", "", "Fill every row", `data-g="${gid}"`, "grow")}${this._btn("lay-clear", "", "Clear rows", `data-g="${gid}"`)}</div>`;
     h += `</div>`;
     h += `<div class="card"><div class="sec">What you need</div><div class="stats"><div class="stat"><span>Plants</span><b>${t.plants}</b></div><div class="stat"><span>Per sq ft</span><b>${num(t.density, 2)}</b></div><div class="stat"><span>Rows planted</span><b>${t.planted_rows} of ${t.rows}</b></div><div class="stat"><span>T-posts</span><b>${t.posts}</b></div><div class="stat"><span>Stakes</span><b>${t.stakes}</b></div><div class="stat"><span>Twine</span><b>${num(t.twine_ft, 0)} ft</b></div><div class="stat"><span>Cages</span><b>${t.cages}</b></div><div class="stat"><span>Garden area</span><b>${num(t.area_sqft, 0)} sq ft</b></div></div>`;
@@ -2121,12 +2164,13 @@ class GardenTrackerCard extends HTMLElement {
         { name: "spacing_in", label: "Inches between plants", type: "number", step: "any", value: c.spacing_in, req: true },
         { name: "stagger", label: "The two lines", type: "select", options: [["0", "Side by side"], ["1", "Staggered"]], value: c.stagger ? "1" : "0", show: (v) => v.pattern === "double" },
         { name: "yield_lb", label: "Pounds harvested per plant (optional)", type: "number", step: "any", value: c.yield_lb || "" },
+        { name: "height_ft", label: "Full-grown height (ft), for shade", type: "number", step: "any", value: c.height_ft },
         { name: "support", label: "Support", type: "select", options: Object.entries(L.supports), value: c.support },
         { name: "post_kind", label: "Corral posts", type: "select", options: Object.entries(L.totals.post_kinds), value: c.post_kind, show: (v) => v.support === "corral" },
         { name: "post_ft", label: "Feet between posts", type: "number", step: "any", value: c.post_ft, show: (v) => v.support === "tpost" || v.support === "corral" },
         { name: "twine_levels", label: "Lines of twine up the posts", type: "number", step: "1", value: c.twine_levels, show: (v) => v.support === "corral" },
       ],
-      submit: (x) => this._call("set_layout_crop", { garden: g.id, crop: key, spacing_in: x.spacing_in, support: x.support, post_ft: x.post_ft, post_kind: x.post_kind, twine_levels: x.twine_levels, pattern: x.pattern, stagger: x.pattern === "double" ? x.stagger === "1" : undefined, yield_lb: x.yield_lb }),
+      submit: (x) => this._call("set_layout_crop", { garden: g.id, crop: key, spacing_in: x.spacing_in, support: x.support, post_ft: x.post_ft, post_kind: x.post_kind, twine_levels: x.twine_levels, pattern: x.pattern, stagger: x.pattern === "double" ? x.stagger === "1" : undefined, yield_lb: x.yield_lb, height_ft: x.height_ft }),
     };
   }
   _fAType(g) {

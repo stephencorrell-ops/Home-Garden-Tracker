@@ -58,7 +58,7 @@ HANDLERS: dict[str, Handler] = {
     "assign_layout_rows": lambda m, c: m.assign_layout_rows(c["garden"], c.get("crop"), c.get("rows"), c.get("variety")),
     "add_layout_segment": lambda m, c: m.add_layout_segment(c["garden"], c["row"], c["crop"], c["length_ft"], c.get("start_ft"), c.get("variety")),
     "remove_layout_segment": lambda m, c: m.remove_layout_segment(c["garden"], c["row"], c.get("index")),
-    "set_layout_crop": lambda m, c: m.set_layout_crop(c["garden"], c["crop"], c.get("spacing_in"), c.get("support"), c.get("post_ft"), c.get("post_kind"), c.get("twine_levels"), c.get("pattern"), c.get("stagger"), c.get("yield_lb")),
+    "set_layout_crop": lambda m, c: m.set_layout_crop(c["garden"], c["crop"], c.get("spacing_in"), c.get("support"), c.get("post_ft"), c.get("post_kind"), c.get("twine_levels"), c.get("pattern"), c.get("stagger"), c.get("yield_lb"), c.get("height_ft")),
     "set_layout_draft": lambda m, c: m.set_layout_draft(c["garden"], c.get("crop"), c.get("mode"), c.get("value"), c.get("yield_lb"), c.get("spacing_in"), c.get("variety")),
     "place_layout_draft": lambda m, c: m.place_layout_draft(c["garden"], c["row"], c.get("start_ft")),
     "start_layout_season": lambda m, c: m.start_layout_season(c["garden"], c.get("year")),

@@ -9,6 +9,7 @@ import math
 from typing import Any
 
 from . import rotation as rot
+from . import sun
 
 ROW_WIDTHS = (24, 30, 36)  # inches across a planted row
 DEFAULT_PATH_IN = 24  # the access path left between rows
@@ -46,7 +47,7 @@ class LayoutError(ValueError):
 def defaults_for(key: str) -> dict:
     sp, pattern, stagger, sup, post = DEFAULTS.get(key, GENERIC)
     return {"spacing_in": sp, "pattern": pattern, "stagger": stagger, "support": sup, "post_ft": post,
-            "post_kind": "stake", "twine_levels": 2, "yield_lb": None}
+            "post_kind": "stake", "twine_levels": 2, "yield_lb": None, "height_ft": sun.height_for(key)}
 
 
 def blank(year: int) -> dict:
@@ -87,7 +88,7 @@ def settings_for(layout: dict, key: str) -> dict:
 
 
 def validate_crop(spacing_in: Any = None, support: Any = None, post_ft: Any = None, post_kind: Any = None,
-                  twine_levels: Any = None, pattern: Any = None, stagger: Any = None, yield_lb: Any = None) -> dict:
+                  twine_levels: Any = None, pattern: Any = None, stagger: Any = None, yield_lb: Any = None, height_ft: Any = None) -> dict:
     out: dict = {}
     if spacing_in is not None:
         out["spacing_in"] = _num(spacing_in, "Spacing", 1, 240)
@@ -111,6 +112,8 @@ def validate_crop(spacing_in: Any = None, support: Any = None, post_ft: Any = No
         out["stagger"] = bool(stagger)
     if yield_lb is not None:
         out["yield_lb"] = _num(yield_lb, "Weight per plant", 0.01, 1000)
+    if height_ft is not None:
+        out["height_ft"] = _num(height_ft, "Height", 0.1, 30)
     return out
 
 
@@ -125,9 +128,8 @@ def validate_size(layout: dict, width_ft: Any = None, length_ft: Any = None, row
             raise LayoutError("Rows must be 24, 30 or 36 inches wide")
         layout["row_in"] = int(row_in)
     if rotation is not None:
-        if int(rotation) % 90:
-            raise LayoutError("Turn the garden in steps of 90 degrees")
-        layout["rotation"] = int(rotation) % 360
+        r = round(_num(rotation, "Angle", -720, 720) % 360, 1)  # any angle: the rows run this many degrees off north
+        layout["rotation"] = int(r) if r == int(r) else r
     if path is not None:
         layout["path_in"] = _num(path, "Path width", 0, 120)
     if (layout["width_ft"] * 12 + path_in(layout)) // (layout["row_in"] + path_in(layout)) > MAX_ROWS:
@@ -304,7 +306,7 @@ def draft_result(layout: dict, names: dict[str, str], history: dict[int, dict], 
 
 
 def plan(layout: dict | None, names: dict[str, str], history: dict[int, dict] | None = None, year: int | None = None,
-         traits: dict | None = None) -> dict:
+         traits: dict | None = None, lat: float | None = None) -> dict:
     """Work out every row and the totals. `names` maps crop key to display name (only plants, not trees)."""
     history = history or {}
     available = [{"key": k, "name": n, **defaults_for(k), **((layout or {}).get("crops", {}).get(k) or {}),
@@ -350,7 +352,8 @@ def plan(layout: dict | None, names: dict[str, str], history: dict[int, dict] | 
     alerts.sort(key=lambda a: ({"same": 0, "family": 1}.get(a["level"], 2), a["row"]))
     return {
         "configured": True, "year": year, "width_ft": layout["width_ft"], "length_ft": layout["length_ft"], "row_in": row_in,
-        "path_in": path_in(layout), "rotation": int(layout.get("rotation") or 0),
+        "path_in": path_in(layout), "rotation": layout.get("rotation") or 0,
+        "sun": sun.analyse(rows, row_in, path_in(layout), float(layout.get("rotation") or 0), lat, {k: c["height_ft"] for k, c in crops.items()}),
         "pair_gap_in": PAIR_GAP_IN, "rows": rows, "crops": list(crops.values()), "available": available,
         "row_widths": list(ROW_WIDTHS), "supports": SUPPORTS, "patterns": PATTERNS, "alerts": alerts,
         "draft": draft_result(layout, names, history, year, traits), "rotation_sources": rot.SOURCES,

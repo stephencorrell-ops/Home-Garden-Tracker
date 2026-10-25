@@ -871,12 +871,12 @@ class GardenModel:
 
     def set_layout_crop(self, garden: str, crop: str, spacing_in: Any = None, support: Any = None, post_ft: Any = None,
                         post_kind: Any = None, twine_levels: Any = None, pattern: Any = None, stagger: Any = None,
-                        yield_lb: Any = None) -> None:
+                        yield_lb: Any = None, height_ft: Any = None) -> None:
         g, L = self._layout_of(garden)
         if crop not in self._plant_names():
             raise GardenError(f"Unknown crop '{crop}'")
         try:
-            vals = lay.validate_crop(spacing_in, support, post_ft, post_kind, twine_levels, pattern, stagger, yield_lb)
+            vals = lay.validate_crop(spacing_in, support, post_ft, post_kind, twine_levels, pattern, stagger, yield_lb, height_ft)
         except lay.LayoutError as e:
             raise GardenError(str(e)) from None
         L.setdefault("crops", {}).setdefault(crop, {}).update(vals)
@@ -2110,7 +2110,7 @@ class GardenModel:
             "frost": self._frost_view(g, today),
             "paused": {k: bool(g.get("sensors_paused", {}).get(k)) for k in METRICS},
             "fertility": self._fertility_view(g, metrics, today) if soil else None,
-            "layout": lay.plan(g.get("layout"), self._plant_names(), self._history(g), today.year, self.data["variety_traits"]) if soil else None,
+            "layout": lay.plan(g.get("layout"), self._plant_names(), self._history(g), today.year, self.data["variety_traits"], self._lat()) if soil else None,
             "irrigation": self._irrigation_view(g, today) if soil else None,
             "layout_history": ({y: lay.plan(h, self._plant_names(), None, int(y)) for y, h in g["layout_history"].items()} if soil else {}),
             "trays": g.get("trays", 0), "water": self._water_view(g, today),
@@ -2127,11 +2127,15 @@ class GardenModel:
             "adjunct_log": [{**e, "type_name": names.get(e["type"], e["type"])} for e in log],
         }
 
+    def _lat(self) -> float | None:
+        """Where the garden is, north to south: the place you set, otherwise Home Assistant's own latitude."""
+        loc = self.data["settings"].get("location")
+        return loc["lat"] if loc else self.home_lat
+
     def _irrigation_view(self, g: dict, today: date) -> dict:
         hist = sorted(g["ph_readings"], key=lambda r: (r["date"], r["id"]))
         cur = hist[-1]["value"] if hist else None
-        loc = self.data["settings"].get("location")
-        wx = irr.weather_need(self.data["daily"], self.data["rain"], today, loc["lat"] if loc else self.home_lat)
+        wx = irr.weather_need(self.data["daily"], self.data["rain"], today, self._lat())
         w = irr.plan(lay.plan(g.get("layout"), self._plant_names(), None, today.year), g.get("irrigation"), None, cur, wx)
         log = sorted(g.get("acid_log", []), key=lambda e: (e["date"], e["id"]), reverse=True)
         year = [e for e in log if e["date"][:4] == str(today.year)]
