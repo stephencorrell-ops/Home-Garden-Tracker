@@ -172,6 +172,31 @@ class Layout(unittest.TestCase):
         self.assertEqual(v["totals"]["plants"], 4 * 2 * 6)  # 4 rows, 2 lines, 120 in / 18 in = 6
         self.assertEqual(v["totals"]["cages"], v["totals"]["plants"])
 
+    def test_staggered_double_rows_shift_the_second_line_half_a_step(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 6, 10, 36, True, True)
+        m.assign_layout_rows(gid, "tomato")
+        r = self.view(m, gid)["rows"][0]
+        self.assertEqual(len(r["ys2"]), len(r["ys"]))
+        self.assertEqual(round(r["ys2"][0] - r["ys"][0], 2), 12)  # half of 24 in
+        self.assertEqual(r["plants"], 2 * len(r["ys"]))
+        self.assertLessEqual(r["ys2"][-1], 120)
+        m.set_layout(gid, None, None, None, False)  # a single row never staggers
+        self.assertFalse(self.view(m, gid)["stagger"])
+        self.assertEqual(self.view(m, gid)["rows"][0]["ys2"], [])
+
+    def test_pepper_corral_counts_posts_and_twine(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 6, 12, 36, False)
+        m.assign_layout_rows(gid, "pepper")
+        v = self.view(m, gid)
+        self.assertEqual(v["rows"][0]["stakes"], 2 * (12 // 3 + 1))  # both sides, every 3 ft plus the end
+        self.assertEqual(v["rows"][0]["twine_ft"], 2 * (2 * 12 + 2 * 1))  # 2 lines of twine, two sides and two ends
+        m.set_layout_crop(gid, "pepper", None, None, 4, "tpost", 3)
+        r = self.view(m, gid)["rows"][0]
+        self.assertEqual((r["posts"], r["stakes"]), (2 * (12 // 4 + 1), 0))
+        self.assertEqual(r["twine_ft"], 3 * 26)
+
     def test_one_row_can_hold_a_different_crop_and_be_cleared(self):
         m, gid = self.garden()
         m.set_layout(gid, 10, 10, 24, False)

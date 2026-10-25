@@ -1047,6 +1047,7 @@ class GardenTrackerCard extends HTMLElement {
         return this._act("set_layout", { garden: d.g, width_ft: val("width_ft"), length_ft: val("length_ft") });
       }
       case "lay-rowin": return this._act("set_layout", { garden: d.g, row_in: Number(d.n) });
+      case "lay-stagger": return this._act("set_layout", { garden: d.g, stagger: d.p === "1" });
       case "lay-double": return this._act("set_layout", { garden: d.g, double: d.p === "1" });
       case "lay-row": {
         const L = this._garden(d.g).layout, row = L.rows[Number(d.r)], brush = this._brushFor(L);
@@ -1621,33 +1622,41 @@ class GardenTrackerCard extends HTMLElement {
   _layoutSvg(L, g) {
     const COL = ["#e5372d", "#2e7d32", "#f28c38", "#8e24aa", "#039be5", "#c0a000", "#795548", "#d81b60"];
     const color = (k) => COL[Math.max(0, L.available.findIndex((a) => a.key === k)) % COL.length];
-    const W = L.width_ft * 12, N = L.length_ft * 12, M = 24;
+    const W = L.width_ft * 12, N = L.length_ft * 12, M = 24, MT = L.rows.some((r) => r.crop) ? 58 : 24;
     const s = Math.min(300 / W, 440 / N);
-    const VW = W * s + M * 2, VH = N * s + M * 2;
+    const VW = W * s + M * 2, VH = N * s + MT + M;
     const total = L.rows.reduce((a, r) => a + r.ys.length * r.lines.length, 0);
     const dots = total <= 2500;
-    let o = `<rect x="${M}" y="${M}" width="${W * s}" height="${N * s}" fill="var(--secondary-background-color)" stroke="var(--line)"/>`;
+    let o = `<rect x="${M}" y="${MT}" width="${W * s}" height="${N * s}" fill="var(--secondary-background-color)" stroke="var(--line)"/>`;
     const sup = (k) => (L.crops.find((c) => c.key === k) || {});
     for (const r of L.rows) {
       const x0 = M + (L.pad_in + r.i * L.row_in) * s, c = r.crop ? color(r.crop) : null;
-      o += `<rect data-act="lay-row" data-g="${g.id}" data-r="${r.i}" x="${x0}" y="${M}" width="${L.row_in * s}" height="${N * s}" fill="${c || "transparent"}" fill-opacity="${c ? 0.16 : 0}" stroke="var(--line)" stroke-dasharray="3 3" style="cursor:pointer"/>`;
+      o += `<rect data-act="lay-row" data-g="${g.id}" data-r="${r.i}" x="${x0}" y="${MT}" width="${L.row_in * s}" height="${N * s}" fill="${c || "transparent"}" fill-opacity="${c ? 0.16 : 0}" stroke="var(--line)" stroke-dasharray="3 3" style="cursor:pointer"/>`;
       if (!r.crop) continue;
       const cs = sup(r.crop), rad = Math.max(1.6, Math.min(cs.spacing_in * 0.32, 5) * s);
-      for (const lx of r.lines) {
-        const x = M + lx * s;
-        if (dots) for (const y of r.ys) {
-          o += `<circle cx="${x.toFixed(1)}" cy="${(M + y * s).toFixed(1)}" r="${rad.toFixed(1)}" fill="${c0(r.crop)}" pointer-events="none"/>`;
-          if (cs.support === "cage") o += `<circle cx="${x.toFixed(1)}" cy="${(M + y * s).toFixed(1)}" r="${(rad + 2).toFixed(1)}" fill="none" stroke="var(--primary-text-color)" stroke-width="1" pointer-events="none"/>`;
+      o += `<text class="ax" transform="translate(${(x0 + L.row_in * s / 2 + 3).toFixed(1)} ${MT - 6}) rotate(-90)" font-size="11" fill="${c}" pointer-events="none">${esc(cs.name.length > 11 ? cs.name.slice(0, 10) + "." : cs.name)}</text>`;
+      r.lines.forEach((lx, li) => {
+        const x = M + lx * s, ys = li === 1 && r.ys2.length ? r.ys2 : r.ys;
+        if (dots) for (const y of ys) {
+          o += `<circle cx="${x.toFixed(1)}" cy="${(MT + y * s).toFixed(1)}" r="${rad.toFixed(1)}" fill="${c0(r.crop)}" pointer-events="none"/>`;
+          if (cs.support === "cage") o += `<circle cx="${x.toFixed(1)}" cy="${(MT + y * s).toFixed(1)}" r="${(rad + 2).toFixed(1)}" fill="none" stroke="var(--primary-text-color)" stroke-width="1" pointer-events="none"/>`;
         }
-        else o += `<line x1="${x}" x2="${x}" y1="${M}" y2="${M + N * s}" stroke="${c0(r.crop)}" stroke-width="${Math.max(1.5, rad)}" stroke-dasharray="1 ${Math.max(2, cs.spacing_in * s)}" stroke-linecap="round" pointer-events="none"/>`;
-      }
+        else o += `<line x1="${x}" x2="${x}" y1="${MT}" y2="${MT + N * s}" stroke="${c0(r.crop)}" stroke-width="${Math.max(1.5, rad)}" stroke-dasharray="1 ${Math.max(2, cs.spacing_in * s)}" stroke-linecap="round" pointer-events="none"/>`;
+      });
       if (cs.support === "tpost") {
         const px = M + (L.double ? r.x : r.lines[0]) * s;
-        for (let k = 0; k * cs.post_ft <= L.length_ft + 1e-6; k++) o += `<rect x="${(px - 2.5).toFixed(1)}" y="${(M + k * cs.post_ft * 12 * s - 2.5).toFixed(1)}" width="5" height="5" fill="var(--primary-text-color)" pointer-events="none"/>`;
+        for (let k = 0; k * cs.post_ft <= L.length_ft + 1e-6; k++) o += `<rect x="${(px - 2.5).toFixed(1)}" y="${(MT + k * cs.post_ft * 12 * s - 2.5).toFixed(1)}" width="5" height="5" fill="var(--primary-text-color)" pointer-events="none"/>`;
+      }
+      if (cs.support === "corral") {
+        // twine box around the plant lines, with a post on each side at every station
+        const half = L.corral_w_in / 2 || 6, cx = M + r.x * s, xa = cx - Math.min(half, L.row_in / 2 - 1) * s, xb = cx + Math.min(half, L.row_in / 2 - 1) * s;
+        o += `<rect x="${xa.toFixed(1)}" y="${MT}" width="${(xb - xa).toFixed(1)}" height="${(N * s).toFixed(1)}" fill="none" stroke="#b8860b" stroke-width="1.6" stroke-dasharray="4 2" pointer-events="none"/>`;
+        const sz = cs.post_kind === "tpost" ? 5 : 3.5;
+        for (let k = 0; k * cs.post_ft <= L.length_ft + 1e-6; k++) for (const px of [xa, xb]) o += `<rect x="${(px - sz / 2).toFixed(1)}" y="${(MT + k * cs.post_ft * 12 * s - sz / 2).toFixed(1)}" width="${sz}" height="${sz}" fill="var(--primary-text-color)" pointer-events="none"/>`;
       }
     }
     function c0(k) { return color(k); }
-    o += `<text class="ax" x="${VW / 2}" y="${M - 8}" text-anchor="middle">${num(L.width_ft, 1)} ft</text><text class="ax" transform="translate(${M - 8} ${VH / 2}) rotate(-90)" text-anchor="middle">${num(L.length_ft, 1)} ft</text>`;
+    o += `<text class="ax" x="${VW / 2}" y="${VH - 8}" text-anchor="middle">${num(L.width_ft, 1)} ft</text><text class="ax" transform="translate(${M - 8} ${MT + N * s / 2}) rotate(-90)" text-anchor="middle">${num(L.length_ft, 1)} ft</text>`;
     return `<svg viewBox="0 0 ${VW.toFixed(0)} ${VH.toFixed(0)}" width="100%" style="max-width:${Math.round(VW * 1.15)}px;display:block;margin:0 auto" role="img" aria-label="Garden layout, ${L.totals.rows} rows">${o}</svg>`;
   }
   _layoutView(g) {
@@ -1662,21 +1671,22 @@ class GardenTrackerCard extends HTMLElement {
     }
     h += `<label style="margin-top:10px">Row width</label><div class="seg">${L.row_widths.map((n) => `<button class="${L.row_in === n ? "on" : ""}" data-act="lay-rowin" data-g="${gid}" data-n="${n}">${n} in</button>`).join("")}</div>`;
     h += `<label style="margin-top:10px">Plant lines in each row</label><div class="seg"><button class="${L.double ? "" : "on"}" data-act="lay-double" data-g="${gid}" data-p="0">Single row</button><button class="${L.double ? "on" : ""}" data-act="lay-double" data-g="${gid}" data-p="1">Double row</button></div>`;
+    if (L.double) h += `<label style="margin-top:10px">Plants in the two lines</label><div class="seg"><button class="${L.stagger ? "" : "on"}" data-act="lay-stagger" data-g="${gid}" data-p="0">Side by side</button><button class="${L.stagger ? "on" : ""}" data-act="lay-stagger" data-g="${gid}" data-p="1">Staggered</button></div>`;
     h += `<div class="small mut" style="margin-top:8px">${L.double ? `Two lines of plants ${L.pair_gap_in} in apart in each ${L.row_in} in row.` : `One line of plants down the middle of each ${L.row_in} in row.`} Fits ${L.totals.rows} row${L.totals.rows === 1 ? "" : "s"}.</div></div>`;
     const brush = this._brushFor(L), cur = L.available.find((a) => a.key === brush);
     h += `<div class="card"><div class="sec">Tap a row to plant it</div><div class="row wrap" style="margin-bottom:10px"><div class="grow" style="min-width:140px"><select data-brush>${L.available.map((a) => `<option value="${esc(a.key)}" ${a.key === brush ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select></div>${this._btn("lay-edit", "pencil", "Spacing", `data-g="${gid}" data-c="${esc(brush)}"`)}</div>`;
-    if (cur) h += `<div class="small mut" style="margin:-4px 0 10px">${esc(cur.name)}: ${num(cur.spacing_in, 1)} in apart${cur.support === "tpost" ? `, T-post every ${num(cur.post_ft, 1)} ft` : cur.support === "cage" ? ", one cage each" : ""}</div>`;
+    if (cur) h += `<div class="small mut" style="margin:-4px 0 10px">${esc(cur.name)}: ${num(cur.spacing_in, 1)} in apart${cur.support === "tpost" ? `, T-post every ${num(cur.post_ft, 1)} ft` : cur.support === "cage" ? ", one cage each" : cur.support === "corral" ? `, ${cur.post_kind === "tpost" ? "T-post" : "stake"} corral every ${num(cur.post_ft, 1)} ft with ${cur.twine_levels} twine line${cur.twine_levels === 1 ? "" : "s"}` : ""}</div>`;
     h += this._layoutSvg(L, g);
     h += `<div class="row" style="margin-top:10px">${this._btn("lay-fill", "", "Fill every row", `data-g="${gid}"`, "grow")}${this._btn("lay-clear", "", "Clear rows", `data-g="${gid}"`)}</div></div>`;
     const t = L.totals;
-    h += `<div class="card"><div class="sec">What you need</div><div class="stats"><div class="stat"><span>Plants</span><b>${t.plants}</b></div><div class="stat"><span>Per sq ft</span><b>${num(t.density, 2)}</b></div><div class="stat"><span>Rows planted</span><b>${t.planted_rows} of ${t.rows}</b></div><div class="stat"><span>T-posts</span><b>${t.posts}</b></div><div class="stat"><span>Cages</span><b>${t.cages}</b></div><div class="stat"><span>Garden area</span><b>${num(t.area_sqft, 0)} sq ft</b></div></div>`;
+    h += `<div class="card"><div class="sec">What you need</div><div class="stats"><div class="stat"><span>Plants</span><b>${t.plants}</b></div><div class="stat"><span>Per sq ft</span><b>${num(t.density, 2)}</b></div><div class="stat"><span>Rows planted</span><b>${t.planted_rows} of ${t.rows}</b></div><div class="stat"><span>T-posts</span><b>${t.posts}</b></div><div class="stat"><span>Stakes</span><b>${t.stakes}</b></div><div class="stat"><span>Twine</span><b>${num(t.twine_ft, 0)} ft</b></div><div class="stat"><span>Cages</span><b>${t.cages}</b></div><div class="stat"><span>Garden area</span><b>${num(t.area_sqft, 0)} sq ft</b></div></div>`;
     if (t.planted_rows) h += `<div class="small mut" style="margin-top:8px">Inside the planted rows it is ${num(t.bed_density, 2)} plants per sq ft.</div>`;
     if (L.crops.length) {
       h += `<table class="tbl" style="margin-top:10px"><tr><th>Crop</th><th>Rows</th><th>Plants</th><th>Support</th></tr>`;
-      for (const c of L.crops) h += `<tr><td>${esc(c.name)}<div class="small mut">${num(c.spacing_in, 1)} in apart</div></td><td>${c.rows}</td><td>${c.plants}</td><td>${c.support === "tpost" ? `${c.posts} T-posts` : c.support === "cage" ? `${c.cages} cages` : "none"}</td></tr>`;
+      for (const c of L.crops) h += `<tr><td>${esc(c.name)}<div class="small mut">${num(c.spacing_in, 1)} in apart</div></td><td>${c.rows}</td><td>${c.plants}</td><td>${c.support === "tpost" ? `${c.posts} T-posts` : c.support === "cage" ? `${c.cages} cages` : c.support === "corral" ? `${c.posts || c.stakes} ${c.posts ? "T-posts" : "stakes"}, ${num(c.twine_ft, 0)} ft twine` : "none"}</td></tr>`;
       h += `</table>`;
     }
-    h += `<div class="small mut" style="margin-top:8px">T-posts go at both ends of the row and then at the spacing set for the crop. A double row shares one set of posts down its middle. Plants are centred along the row, so any spare length is left at the ends.</div></div>`;
+    h += `<div class="small mut" style="margin-top:8px">T-posts go at both ends of the row and then at the spacing set for the crop. A double row shares one set of posts down its middle. A corral puts a post on each side at every station, with twine run along both sides and across the ends. Plants are centred along the row, so any spare length is left at the ends.</div></div>`;
     h += `<div class="card">${this._confirm === "lay" ? `<div class="conf">Remove this layout? Your plants are not affected.<div class="row"><button data-act="cancel-del">Keep</button><button class="danger" data-act="do-lay" data-g="${gid}">Remove</button></div></div>` : `<button class="danger" data-act="ask-lay">Remove layout</button>`}</div>`;
     return h;
   }
@@ -1687,9 +1697,11 @@ class GardenTrackerCard extends HTMLElement {
       fields: [
         { name: "spacing_in", label: "Inches between plants in the row", type: "number", step: "any", value: c.spacing_in, req: true },
         { name: "support", label: "Support", type: "select", options: Object.entries(L.supports), value: c.support },
-        { name: "post_ft", label: "Feet between T-posts", type: "number", step: "any", value: c.post_ft, show: (v) => v.support === "tpost" },
+        { name: "post_kind", label: "Corral posts", type: "select", options: Object.entries(L.totals.post_kinds), value: c.post_kind, show: (v) => v.support === "corral" },
+        { name: "post_ft", label: "Feet between posts", type: "number", step: "any", value: c.post_ft, show: (v) => v.support === "tpost" || v.support === "corral" },
+        { name: "twine_levels", label: "Lines of twine up the posts", type: "number", step: "1", value: c.twine_levels, show: (v) => v.support === "corral" },
       ],
-      submit: (x) => this._call("set_layout_crop", { garden: g.id, crop: key, spacing_in: x.spacing_in, support: x.support, post_ft: x.post_ft }),
+      submit: (x) => this._call("set_layout_crop", { garden: g.id, crop: key, spacing_in: x.spacing_in, support: x.support, post_ft: x.post_ft, post_kind: x.post_kind, twine_levels: x.twine_levels }),
     };
   }
   _fAType(g) {
