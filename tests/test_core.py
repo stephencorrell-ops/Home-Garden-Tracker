@@ -411,3 +411,365 @@ class Layout(unittest.TestCase):
             self.assertTrue(json.loads(a.call(svc, json.dumps({"garden": gid, **args})))["ok"])
         b = App.app(self, a.data())
         self.assertEqual(json.loads(b.snapshot())["gardens"][0]["layout"]["totals"]["plants"], 4 * 4)
+
+
+class Irrigation(unittest.TestCase):
+    def setUp(self):
+        self.m = make()
+        self.gid = self.m.add_garden("Back yard")
+        self.m.set_layout(self.gid, 20, 40, 30, None, 0)
+        self.m.assign_layout_rows(self.gid, "tomato", [0, 1, 2])
+        self.m.assign_layout_rows(self.gid, "pepper", [3, 4])
+        self.m.set_layout_crop(self.gid, "tomato", spacing_in=18)
+
+    def water(self):
+        return next(g for g in self.m.snapshot()["gardens"] if g["id"] == self.gid)["irrigation"]
+
+    def crop(self, key):
+        return next(c for c in self.water()["crops"] if c["key"] == key)
+
+    def test_drip_is_the_default_and_loam_takes_one_gph_at_each_plant(self):
+        w = self.water()
+        self.assertEqual(w["method"], "drip")
+        t = self.crop("tomato")
+        self.assertEqual((t["flow_gph"], t["emit_in"], t["lines"]), (1.0, 18, 1))
+        self.assertAlmostEqual(t["plant_gph"], 1.0, 2)
+        self.assertEqual(t["emitters"], 3 * 26)  # 40 ft is 480 in, 26 emitters at 18 in, in 3 rows
+
+    def test_clay_gets_half_gph_emitters_and_the_same_water_per_plant(self):
+        self.m.set_irrigation(self.gid, soil="clay")
+        t = self.crop("tomato")
+        self.assertEqual((t["flow_gph"], t["emit_in"]), (0.5, 9))
+        self.assertAlmostEqual(t["plant_gph"], 1.0, 1)
+
+    def test_run_time_is_for_the_garden_and_footage_is_ordered_by_kind(self):
+        w = self.water()
+        self.assertEqual(sum(o["feet"] for o in w["order"]), 5 * 40)
+        self.assertAlmostEqual(w["totals"]["gpm"], w["totals"]["gph"] / 60, 1)
+        self.assertEqual(w["run_min"], w["auto_run_min"])
+        self.m.set_irrigation(self.gid, run_min=30)
+        self.assertEqual(self.water()["run_min"], 30)
+        self.assertTrue(self.crop("tomato")["short"])  # too short for the thirstiest crop, so it says so
+        self.m.set_irrigation(self.gid, run_min=None)
+        self.assertEqual(self.water()["run_min_set"], None)
+
+    def test_rolls_cover_the_footage_with_an_allowance(self):
+        from custom_components.garden_tracker.core import irrigation as irr
+        self.assertEqual(irr.rolls_for(200), [{"len": 100, "count": 3}])  # 210 ft with the allowance
+        self.assertEqual(irr.rolls_for(480), [{"len": 500, "count": 1}, {"len": 100, "count": 1}])
+        self.assertEqual(irr.rolls_for(450), [{"len": 500, "count": 1}])
+
+    def test_grid_rows_in_a_30_inch_bed_get_two_runs_and_a_pinned_choice_sticks(self):
+        self.m.assign_layout_rows(self.gid, "carrot", [5])
+        self.assertEqual(self.crop("carrot")["lines"], 2)
+        self.m.set_irrigation_crop(self.gid, "pepper", flow_gph=0.5, emit_in=9)
+        p = self.crop("pepper")
+        self.assertEqual((p["flow_gph"], p["emit_in"], p["pinned"]), (0.5, 9, True))
+        self.m.set_irrigation_crop(self.gid, "pepper", flow_gph=None, emit_in=None)
+        self.assertFalse(self.crop("pepper")["pinned"])
+
+    def test_a_moved_sprinkler_gets_places_minutes_and_how_often(self):
+        self.m.set_irrigation(self.gid, method="sprinkler")
+        self.m.set_sprinkler(self.gid, gpm=4, radius_ft=20)
+        w = self.water()
+        s = w["sprinkler"]
+        self.assertEqual(w["method"], "sprinkler")
+        self.assertAlmostEqual(s["pr"], 96.3 * 4 / 400, 2)  # 0.96 in an hour on 400 sq ft a head
+        self.assertEqual((s["mode"], s["needed"], s["sets"]), ("moved", 2, 2))  # the 20 x 40 garden is two places
+        self.assertEqual((s["per_week"], s["per_week_auto"]), (2, True))  # clay loam does better with fewer, deeper waterings
+        self.assertAlmostEqual(s["depth_in"], 0.75, 2)  # tomatoes want 1.5 in a week
+        self.assertEqual(s["minutes"], round(0.75 / s["pr"] * 60))
+        self.assertEqual(s["session_min"], s["minutes"] * 2)
+        self.assertTrue(s["over_intake"])  # 0.96 in an hour is faster than clay loam takes it in
+        self.assertLess(s["cycle_min"], s["minutes"])
+        self.assertTrue(s["warnings"])
+        self.assertEqual(w["totals"]["gpm"], 4)  # one sprinkler at a time
+        self.assertAlmostEqual(s["gal_session"], 4 * s["session_min"], delta=2)
+        self.assertEqual(w["fert"]["overfed"], [])  # no drip lines to valve off
+        self.m.set_sprinkler(self.gid, per_week=3)
+        self.assertEqual(self.water()["sprinkler"]["per_week"], 3)
+
+    def test_fixed_sprinklers_run_together_and_can_be_measured(self):
+        self.m.set_irrigation(self.gid, method="sprinkler")
+        self.m.set_sprinkler(self.gid, mode="fixed", gpm=2, radius_ft=20, heads=1)
+        s = self.water()["sprinkler"]
+        self.assertEqual((s["heads"], s["sets"], s["covered"]), (1, 1, 0.5))
+        self.assertTrue(any("50%" in w for w in s["warnings"]))
+        self.m.set_sprinkler(self.gid, heads=None)
+        w = self.water()
+        self.assertEqual(w["sprinkler"]["heads"], 2)
+        self.assertEqual(w["totals"]["gpm"], 4)  # two at 2 GPM, all on together
+        self.m.set_sprinkler(self.gid, pr_mode="measured", pr_in_hr=0.25)
+        s = self.water()["sprinkler"]
+        self.assertEqual(s["pr"], 0.25)  # catch cans beat the arithmetic
+        self.assertFalse(s["over_intake"])
+        self.assertEqual(s["cycle_min"], None)
+        with self.assertRaises(GardenError):
+            self.m.set_sprinkler(self.gid, mode="flood")
+
+    def _weather(self, lo, hi, rain=0.0, lat=47.3):
+        today = self.m.today()
+        self.m.set_location(lat, -119.5, "Ephrata")
+        self.m.data["daily"].clear()
+        self.m.data["rain"].clear()
+        for n in range(7):
+            k = (today - timedelta(days=n)).isoformat()
+            self.m.data["daily"][k] = [lo, hi]
+            if rain:
+                self.m.data["rain"][k] = rain
+
+    def test_weather_scales_the_watering(self):
+        self._weather(55, 105)
+        hot = self.water()
+        self._weather(40, 60)
+        cool = self.water()
+        self.assertGreater(hot["weather"]["factor"], cool["weather"]["factor"])
+        self.assertLess(cool["weather"]["factor"], 1.0)
+        self.assertGreater(hot["run_min"], cool["run_min"])
+        pick = lambda w: next(x for x in w["crops"] if x["key"] == "tomato")
+        self.assertGreater(pick(hot)["water_in_week"], pick(cool)["water_in_week"])
+        self.assertEqual(pick(hot)["usual_in_week"], pick(cool)["usual_in_week"])
+
+    def test_a_hot_july_week_asks_for_more_than_the_usual(self):
+        from custom_components.garden_tracker.core import irrigation as irr
+        day = date(2026, 7, 15)
+        rows = lambda lo, hi: {(day - timedelta(days=n)).isoformat(): [lo, hi] for n in range(7)}
+        hot = irr.weather_need(rows(65, 102), {}, day, 47.3)
+        mild = irr.weather_need(rows(50, 75), {}, day, 47.3)
+        self.assertGreater(hot["factor"], 1.3)
+        self.assertLess(mild["factor"], 1.0)
+        self.assertEqual(irr.weather_need({}, {}, day), None)
+
+    def test_weather_can_be_turned_off_and_rain_counts(self):
+        self._weather(55, 90)
+        on = self.water()
+        self.m.set_irrigation(self.gid, weather=False)
+        off = self.water()
+        self.assertIsNone(off["weather"])
+        self.assertFalse(off["use_weather"])
+        self._weather(55, 90, rain=0.5)
+        self.m.set_irrigation(self.gid, weather=True)
+        wet = self.water()
+        self.assertLess(wet["run_min"], on["run_min"])
+        self.assertGreater(wet["weather"]["rain_credit"], 0)
+
+    def test_no_temperatures_means_the_usual_amounts(self):
+        self.m.data["daily"].clear()
+        w = self.water()
+        self.assertIsNone(w["weather"])
+        c = next(x for x in w["crops"] if x["key"] == "tomato")
+        self.assertEqual(c["water_in_week"], c["usual_in_week"])
+
+    def test_weather_moves_sprinkler_minutes(self):
+        self.m.set_irrigation(self.gid, method="sprinkler")
+        self._weather(55, 105)
+        hot = self.water()["sprinkler"]["minutes"]
+        self._weather(40, 60)
+        self.assertGreater(hot, self.water()["sprinkler"]["minutes"])
+
+    def test_fertigation_works_with_sprinklers(self):
+        self.m.set_irrigation(self.gid, method="sprinkler")
+        f = self.water()["fert"]
+        s = self.water()["sprinkler"]
+        self.assertTrue(f["ready"])
+        self.assertAlmostEqual(f["gal_watering"], s["gal_session"], delta=1)  # the water through the pump over the whole watering
+        self.assertLessEqual(f["tanks"][0]["stock_gal"], 4.0)
+
+    def test_a_crop_that_would_be_over_fed_gets_a_shorter_feeding_for_its_section(self):
+        f = self.water()["fert"]
+        self.assertEqual(f["ppm_n"], 90)  # tomato 100 and pepper 75 ppm, weighted by their water
+        self.assertEqual(f["overfed"], [])  # 90 is within a quarter of both
+        self.m.set_fert_mix(self.gid, "growth", ppm_n=110)
+        f = self.water()["fert"]
+        over = {o["key"]: o for o in f["overfed"]}
+        self.assertEqual(list(over), ["pepper"])  # 110 is more than a quarter above the pepper's 75
+        o = over["pepper"]
+        self.assertEqual(o["rows"], [4, 5])
+        self.assertEqual(o["full_minutes"], round(f["inject_min"]))
+        self.assertAlmostEqual(o["minutes"], f["inject_min"] * 75 / 110, delta=1)
+        self.assertNotIn("plants", f)  # no per plant list any more
+        self.m.set_fert_mix(self.gid, "growth", ppm_n=60)
+        self.assertEqual(self.water()["fert"]["overfed"], [])  # a weaker mix suits both
+
+    def test_pump_defaults_to_the_dosatron_d14mz2_and_is_editable(self):
+        f = self.water()["fert"]
+        self.assertEqual(len(f["pumps"]), 1)
+        i = f["pumps"][0]
+        self.assertEqual((i["name"], i["min_ratio"], i["max_ratio"], i["max_gpm"], i["tank_gal"]), ("Dosatron D14MZ2", 50, 500, 14.0, 4.0))
+        self.m.set_pump(self.gid, "pump1", name="Other", max_ratio=1000, tank_gal=3)
+        i = self.water()["fert"]["pumps"][0]
+        self.assertEqual((i["name"], i["max_ratio"], i["tank_gal"]), ("Other", 1000, 3))
+        with self.assertRaises(GardenError):
+            self.m.set_pump(self.gid, "pump1", min_ratio=1100)  # past the weakest dilution
+
+    def test_a_second_pump_lets_the_tanks_run_together_and_acid_run_with_the_feeding(self):
+        self.m.set_fertigation(self.gid, active="fruiting")
+        f = self.water()["fert"]
+        self.assertEqual([r["tanks"] for r in f["feed_runs"]], [["A"], ["B"]])  # one pump: calcium nitrate and the rest take turns
+        a = self.water()["acid"]
+        self.m.set_acid(self.gid, ph=8.0, ta_ppm=100)
+        self.assertFalse(self.water()["acid"]["with_feed"])  # shares the only pump
+        key = self.m.set_pump(self.gid, None, "Second Dosatron", tank_gal=3)
+        self.m.set_tank_pump(self.gid, "B", key)
+        f = self.water()["fert"]
+        self.assertEqual([r["tanks"] for r in f["feed_runs"]], [["A", "B"]])  # together, one watering
+        self.assertEqual({t["tank"]: t["pump"] for t in f["tanks"]}, {"A": "pump1", "B": key})
+        self.assertLessEqual(next(t for t in f["tanks"] if t["tank"] == "B")["stock_gal"], 3.0)
+        self.m.set_tank_pump(self.gid, "acid", key)
+        self.m.set_tank_pump(self.gid, "B", "pump1")
+        self.assertTrue(self.water()["acid"]["with_feed"])  # acid on its own pump can run with the feeding
+        self.m.remove_pump(self.gid, key)
+        self.assertEqual(self.water()["acid"]["pump"], "pump1")  # its tanks go back to the first pump
+        self.assertFalse(self.water()["acid"]["with_feed"])
+        with self.assertRaises(GardenError):
+            self.m.remove_pump(self.gid, "pump1")
+
+    def test_acid_applications_are_logged_by_garden(self):
+        self.m.log_acid(self.gid, "2026-10-20", 99, 135, 8.0, 5.6, "first")
+        self.m.log_acid(self.gid, None, 50)
+        log = self.water()["acid_log"]
+        self.assertEqual((log["count_year"], log["ml_year"]), (2, 149))
+        self.assertEqual(log["entries"][0]["date"], TODAY.isoformat())
+        eid = log["entries"][1]["id"]
+        self.m.edit_entry("acid", self.gid, eid, {"ml": 120})
+        self.assertEqual(self.water()["acid_log"]["ml_year"], 170)
+        self.m.delete_entry("acid", self.gid, eid)
+        self.assertEqual(self.water()["acid_log"]["count_year"], 1)
+        with self.assertRaises(GardenError):
+            self.m.log_acid(self.gid, None, -1)
+
+    def test_growth_mix_sizes_the_tank_to_the_pump_and_the_nitrogen_to_the_plants(self):
+        f = self.water()["fert"]
+        self.assertTrue(f["ready"])
+        self.assertEqual(f["ppm_from"], "plants")
+        self.assertEqual(len(f["tanks"]), 1)
+        t = f["tanks"][0]
+        self.assertLessEqual(t["stock_gal"], 4.0)
+        self.assertGreaterEqual(t["ratio"], 50)
+        self.assertAlmostEqual(f["water_gal"] / t["ratio"], t["stock_gal"], 1)
+        # grams of 20-10-20 for the nitrogen asked for: ppm is mg a litre
+        self.assertAlmostEqual(t["grams"], f["water_gal"] * 3.78541 * f["ppm_n"] / 1000 / 0.20, delta=1)
+        self.assertLess(f["inject_min"], f["run_min"])  # the end of the run is plain water
+
+    def test_a_big_garden_needs_a_weaker_dilution_to_stay_within_four_gallons(self):
+        self.m.set_layout(self.gid, 20, 100, 30, None, 0)  # more rows and longer ones, so much more water
+        self.m.assign_layout_rows(self.gid, "tomato")
+        f = self.water()["fert"]
+        t = f["tanks"][0]
+        self.assertGreater(t["ratio"], 50)
+        self.assertLessEqual(t["stock_gal"], 4.0)
+
+    def test_fruiting_mix_splits_calcium_nitrate_from_the_phosphate_and_sulfate(self):
+        self.m.set_fertigation(self.gid, active="fruiting")
+        f = self.water()["fert"]
+        self.assertEqual([t["tank"] for t in f["tanks"]], ["A", "B"])
+        a, b = f["tanks"]
+        self.assertEqual([c["name"] for c in a["components"]], ["Calcium nitrate 15.5-0-0"])
+        self.assertEqual(len(b["components"]), 2)
+        self.assertTrue(any("cannot be mixed strong" in w for w in f["warnings"]))
+        self.assertAlmostEqual(f["n_pct"], 7.8, 1)  # 2 of 4-18-38, 2 of 15.5-0-0 and 1 of 0-0-0
+        self.assertGreater(f["analysis"]["Ca"], 0)
+        self.assertGreater(f["analysis"]["Mg"], 0)
+        c = {x["name"]: x["g"] for x in f["components"]}
+        self.assertAlmostEqual(c["MasterBlend 4-18-38"], c["Calcium nitrate 15.5-0-0"], 1)  # 2:2:1
+        self.assertAlmostEqual(c["MasterBlend 4-18-38"] / c["Epsom salt"], 2.0, 1)
+
+    def test_mixes_can_be_added_changed_and_removed(self):
+        key = self.m.set_fert_mix(self.gid, None, "Late feed", 80)
+        self.m.set_fert_component(self.gid, key, None, "Potash 0-0-50", 0, 0, 50, 0, 0, 1, "A")
+        self.m.set_fertigation(self.gid, active=key)
+        f = self.water()["fert"]
+        self.assertFalse(f["ready"])  # no nitrogen in it
+        self.m.set_fert_component(self.gid, key, 0, n=10)
+        f = self.water()["fert"]
+        self.assertEqual((f["ppm_n"], f["ppm_from"]), (80, "mix"))
+        self.m.remove_fert_component(self.gid, key, 0)
+        self.m.remove_fert_mix(self.gid, key)
+        self.assertEqual(self.water()["fert"]["active"], "growth")
+        with self.assertRaises(GardenError):
+            self.m.set_fertigation(self.gid, active="nope")
+
+    def test_acid_for_a_water_test(self):
+        a = self.water()["acid"]
+        self.assertFalse(a["ready"])
+        self.m.set_acid(self.gid, ph=8.0, ta_ppm=100)
+        a = self.water()["acid"]
+        self.assertTrue(a["ready"])
+        self.assertAlmostEqual(a["meq_l"], 1.75, 1)  # most of the alkalinity (2 meq/L) is used up to reach pH 5.5
+        self.assertAlmostEqual(a["meq_per_ml"], 8.99, 1)  # 35% sulfuric acid is about 9 normal
+        self.assertAlmostEqual(a["ml_per_gal"], a["meq_l"] * 3.78541 / a["meq_per_ml"], 1)
+        f = self.water()["fert"]
+        self.assertAlmostEqual(a["tank"]["ml"], a["ml_per_gal"] * f["water_gal"], delta=1)
+        self.assertLessEqual(a["tank"]["stock_gal"], 4.0)
+        self.m.set_acid(self.gid, strength_pct=93)
+        self.assertLess(self.water()["acid"]["ml_per_gal"], a["ml_per_gal"] / 2)  # stronger acid, less of it
+        self.m.set_acid(self.gid, target_ph=6.5)
+        self.assertLess(self.water()["acid"]["meq_l"], a["meq_l"])
+        self.m.set_acid(self.gid, ph=5.5, ta_ppm=20, target_ph=5.5)
+        self.assertEqual(self.water()["acid"]["ml_per_gal"], 0)  # already there
+        self.assertTrue(self.water()["acid"]["warnings"])
+        with self.assertRaises(GardenError):
+            self.m.set_acid(self.gid, ph=20)
+
+    def test_low_water_ph_gets_a_base_for_the_tank_instead_of_acid(self):
+        self.m.set_acid(self.gid, ph=5.6, ta_ppm=20, target_ph=6.5)
+        a = self.water()["acid"]
+        self.assertEqual((a["mode"], a["base"]), ("raise", "kbic"))
+        self.assertGreater(a["g_per_gal"], 0)
+        self.assertNotIn("ml_per_gal", a)
+        self.assertAlmostEqual(a["tank"]["g"], a["g_per_gal"] * a["water_gal"], delta=1)
+        k = a["g_per_gal"]
+        self.m.set_acid(self.gid, base="nabic")
+        self.assertLess(self.water()["acid"]["g_per_gal"], k)  # a lighter salt, so less by weight
+        self.m.set_acid(self.gid, base="koh")
+        koh = self.water()["acid"]
+        self.assertLess(koh["g_per_gal"], k)
+        self.assertTrue(any("caustic" in w for w in koh["warnings"]))
+        self.m.set_acid(self.gid, base="kbic", target_ph=8.8)
+        self.assertTrue(any("8.3" in w for w in self.water()["acid"]["warnings"]))  # bicarbonate cannot get there
+        with self.assertRaises(GardenError):
+            self.m.set_acid(self.gid, base="lye")
+
+    def test_lime_for_low_soil_ph(self):
+        w = self.water()["lime"]
+        self.assertFalse(w["ready"])  # no soil pH logged yet
+        self.m.log_ph(self.gid, 5.5)
+        w = self.water()["lime"]
+        self.assertEqual((w["ready"], w["ph_from"], w["soil"]), (True, "log", "clay_loam"))
+        self.assertAlmostEqual(w["lb_1000"], 90.0, 1)  # 90 lb a unit on clay loam, one unit up
+        self.assertAlmostEqual(w["lb_total"], 90.0 * 20 * 40 / 1000, 1)  # the garden is 20 x 40 ft
+        self.assertEqual(w["applications"], 1)
+        self.m.set_lime(self.gid, lime_type="dolomitic", target_ph=7.0)
+        w = self.water()["lime"]
+        self.assertAlmostEqual(w["lb_1000"], 90 * 1.5 / 1.05, 0)
+        self.assertEqual(w["applications"], 2)  # over the 100 lb a time limit
+        self.m.set_lime(self.gid, lb_per_unit=50, ph=6.0, target_ph=6.5, lime_type="calcitic")
+        w = self.water()["lime"]
+        self.assertEqual((w["ph_from"], w["lb_1000"]), ("you", 25.0))
+        self.m.set_lime(self.gid, ph=7.0)
+        self.assertEqual(self.water()["lime"]["lb_total"], 0)
+        with self.assertRaises(GardenError):
+            self.m.set_lime(self.gid, lime_type="chalk")
+
+    def test_bad_input(self):
+        for bad in (dict(soil="gravel"), dict(per_week=0), dict(method="flood")):
+            with self.assertRaises(GardenError):
+                self.m.set_irrigation(self.gid, **bad)
+        with self.assertRaises(GardenError):
+            self.m.set_irrigation_crop(self.gid, "tomato", flow_gph=2)
+        with self.assertRaises(GardenError):
+            self.m.set_fert_component(self.gid, "growth", None, "", 1)
+
+    def test_save_and_restore(self):
+        a = GardenApp(SPECIES.read_text("utf-8"), None, TODAY.isoformat())
+        for svc, data in (("add_garden", {"name": "Back yard"}),):
+            a.call(svc, json.dumps(data))
+        gid = json.loads(a.snapshot())["gardens"][0]["id"]
+        a.call("set_layout", json.dumps({"garden": gid, "width_ft": 10, "length_ft": 10, "row_in": 30}))
+        a.call("assign_layout_rows", json.dumps({"garden": gid, "crop": "tomato"}))
+        a.call("set_irrigation", json.dumps({"garden": gid, "soil": "clay"}))
+        a.call("set_fert_mix", json.dumps({"garden": gid, "mix": "growth", "ppm_n": 125}))
+        a.call("set_pump", json.dumps({"garden": gid, "pump": "pump1", "tank_gal": 3}))
+        b = GardenApp(SPECIES.read_text("utf-8"), a.data(), TODAY.isoformat())
+        w = json.loads(b.snapshot())["gardens"][0]["irrigation"]
+        self.assertEqual((w["soil"], w["fert_settings"]["mixes"]["growth"]["ppm_n"], w["fert"]["pumps"][0]["tank_gal"]), ("clay", 125, 3))

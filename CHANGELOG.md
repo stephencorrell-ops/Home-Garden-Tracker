@@ -4,6 +4,18 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.18.0 - 2026-10-25
+
+### Added
+- **Watering planner** for each garden (also in the web app). Drip is the default; sprinklers are the other choice. Each garden is its own irrigation zone.
+- **Drip layout.** Per crop: runs of drip line, emitter flow and spacing suggested from the plants, the soil (clay is held to 1/2 gph) and the crop's weekly water, all editable. Run time is worked out from the thirstiest crop or set by you. Footage to order per line type with a 5% allowance and roll sizes, whole-garden GPM, and a warning when a line carries too much. The emitter and roll catalogue is editable data, so check it against your supplier.
+- **Sprinklers.** One sprinkler moved around or fixed sprinklers; the rate comes from flow and radius or from your own catch-can measurement. It suggests the places, minutes and waterings a week to get the plants enough, with cycle and soak on soil that takes water slowly. Set up once a year in a collapsed card.
+- **Weather.** The last week's lows, highs and rain from your sensors (or the web app's weather service) scale each crop's weekly water, so a hot week runs longer and a cool or rainy one shorter. It can be switched off.
+- **Fertigation.** Editable injector pumps (the Dosatron D14MZ2 is the default) with tanks assigned to them, named mixes of fertilizers (a high nitrogen mix and a MasterBlend tomato mix with calcium nitrate and Epsom salt to start), feeding every 14 days. It works out the grams for each tank, the dial setting, how long to inject and the plain-water flush, the nutrient strength, and a run plan when tanks share a pump. Crops that would be over-fed get a "valve off these lines after X minutes" note.
+- **Acid and base.** From the water's pH and alkalinity, how much diluted sulfuric acid to put in the stock tank for a target pH (5.5 by default), or potassium bicarbonate, sodium bicarbonate or KOH when the water is below the target. Acid and base applications are logged for each garden.
+- **Lime** for low soil pH, from the garden's latest soil pH reading, with worked-in and surface limits and split applications.
+- New services: `set_irrigation`, `set_sprinkler`, `set_irrigation_crop`, `reset_irrigation_crop`, `set_pump`, `remove_pump`, `set_tank_pump`, `set_fertigation`, `set_fert_mix`, `remove_fert_mix`, `set_fert_component`, `remove_fert_component`, `set_acid`, `set_lime`, `log_acid`.
+
 ## 0.17.0 - 2026-10-25
 
 ### Added

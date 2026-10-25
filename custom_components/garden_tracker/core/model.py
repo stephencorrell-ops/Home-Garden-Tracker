@@ -9,6 +9,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Callable
 
 from . import calc
+from . import irrigation as irr
 from . import layout as lay
 from . import rotation as rot
 from . import microclimate as mc
@@ -111,7 +112,7 @@ KINDS = {  # entry kind -> (parent type, list key)
     "review": ("v", "reviews"), "upotted": ("v", "upotted"),
     "adjunct": ("g", "adjuncts"), "ph": ("g", "ph_readings"),
     "moisture": ("g", "moisture"), "ec": ("g", "ec"), "soil_temp": ("g", "soil_temp"),
-    "cover": ("g", "cover_crops"), "water": ("g", "watering"),
+    "cover": ("g", "cover_crops"), "water": ("g", "watering"), "acid": ("g", "acid_log"),
     "air_temp": ("g", "air_temp"), "par": ("g", "par"), "out_temp": ("g", "out_temp"),
 }
 EDITABLE = {
@@ -122,6 +123,7 @@ EDITABLE = {
     "adjunct": ("type", "product", "amount", "date", "notes"), "ph": ("value", "date"),
     "moisture": ("value", "date"), "ec": ("value", "date"), "soil_temp": ("value", "date"),
     "air_temp": ("value", "date"), "par": ("value", "date"), "out_temp": ("value", "date"), "water": ("date", "notes"),
+    "acid": ("date", "ml", "g", "water_gal", "ph_before", "ph_after", "notes", "product"),
     "cover": ("crop", "sown", "terminated", "method", "notes", "wait_days", "amount_lbs"),
 }
 
@@ -155,6 +157,7 @@ class GardenModel:
         self._air_now: dict[str, tuple[float, float]] = {}
         self._air_touched = 0.0
         self.now_fn: Callable[[], float] = time.time  # seconds since the epoch; the manager sets a Home Assistant clock
+        self.home_lat: float | None = None  # Home Assistant's own latitude, used when no location was set
         self.outdoor_entity: str | None = None  # the main outdoor temperature sensor, used when a place has none of its own
         self._today_fn = today_fn
         self._notify = notify or (lambda: None)
@@ -190,6 +193,8 @@ class GardenModel:
         g.setdefault("trays", 0)
         g.setdefault("layout", None)
         g.setdefault("layout_history", {})
+        g.setdefault("irrigation", None)
+        g.setdefault("acid_log", [])
         g.setdefault("watering", [])
         g.setdefault("water_every", None)
         g.setdefault("power_sensors", {})
@@ -875,6 +880,218 @@ class GardenModel:
         except lay.LayoutError as e:
             raise GardenError(str(e)) from None
         L.setdefault("crops", {}).setdefault(crop, {}).update(vals)
+        self._touch()
+
+    # ---- watering: drip or sprinklers, run time, fertigation ----------------------------------------------
+    def _irrigation_of(self, garden: str) -> tuple[dict, dict]:
+        g = self._layout_garden(garden)
+        if not g.get("irrigation"):
+            g["irrigation"] = irr.blank()
+        return g, g["irrigation"]
+
+    def set_irrigation(self, garden: str, method: Any = None, soil: Any = None, per_week: Any = None, run_min: Any = "keep",
+                       max_line_gph: Any = None, weather: Any = None) -> None:
+        g, I = self._irrigation_of(garden)
+        try:
+            I.update(irr.validate_settings(method, soil, per_week, run_min, max_line_gph, weather))
+        except irr.IrrigationError as e:
+            raise GardenError(str(e)) from None
+        self._touch()
+
+    def set_sprinkler(self, garden: str, mode: Any = None, pr_mode: Any = None, gpm: Any = None, radius_ft: Any = None, arc: Any = None,
+                      pr_in_hr: Any = "keep", heads: Any = "keep", per_week: Any = "keep") -> None:
+        g, I = self._irrigation_of(garden)
+        try:
+            vals = irr.validate_sprinkler(mode, pr_mode, gpm, radius_ft, arc, pr_in_hr, heads, per_week)
+        except irr.IrrigationError as e:
+            raise GardenError(str(e)) from None
+        I["sprinkler"] = {**irr.default_sprinkler(), **(I.get("sprinkler") or {}), **vals}
+        self._touch()
+
+    def set_irrigation_crop(self, garden: str, crop: str, water_in_week: Any = None, lines: Any = None, flow_gph: Any = "keep",
+                            emit_in: Any = "keep", ppm_n: Any = None) -> None:
+        g, I = self._irrigation_of(garden)
+        if crop not in self._plant_names():
+            raise GardenError(f"Unknown crop '{crop}'")
+        try:
+            vals = irr.validate_crop(water_in_week, lines, flow_gph, emit_in, ppm_n)
+        except irr.IrrigationError as e:
+            raise GardenError(str(e)) from None
+        I.setdefault("crops", {}).setdefault(crop, {}).update(vals)
+        self._touch()
+
+    def reset_irrigation_crop(self, garden: str, crop: str) -> None:
+        g, I = self._irrigation_of(garden)
+        I.setdefault("crops", {}).pop(crop, None)
+        self._touch()
+
+    def _fert_of(self, garden: str) -> dict:
+        g, I = self._irrigation_of(garden)
+        I["fert"] = irr.fert_of(I.get("fert"))
+        return I["fert"]
+
+    def set_acid(self, garden: str, ph: Any = None, ta_ppm: Any = None, target_ph: Any = None, strength_pct: Any = None,
+                 sg: Any = "keep", base: Any = None) -> None:
+        g, I = self._irrigation_of(garden)
+        try:
+            vals = irr.validate_acid(ph, ta_ppm, target_ph, strength_pct, sg, base)
+        except irr.IrrigationError as e:
+            raise GardenError(str(e)) from None
+        a = {**irr.default_acid(), **(I.get("acid") or {}), **vals}
+        if ph is not None or ta_ppm is not None:
+            a["tested"] = self.today().isoformat()
+        I["acid"] = a
+        self._touch()
+
+    def set_fertigation(self, garden: str, every_days: Any = None, active: Any = None) -> None:
+        F = self._fert_of(garden)
+        try:
+            vals = irr.validate_fert(every_days, active)
+        except irr.IrrigationError as e:
+            raise GardenError(str(e)) from None
+        if "active" in vals and vals["active"] not in F["mixes"]:
+            raise GardenError("Pick one of the mixes")
+        F.update(vals)
+        self._touch()
+
+    def set_lime(self, garden: str, target_ph: Any = None, lime_type: Any = None, depth_in: Any = None, tilled: Any = None,
+                 ph: Any = "keep", lb_per_unit: Any = "keep") -> None:
+        g, I = self._irrigation_of(garden)
+        try:
+            vals = irr.validate_lime(target_ph, lime_type, depth_in, tilled, ph, lb_per_unit)
+        except irr.IrrigationError as e:
+            raise GardenError(str(e)) from None
+        I["lime"] = {**irr.default_lime(), **(I.get("lime") or {}), **vals}
+        self._touch()
+
+    def set_pump(self, garden: str, pump: str | None = None, name: Any = None, min_ratio: Any = None, max_ratio: Any = None,
+                 min_gpm: Any = None, max_gpm: Any = None, tank_gal: Any = None, flush_min: Any = None) -> str:
+        """Change a pump, or add one when `pump` is empty. Returns its key."""
+        F = self._fert_of(garden)
+        try:
+            vals = irr.validate_injector(name, min_ratio, max_ratio, min_gpm, max_gpm, tank_gal, flush_min)
+            if pump:
+                if pump not in F["pumps"]:
+                    raise irr.IrrigationError("Unknown pump")
+                new = {**F["pumps"][pump], **vals}
+            else:
+                if not vals.get("name"):
+                    raise irr.IrrigationError("A pump needs a name")
+                new = {**irr.DEFAULT_PUMP, **vals}
+            if new["min_ratio"] > new["max_ratio"]:
+                raise irr.IrrigationError("The strongest dilution (1:50) must be a smaller number than the weakest (1:500)")
+            if new["min_gpm"] > new["max_gpm"]:
+                raise irr.IrrigationError("The lowest flow must be less than the highest")
+        except irr.IrrigationError as e:
+            raise GardenError(str(e)) from None
+        if not pump:
+            base = slug(new["name"])
+            pump, n = base, 2
+            while pump in F["pumps"]:
+                pump, n = f"{base}_{n}", n + 1
+        F["pumps"][pump] = new
+        self._touch()
+        return pump
+
+    def remove_pump(self, garden: str, pump: str) -> None:
+        F = self._fert_of(garden)
+        if pump not in F["pumps"]:
+            raise GardenError("Unknown pump")
+        if len(F["pumps"]) == 1:
+            raise GardenError("Keep at least one pump")
+        del F["pumps"][pump]
+        F["tank_pump"] = {t: k for t, k in F["tank_pump"].items() if k != pump}  # those tanks go back to the first pump
+        self._touch()
+
+    def set_tank_pump(self, garden: str, tank: str, pump: str) -> None:
+        """Which pump a stock tank (a letter, or acid) runs through."""
+        F = self._fert_of(garden)
+        t = str(tank).strip()
+        t = "acid" if t.lower() == "acid" else t.upper()[:1]
+        if not t.isalpha():
+            raise GardenError("A tank is a letter, or acid")
+        if pump not in F["pumps"]:
+            raise GardenError("Unknown pump")
+        F["tank_pump"][t] = pump
+        self._touch()
+
+    def log_acid(self, garden: str, when: Any = None, ml: Any = None, water_gal: Any = None, ph_before: Any = None,
+                 ph_after: Any = None, notes: str | None = None, g: Any = None, product: str | None = None) -> None:
+        """Log an acid application (mL) or, when the water was raised, a base (grams)."""
+        gd = self._layout_garden(garden)
+        if ml in (None, "") and g in (None, ""):
+            raise GardenError("Enter the amount of acid in mL, or of base in grams")
+        try:
+            vals = {"ml": irr._num(ml, "Acid (mL)", 0, 100000) if ml not in (None, "") else None,
+                    "g": irr._num(g, "Base (g)", 0, 1000000) if g not in (None, "") else None,
+                    "water_gal": irr._num(water_gal, "Water (gallons)", 0, 1000000) if water_gal not in (None, "") else None,
+                    "ph_before": irr._num(ph_before, "pH before", 0, 14) if ph_before not in (None, "") else None,
+                    "ph_after": irr._num(ph_after, "pH after", 0, 14) if ph_after not in (None, "") else None}
+        except irr.IrrigationError as e:
+            raise GardenError(str(e)) from None
+        gd.setdefault("acid_log", []).append({"id": new_id(), "date": iso(when) or self.today().isoformat(), "notes": notes or "",
+                                              "product": (product or "").strip()[:60], **vals})
+        self._touch()
+
+    def set_fert_mix(self, garden: str, mix: str | None = None, name: Any = None, ppm_n: Any = "keep") -> str:
+        """Change a mix, or start a new one when `mix` is empty. Returns its key."""
+        F = self._fert_of(garden)
+        try:
+            vals = irr.validate_mix(name, ppm_n)
+        except irr.IrrigationError as e:
+            raise GardenError(str(e)) from None
+        if mix:
+            if mix not in F["mixes"]:
+                raise GardenError("Unknown mix")
+            F["mixes"][mix].update(vals)
+        else:
+            if not vals.get("name"):
+                raise GardenError("A mix needs a name")
+            base = re.sub(r"[^a-z0-9]+", "_", vals["name"].lower()).strip("_") or "mix"
+            mix, n = base, 2
+            while mix in F["mixes"]:
+                mix, n = f"{base}_{n}", n + 1
+            F["mixes"][mix] = {"name": vals["name"], "ppm_n": vals.get("ppm_n"), "components": []}
+        self._touch()
+        return mix
+
+    def remove_fert_mix(self, garden: str, mix: str) -> None:
+        F = self._fert_of(garden)
+        if mix not in F["mixes"]:
+            raise GardenError("Unknown mix")
+        if len(F["mixes"]) == 1:
+            raise GardenError("Keep at least one mix")
+        del F["mixes"][mix]
+        if F["active"] == mix:
+            F["active"] = next(iter(F["mixes"]))
+        self._touch()
+
+    def set_fert_component(self, garden: str, mix: str, index: Any = None, name: Any = None, n: Any = None, p: Any = None,
+                           k: Any = None, ca: Any = None, mg: Any = None, parts: Any = None, tank: Any = None) -> None:
+        """Change fertilizer number `index` in a mix, or add one when index is empty."""
+        F = self._fert_of(garden)
+        if mix not in F["mixes"]:
+            raise GardenError("Unknown mix")
+        comps = F["mixes"][mix]["components"]
+        try:
+            vals = irr.validate_component(name, n, p, k, ca, mg, parts, tank)
+        except irr.IrrigationError as e:
+            raise GardenError(str(e)) from None
+        if index is None or index == "":
+            if not vals.get("name"):
+                raise GardenError("A fertilizer needs a name")
+            comps.append({"name": "", "n": 0.0, "p": 0.0, "k": 0.0, "ca": 0.0, "mg": 0.0, "parts": 1.0, "tank": "A", **vals})
+        else:
+            if not 0 <= int(index) < len(comps):
+                raise GardenError("No such fertilizer")
+            comps[int(index)].update(vals)
+        self._touch()
+
+    def remove_fert_component(self, garden: str, mix: str, index: Any) -> None:
+        F = self._fert_of(garden)
+        if mix not in F["mixes"] or not 0 <= int(index) < len(F["mixes"][mix]["components"]):
+            raise GardenError("No such fertilizer")
+        del F["mixes"][mix]["components"][int(index)]
         self._touch()
 
     def set_layout_draft(self, garden: str, crop: str | None = None, mode: str | None = None, value: Any = None,
@@ -1894,6 +2111,7 @@ class GardenModel:
             "paused": {k: bool(g.get("sensors_paused", {}).get(k)) for k in METRICS},
             "fertility": self._fertility_view(g, metrics, today) if soil else None,
             "layout": lay.plan(g.get("layout"), self._plant_names(), self._history(g), today.year, self.data["variety_traits"]) if soil else None,
+            "irrigation": self._irrigation_view(g, today) if soil else None,
             "layout_history": ({y: lay.plan(h, self._plant_names(), None, int(y)) for y, h in g["layout_history"].items()} if soil else {}),
             "trays": g.get("trays", 0), "water": self._water_view(g, today),
             "trays_calc": self._trays_calc(g) if kind != "garden" else None,
@@ -1908,6 +2126,18 @@ class GardenModel:
             "adjuncts": [calc.adjunct_status(t, g["adjuncts"], today) for t in g["adjunct_types"].values()],
             "adjunct_log": [{**e, "type_name": names.get(e["type"], e["type"])} for e in log],
         }
+
+    def _irrigation_view(self, g: dict, today: date) -> dict:
+        hist = sorted(g["ph_readings"], key=lambda r: (r["date"], r["id"]))
+        cur = hist[-1]["value"] if hist else None
+        loc = self.data["settings"].get("location")
+        wx = irr.weather_need(self.data["daily"], self.data["rain"], today, loc["lat"] if loc else self.home_lat)
+        w = irr.plan(lay.plan(g.get("layout"), self._plant_names(), None, today.year), g.get("irrigation"), None, cur, wx)
+        log = sorted(g.get("acid_log", []), key=lambda e: (e["date"], e["id"]), reverse=True)
+        year = [e for e in log if e["date"][:4] == str(today.year)]
+        w["acid_log"] = {"entries": log[:60], "last": log[0]["date"] if log else None, "days_since": calc.days_since(log[0]["date"], today) if log else None,
+                         "count_year": len(year), "ml_year": round(sum(e.get("ml") or 0 for e in year)), "g_year": round(sum(e.get("g") or 0 for e in year)), "year": today.year}
+        return w
 
     @staticmethod
     def _water_view(g: dict, today: date) -> dict:
