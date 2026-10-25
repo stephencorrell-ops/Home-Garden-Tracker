@@ -383,6 +383,7 @@ class GardenTrackerCard extends HTMLElement {
       if (w === "variety" && v) body = this._varietyView(v);
       else if (w === "garden" && g) body = this._gardenView(g);
       else if (w === "layout" && this._view.id && this._garden(this._view.id) && this._garden(this._view.id).layout) body = this._layoutView(this._garden(this._view.id));
+      else if (w === "water" && this._view.id && this._garden(this._view.id) && this._garden(this._view.id).irrigation) body = this._irrView(this._garden(this._view.id));
       else if (w === "archive") body = this._archiveView();
       else if (w === "micro" && this._snap.micro) body = this._microView();
       else { this._view = { v: "home" }; body = this._homeView(); }
@@ -901,7 +902,7 @@ class GardenTrackerCard extends HTMLElement {
     if (g.kind !== "garden") return this._placeView(g);
     const ph = g.ph, gid = g.id;
     let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="grow"><div class="ttl">${esc(g.name)}</div><div class="sub">${this._vars().filter((v) => v.garden === gid).length} plants</div></div>${this._btn("edit-g", "cog", "", `data-g="${gid}"`, "ic")}</div>`;
-    h += this._frostPill(g, false) + this._sensorBanner(g) + this._layoutTile(g);
+    h += this._frostPill(g, false) + this._sensorBanner(g) + this._layoutTile(g) + this._irrTile(g);
     h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">Soil pH</div>${ph.level ? `<span class="pill ${ph.level === "ok" ? "ok" : "warn"}" style="margin:0">${ph.level === "ok" ? "In range" : ph.level === "low" ? "Below target" : "Above target"}</span>` : ""}</div>`;
     if (ph.current !== null) {
       const d = ph.first && ph.first.date !== ph.date ? ph.current - ph.first.value : null;
@@ -1042,6 +1043,12 @@ class GardenTrackerCard extends HTMLElement {
       case "open-archive": return this._go({ v: "archive" });
       case "open-micro": return this._go({ v: "micro" });
       case "open-layout": this._season = null; this._placeRow = "0"; this._placeStart = ""; this._brush = null; this._selRow = null; this._brushLen = ""; return this._go({ v: "layout", id: d.g });
+      case "open-water": return this._go({ v: "water", id: d.g });
+      case "irr-method": return this._act("set_irrigation", { garden: d.g, method: d.m });
+      case "irr-set": return this._open(this._fIrr(this._garden(d.g)));
+      case "irr-crop": return this._open(this._fIrrCrop(this._garden(d.g), d.c));
+      case "irr-fert": return this._open(this._fFert(this._garden(d.g)));
+      case "irr-auto": return this._act("set_irrigation", { garden: d.g, run_min: null });
       case "lay-start": {
         const val = (k) => Number(this.shadowRoot.querySelector(`[data-lay="${k}"]`).value);
         return this._act("set_layout", { garden: d.g, width_ft: val("width_ft"), length_ft: val("length_ft") });
@@ -1646,6 +1653,102 @@ class GardenTrackerCard extends HTMLElement {
     const t = L.configured ? L.totals : null;
     const sub = t ? `${num(L.width_ft, 1)} x ${num(L.length_ft, 1)} ft, ${t.rows} rows${t.plants ? `, ${t.plants} plants` : ""}` : "Plan rows, plant counts, T-posts and cages";
     return `<div class="card tile" data-act="open-layout" data-g="${g.id}"><div class="row"><div class="pic" style="background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)">${this._icon("grass")}</div><div class="grow"><div style="font-size:15px;font-weight:500">Layout planner</div><div class="sub">${esc(sub)}</div></div>${this._icon("chevron-right")}</div></div>`;
+  }
+  _irrTile(g) {
+    const W = g.irrigation;
+    if (!W) return "";
+    const sub = W.configured ? `${W.method === "drip" ? "Drip" : "Sprinklers"}, ${num(W.run_min, 0)} min, ${num(W.totals.gpm, 2)} GPM` : "Drip line, run times and fertigation. Lay out the garden first";
+    return `<div class="card tile" data-act="open-water" data-g="${g.id}"><div class="row"><div class="pic" style="background:color-mix(in srgb,var(--info) 18%,transparent);color:var(--info)">${this._icon("sprinkler-variant")}</div><div class="grow"><div style="font-size:15px;font-weight:500">Watering and fertigation</div><div class="sub">${esc(sub)}</div></div>${this._icon("chevron-right")}</div></div>`;
+  }
+  _irrView(g) {
+    const W = g.irrigation, gid = g.id, drip = W.method === "drip";
+    let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="grow"><div class="ttl">Watering</div><div class="sub">${esc(g.name)}, one irrigation zone</div></div></div>`;
+    if (!W.configured) return h + `<div class="card"><div class="small mut">Lay out the garden first (rows and crops), then this page works out the drip line and run times.</div></div>`;
+    const T = W.totals, soil = W.soils.find((x) => x.key === W.soil);
+    h += `<div class="card"><div class="seg">${Object.entries(W.methods).map(([k, n]) => `<button class="${W.method === k ? "on" : ""}" data-act="irr-method" data-g="${gid}" data-m="${k}">${esc(n)}</button>`).join("")}</div>`;
+    h += `<div class="stats" style="margin-top:10px"><div class="stat"><span>Run time</span><b>${num(W.run_min, 0)} min</b></div><div class="stat"><span>Waterings a week</span><b>${W.per_week}</b></div><div class="stat"><span>Whole garden</span><b>${num(T.gpm, 2)} GPM</b></div><div class="stat"><span>Each watering</span><b>${num(T.gal_watering, 0)} gal</b></div><div class="stat"><span>Each week</span><b>${num(T.gal_week, 0)} gal</b></div>${drip ? `<div class="stat"><span>Emitters</span><b>${T.emitters}</b></div>` : ""}</div>`;
+    h += `<div class="small mut" style="margin-top:8px">${drip ? (W.run_min_set ? `Run time set by you (${num(W.auto_run_min, 0)} min would be the shortest that fits). ` : "Run time worked out from the thirstiest crop at about 1 gph per plant. ") : (W.sprinkler_gpm ? "" : "Sprinkler GPM worked out from the water needed and the run time. ")}${esc(soil.name)} soil: ${esc(W.soil_note)}</div>`;
+    h += `<div class="row" style="margin-top:8px;flex-wrap:wrap;gap:6px">${this._btn("irr-set", "cog", "Soil and run time", `data-g="${gid}"`)}${W.run_min_set ? this._btn("irr-auto", "auto-fix", "Work out run time", `data-g="${gid}"`) : ""}</div></div>`;
+    if (drip && T.lines_over.length) h += `<div class="alarm" style="--hold:var(--spray)"><b>${this._icon("alert")} Too much water for one line</b><div class="small">Row${T.lines_over.length === 1 ? "" : "s"} ${T.lines_over.map((i) => i + 1).join(", ")} would put more than ${num(W.max_line_gph, 0)} gph through a single run of 1/2 inch line. Feed the line from the middle or split the row.</div></div>`;
+    h += `<div class="card"><div class="sec">By crop</div>`;
+    for (const c of W.crops) {
+      const note = c.short ? `<span class="pill warn" style="margin:0">${c.pct}% of need</span>` : c.over ? `<span class="pill info" style="margin:0">${c.pct}% of need</span>` : c.pct ? `<span class="pill ok" style="margin:0">${c.pct}% of need</span>` : "";
+      h += `<div class="row" style="align-items:flex-start;margin:8px 0;gap:8px"><div class="grow"><div style="font-weight:500">${esc(c.name)} <span class="mut small">${num(c.water_in_week, 2)} in a week${c.custom_water ? "" : ", default"}</span></div>`;
+      if (drip) {
+        h += `<div class="small"><b>${esc(c.label)}</b>, ${c.lines} line${c.lines === 1 ? "" : "s"} a row${c.pinned ? " (your choice)" : ""}</div><div class="small mut">${num(c.plant_gph, 2)} gph a plant, ${num(c.gal_plant_watering, 2)} gal a plant each watering${c.alternatives.length ? `. Other options: ${c.alternatives.map((a) => `${esc(a.label)} (${a.minutes} min to meet need)`).join(", ")}` : ""}</div>`;
+      } else h += `<div class="small mut">${num(c.water_in_week, 2)} in a week; sprinklers put down ${num(W.need_in_week, 2)} in</div>`;
+      h += `</div>${note}${this._btn("irr-crop", "pencil", "", `data-g="${gid}" data-c="${esc(c.key)}"`, "ic")}</div>`;
+    }
+    h += `</div>`;
+    if (drip) {
+      h += `<div class="card"><div class="sec">By row</div>`;
+      for (const r of W.rows) h += `<div class="small" style="margin:6px 0"><b>Row ${r.i + 1}</b>, ${r.lines} line${r.lines === 1 ? "" : "s"}: ${r.items.map((it) => `${esc(it.name)} ${num(it.ft, 1)} ft, ${esc(it.label)}`).join("; ")} <span class="mut">(${num(r.line_gph, 0)} gph in a line${r.over ? ", over the limit" : ""})</span></div>`;
+      h += `</div><div class="card"><div class="sec">Drip line to order</div>`;
+      for (const o of W.order) h += `<div class="row" style="margin:8px 0;align-items:flex-start"><div class="grow"><div style="font-weight:500">${esc(o.label)}</div><div class="small mut">${o.emitters} emitters, ${num(o.feet, 0)} ft laid</div></div><div style="text-align:right"><b>${o.order_ft} ft</b><div class="small mut">${o.rolls.map((r) => `${r.count} x ${r.len} ft`).join(" + ")}</div></div></div>`;
+      h += `<div class="row" style="margin-top:8px"><div class="grow"><b>Total</b></div><b>${num(T.feet, 0)} ft laid</b></div><div class="small mut" style="margin-top:6px">Feet are for the drip line in the rows, with ${Math.round((W.waste - 1) * 100)}% added for cuts and fittings when ordering. Supply tubing from the valve to the garden is not counted. Flows (${W.flows.join(", ")} gph), spacings (${W.spacings.join(", ")} in) and rolls (${W.rolls.join(", ")} ft) are for <a href="https://www.dripdepot.com/half-inch-polyethylene-pressure-compensating-drip-line" target="_blank" rel="noopener">Drip Depot's 1/2 inch pressure compensating drip line</a>; check them on the product page when you order.</div></div>`;
+    }
+    const F = W.fert;
+    h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">Fertigation</div>${this._btn("irr-fert", "pencil", "Fertilizer", `data-g="${gid}"`)}</div>`;
+    if (!F.ready) h += `<div class="small mut">Enter a fertilizer with some nitrogen to see amounts.</div>`;
+    else {
+      h += `<div class="small mut" style="margin:6px 0">${esc(F.product || "Fertilizer")} (${num(F.n_pct, 0)}-${num(F.p_pct, 0)}-${num(F.k_pct, 0)}) at ${num(F.ppm_n, 0)} ppm nitrogen, ${F.per_week} feeding${F.per_week === 1 ? "" : "s"} a week.</div>`;
+      h += `<div class="stats"><div class="stat"><span>Water per feeding</span><b>${num(F.gal, 0)} gal</b></div><div class="stat"><span>Fertilizer</span><b>${num(F.fert_g, 0)} g</b></div><div class="stat"><span>Fertilizer</span><b>${num(F.fert_oz, 1)} oz</b></div><div class="stat"><span>Nitrogen</span><b>${num(F.n_g, 0)} g</b></div></div>`;
+      h += `<div class="small mut" style="margin-top:8px">Injector at 1:${F.ratio}: mix ${num(F.fert_g, 0)} g into ${num(F.stock_gal, 2)} gal of stock (${num(F.stock_g_per_gal, 0)} g a gallon) for the whole garden. That is ${num(F.lb_n_1000, 2)} lb of nitrogen per 1,000 sq ft a feeding, ${num(F.lb_n_week, 2)} lb of nitrogen a week in all.</div>`;
+      if (F.plants.length) {
+        h += `<div class="sec" style="margin-top:12px">Per plant, each feeding</div>`;
+        for (const p of F.plants) h += `<div class="row" style="margin:6px 0;flex-wrap:wrap"><div class="grow"><b>${esc(p.name)}</b> <span class="small mut">${num(p.gal, 2)} gal</span></div><div class="small" style="text-align:right">${num(p.n_mg, 0)} mg N, ${num(p.fert_g, 2)} g fertilizer ${p.high ? `<span class="pill warn" style="margin:0">above its ${num(p.your_ppm, 0)} ppm</span>` : p.low ? `<span class="pill info" style="margin:0">below its ${num(p.your_ppm, 0)} ppm</span>` : ""}</div></div>`;
+        h += `<div class="small mut">All crops in a zone get the same strength, so the plants that want more or less need a different number of feedings. Each crop's own ppm is set with its pencil above.</div>`;
+      }
+    }
+    return h + `</div>`;
+  }
+  _fIrr(g) {
+    const W = g.irrigation;
+    return {
+      title: `Soil and run time: ${g.name}`, submitLabel: "Save",
+      fields: [
+        { name: "soil", label: "Soil", type: "select", options: W.soils.map((x) => [x.key, x.name]), value: W.soil },
+        { name: "per_week", label: "Waterings a week", type: "number", step: "1", value: W.per_week, req: true },
+        { name: "run_min", label: "Minutes each watering (empty to work it out)", type: "number", step: "any", value: W.run_min_set || "" },
+        { name: "max_line_gph", label: "Most gph through one run of drip line", type: "number", step: "any", value: W.max_line_gph, show: () => W.method === "drip" },
+        { name: "sprinkler_in_hr", label: "Sprinklers put down (inches an hour)", type: "number", step: "any", value: W.sprinkler_in_hr, show: () => W.method === "sprinkler" },
+        { name: "sprinkler_gpm", label: "Sprinkler flow (GPM, empty to work it out)", type: "number", step: "any", value: W.sprinkler_gpm || "", show: () => W.method === "sprinkler" },
+      ],
+      note: "Clay soaks in slowly and only takes 1/2 gph emitters; the other soils take 1 gph. Each garden is its own irrigation zone, so its lines all run together for the same time.",
+      submit: (x) => this._call("set_irrigation", { garden: g.id, soil: x.soil, per_week: x.per_week, run_min: x.run_min === undefined ? null : x.run_min, max_line_gph: x.max_line_gph, sprinkler_in_hr: x.sprinkler_in_hr, sprinkler_gpm: W.method === "sprinkler" ? (x.sprinkler_gpm === undefined ? null : x.sprinkler_gpm) : undefined }),
+    };
+  }
+  _fIrrCrop(g, key) {
+    const W = g.irrigation, c = W.crops.find((x) => x.key === key), drip = W.method === "drip";
+    return {
+      title: `Water: ${c.name}`, submitLabel: "Save",
+      fields: [
+        { name: "water_in_week", label: "Inches of water a week", type: "number", step: "any", value: c.water_in_week, req: true },
+        { name: "ppm_n", label: "Nitrogen it likes (ppm)", type: "number", step: "any", value: c.ppm_n },
+        { name: "lines", label: "Runs of drip line along each row", type: "number", step: "1", value: c.lines, show: () => drip },
+        { name: "flow_gph", label: "Emitter flow", type: "select", options: [["", "Suggested"], ...W.flows.map((f) => [String(f), `${f} gph`])], value: c.pinned ? String(c.flow_gph) : "", show: () => drip },
+        { name: "emit_in", label: "Emitter spacing", type: "select", options: [["", "Suggested"], ...W.spacings.map((f) => [String(f), `${f} in`])], value: c.pinned ? String(c.emit_in) : "", show: () => drip },
+      ],
+      note: "Choosing a flow or spacing here overrides the suggestion for this crop. Leave both on Suggested to let the planner pick.",
+      submit: (x) => this._call("set_irrigation_crop", { garden: g.id, crop: key, water_in_week: x.water_in_week, ppm_n: x.ppm_n, lines: x.lines, flow_gph: drip ? (x.flow_gph ? Number(x.flow_gph) : null) : undefined, emit_in: drip ? (x.emit_in ? Number(x.emit_in) : null) : undefined }),
+    };
+  }
+  _fFert(g) {
+    const F = g.irrigation.fert_settings;
+    return {
+      title: `Fertilizer: ${g.name}`, submitLabel: "Save",
+      fields: [
+        { name: "product", label: "Product", type: "text", value: F.product || "", placeholder: "Water soluble 20-20-20" },
+        { name: "n_pct", label: "Nitrogen %", type: "number", step: "any", value: F.n_pct, req: true },
+        { name: "p_pct", label: "Phosphate %", type: "number", step: "any", value: F.p_pct },
+        { name: "k_pct", label: "Potash %", type: "number", step: "any", value: F.k_pct },
+        { name: "ppm_n", label: "Nitrogen in the water (ppm)", type: "number", step: "any", value: F.ppm_n, req: true },
+        { name: "ratio", label: "Injector ratio (100 for 1:100)", type: "number", step: "1", value: F.ratio },
+        { name: "per_week", label: "Feedings a week", type: "number", step: "1", value: F.per_week },
+      ],
+      note: "Common fertigation strengths are 50 to 150 ppm nitrogen. Parts per million is milligrams of nitrogen in a litre of water.",
+      submit: (x) => this._call("set_fertigation", { garden: g.id, product: x.product === undefined ? "" : x.product, n_pct: x.n_pct, p_pct: x.p_pct === undefined ? 0 : x.p_pct, k_pct: x.k_pct === undefined ? 0 : x.k_pct, ppm_n: x.ppm_n, ratio: x.ratio, per_week: x.per_week }),
+    };
   }
   _layoutSvg(L, g, ro) {
     const COL = ["#e5372d", "#2e7d32", "#f28c38", "#8e24aa", "#039be5", "#c0a000", "#795548", "#d81b60"];

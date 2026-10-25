@@ -411,3 +411,96 @@ class Layout(unittest.TestCase):
             self.assertTrue(json.loads(a.call(svc, json.dumps({"garden": gid, **args})))["ok"])
         b = App.app(self, a.data())
         self.assertEqual(json.loads(b.snapshot())["gardens"][0]["layout"]["totals"]["plants"], 4 * 4)
+
+
+class Irrigation(unittest.TestCase):
+    def setUp(self):
+        self.m = make()
+        self.gid = self.m.add_garden("Back yard")
+        self.m.set_layout(self.gid, 20, 40, 30, None, 0)
+        self.m.assign_layout_rows(self.gid, "tomato", [0, 1, 2])
+        self.m.assign_layout_rows(self.gid, "pepper", [3, 4])
+        self.m.set_layout_crop(self.gid, "tomato", spacing_in=18)
+
+    def water(self):
+        return next(g for g in self.m.snapshot()["gardens"] if g["id"] == self.gid)["irrigation"]
+
+    def crop(self, key):
+        return next(c for c in self.water()["crops"] if c["key"] == key)
+
+    def test_drip_is_the_default_and_loam_takes_one_gph_at_each_plant(self):
+        w = self.water()
+        self.assertEqual(w["method"], "drip")
+        t = self.crop("tomato")
+        self.assertEqual((t["flow_gph"], t["emit_in"], t["lines"]), (1.0, 18, 1))
+        self.assertAlmostEqual(t["plant_gph"], 1.0, 2)
+        self.assertEqual(t["emitters"], 3 * 26)  # 40 ft is 480 in, 26 emitters at 18 in, in 3 rows
+
+    def test_clay_gets_half_gph_emitters_and_the_same_water_per_plant(self):
+        self.m.set_irrigation(self.gid, soil="clay")
+        t = self.crop("tomato")
+        self.assertEqual((t["flow_gph"], t["emit_in"]), (0.5, 9))
+        self.assertAlmostEqual(t["plant_gph"], 1.0, 1)
+
+    def test_run_time_is_for_the_garden_and_footage_is_ordered_by_kind(self):
+        w = self.water()
+        self.assertEqual(sum(o["feet"] for o in w["order"]), 5 * 40)
+        self.assertAlmostEqual(w["totals"]["gpm"], w["totals"]["gph"] / 60, 1)
+        self.assertEqual(w["run_min"], w["auto_run_min"])
+        self.m.set_irrigation(self.gid, run_min=30)
+        self.assertEqual(self.water()["run_min"], 30)
+        self.assertTrue(self.crop("tomato")["short"])  # too short for the thirstiest crop, so it says so
+        self.m.set_irrigation(self.gid, run_min=None)
+        self.assertEqual(self.water()["run_min_set"], None)
+
+    def test_rolls_cover_the_footage_with_an_allowance(self):
+        from custom_components.garden_tracker.core import irrigation as irr
+        self.assertEqual(irr.rolls_for(200), [{"len": 100, "count": 3}])  # 210 ft with the allowance
+        self.assertEqual(irr.rolls_for(480), [{"len": 500, "count": 1}, {"len": 100, "count": 1}])
+        self.assertEqual(irr.rolls_for(450), [{"len": 500, "count": 1}])
+
+    def test_grid_rows_in_a_30_inch_bed_get_two_runs_and_a_pinned_choice_sticks(self):
+        self.m.assign_layout_rows(self.gid, "carrot", [5])
+        self.assertEqual(self.crop("carrot")["lines"], 2)
+        self.m.set_irrigation_crop(self.gid, "pepper", flow_gph=0.5, emit_in=9)
+        p = self.crop("pepper")
+        self.assertEqual((p["flow_gph"], p["emit_in"], p["pinned"]), (0.5, 9, True))
+        self.m.set_irrigation_crop(self.gid, "pepper", flow_gph=None, emit_in=None)
+        self.assertFalse(self.crop("pepper")["pinned"])
+
+    def test_sprinklers_and_fertigation(self):
+        self.m.set_irrigation(self.gid, method="sprinkler", sprinkler_in_hr=0.5, sprinkler_gpm=4)
+        w = self.water()
+        self.assertEqual(w["method"], "sprinkler")
+        self.assertAlmostEqual(w["hours_week"], 3.0, 1)  # tomatoes want 1.5 in at 0.5 in an hour
+        self.assertEqual(w["totals"]["gpm"], 4)
+        self.m.set_fertigation(self.gid, n_pct=20, ppm_n=100, ratio=100)
+        f = self.water()["fert"]
+        self.assertAlmostEqual(f["fert_g"], f["gal"] * 3.78541 * 100 / 1000 / 0.20, 0)
+        self.assertEqual(f["plants"], [])
+        self.m.set_irrigation(self.gid, method="drip")
+        f = self.water()["fert"]
+        t = next(p for p in f["plants"] if p["key"] == "tomato")
+        self.assertAlmostEqual(t["n_mg"], t["gal"] * 3.78541 * 100, delta=1)
+
+    def test_bad_input(self):
+        for bad in (dict(soil="gravel"), dict(per_week=0), dict(method="flood")):
+            with self.assertRaises(GardenError):
+                self.m.set_irrigation(self.gid, **bad)
+        with self.assertRaises(GardenError):
+            self.m.set_irrigation_crop(self.gid, "tomato", flow_gph=2)
+        with self.assertRaises(GardenError):
+            self.m.set_fertigation(self.gid, ppm_n=0)
+
+    def test_save_and_restore(self):
+        a = GardenApp(SPECIES.read_text("utf-8"), None, TODAY.isoformat())
+        for svc, data in (("add_garden", {"name": "Back yard"}),):
+            a.call(svc, json.dumps(data))
+        gid = json.loads(a.snapshot())["gardens"][0]["id"]
+        a.call("set_layout", json.dumps({"garden": gid, "width_ft": 10, "length_ft": 10, "row_in": 30}))
+        a.call("assign_layout_rows", json.dumps({"garden": gid, "crop": "tomato"}))
+        a.call("set_irrigation", json.dumps({"garden": gid, "soil": "clay"}))
+        a.call("set_fertigation", json.dumps({"garden": gid, "product": "20-20-20", "ppm_n": 125}))
+        b = GardenApp(SPECIES.read_text("utf-8"), a.data(), TODAY.isoformat())
+        w = json.loads(b.snapshot())["gardens"][0]["irrigation"]
+        self.assertEqual((w["soil"], w["fert_settings"]["ppm_n"]), ("clay", 125))

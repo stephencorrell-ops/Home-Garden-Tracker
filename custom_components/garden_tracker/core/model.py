@@ -9,6 +9,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Callable
 
 from . import calc
+from . import irrigation as irr
 from . import layout as lay
 from . import rotation as rot
 from . import microclimate as mc
@@ -190,6 +191,7 @@ class GardenModel:
         g.setdefault("trays", 0)
         g.setdefault("layout", None)
         g.setdefault("layout_history", {})
+        g.setdefault("irrigation", None)
         g.setdefault("watering", [])
         g.setdefault("water_every", None)
         g.setdefault("power_sensors", {})
@@ -875,6 +877,49 @@ class GardenModel:
         except lay.LayoutError as e:
             raise GardenError(str(e)) from None
         L.setdefault("crops", {}).setdefault(crop, {}).update(vals)
+        self._touch()
+
+    # ---- watering: drip or sprinklers, run time, fertigation ----------------------------------------------
+    def _irrigation_of(self, garden: str) -> tuple[dict, dict]:
+        g = self._layout_garden(garden)
+        if not g.get("irrigation"):
+            g["irrigation"] = irr.blank()
+        return g, g["irrigation"]
+
+    def set_irrigation(self, garden: str, method: Any = None, soil: Any = None, per_week: Any = None, run_min: Any = "keep",
+                       sprinkler_in_hr: Any = None, sprinkler_gpm: Any = "keep", max_line_gph: Any = None) -> None:
+        g, I = self._irrigation_of(garden)
+        try:
+            I.update(irr.validate_settings(method, soil, per_week, run_min, sprinkler_in_hr, sprinkler_gpm, max_line_gph))
+        except irr.IrrigationError as e:
+            raise GardenError(str(e)) from None
+        self._touch()
+
+    def set_irrigation_crop(self, garden: str, crop: str, water_in_week: Any = None, lines: Any = None, flow_gph: Any = "keep",
+                            emit_in: Any = "keep", ppm_n: Any = None) -> None:
+        g, I = self._irrigation_of(garden)
+        if crop not in self._plant_names():
+            raise GardenError(f"Unknown crop '{crop}'")
+        try:
+            vals = irr.validate_crop(water_in_week, lines, flow_gph, emit_in, ppm_n)
+        except irr.IrrigationError as e:
+            raise GardenError(str(e)) from None
+        I.setdefault("crops", {}).setdefault(crop, {}).update(vals)
+        self._touch()
+
+    def reset_irrigation_crop(self, garden: str, crop: str) -> None:
+        g, I = self._irrigation_of(garden)
+        I.setdefault("crops", {}).pop(crop, None)
+        self._touch()
+
+    def set_fertigation(self, garden: str, product: Any = None, n_pct: Any = None, p_pct: Any = None, k_pct: Any = None,
+                        ppm_n: Any = None, ratio: Any = None, per_week: Any = None) -> None:
+        g, I = self._irrigation_of(garden)
+        try:
+            vals = irr.validate_fert(product, n_pct, p_pct, k_pct, ppm_n, ratio, per_week)
+        except irr.IrrigationError as e:
+            raise GardenError(str(e)) from None
+        I.setdefault("fert", irr.blank()["fert"]).update(vals)
         self._touch()
 
     def set_layout_draft(self, garden: str, crop: str | None = None, mode: str | None = None, value: Any = None,
@@ -1894,6 +1939,8 @@ class GardenModel:
             "paused": {k: bool(g.get("sensors_paused", {}).get(k)) for k in METRICS},
             "fertility": self._fertility_view(g, metrics, today) if soil else None,
             "layout": lay.plan(g.get("layout"), self._plant_names(), self._history(g), today.year, self.data["variety_traits"]) if soil else None,
+            "irrigation": (irr.plan(lay.plan(g.get("layout"), self._plant_names(), None, today.year), g.get("irrigation"))
+                           if soil else None),
             "layout_history": ({y: lay.plan(h, self._plant_names(), None, int(y)) for y, h in g["layout_history"].items()} if soil else {}),
             "trays": g.get("trays", 0), "water": self._water_view(g, today),
             "trays_calc": self._trays_calc(g) if kind != "garden" else None,
