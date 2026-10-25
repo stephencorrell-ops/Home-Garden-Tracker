@@ -25,7 +25,7 @@ HEIGHTS: dict[str, float] = {
     "cauliflower": 2.0, "broccoli": 2.5, "kale": 2.0, "cabbage": 1.5, "bean": 1.5, "garlic": 1.5, "onion": 1.5, "onion_red": 1.5,
     "onion_white": 1.5, "onion_sweet": 1.5, "pumpkin": 1.5, "carrot": 1.0, "beet": 1.0, "watermelon": 1.0, "cantaloupe": 1.0,
     "lettuce": 0.7, "spinach": 0.5, "radish": 0.5, "strawberry": 0.5, "sweet_potato": 1.0, "basil": 2.0, "cilantro": 1.5, "parsley": 1.2, "dill": 3.5, "chives": 1.0, "mint": 1.5,
-    "oregano": 1.5, "thyme": 0.7, "rosemary": 3.0, "sage": 2.0,
+    "blueberry": 5.0, "raspberry": 5.0, "blackberry": 6.0, "oregano": 1.5, "thyme": 0.7, "rosemary": 3.0, "sage": 2.0,
 }
 
 
