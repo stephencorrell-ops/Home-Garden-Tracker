@@ -474,7 +474,23 @@ class Irrigation(unittest.TestCase):
         self.assertEqual(w["method"], "sprinkler")
         self.assertAlmostEqual(w["hours_week"], 3.0, 1)  # tomatoes want 1.5 in at 0.5 in an hour
         self.assertEqual(w["totals"]["gpm"], 4)
-        self.assertEqual(w["fert"]["plants"], [])  # no per plant amounts without drip
+        self.assertEqual(w["fert"]["overfed"], [])  # no sections to valve off without drip
+
+    def test_a_crop_that_would_be_over_fed_gets_a_shorter_feeding_for_its_section(self):
+        f = self.water()["fert"]
+        self.assertEqual(f["ppm_n"], 90)  # tomato 100 and pepper 75 ppm, weighted by their water
+        self.assertEqual(f["overfed"], [])  # 90 is within a quarter of both
+        self.m.set_fert_mix(self.gid, "growth", ppm_n=110)
+        f = self.water()["fert"]
+        over = {o["key"]: o for o in f["overfed"]}
+        self.assertEqual(list(over), ["pepper"])  # 110 is more than a quarter above the pepper's 75
+        o = over["pepper"]
+        self.assertEqual(o["rows"], [4, 5])
+        self.assertEqual(o["full_minutes"], round(f["inject_min"]))
+        self.assertAlmostEqual(o["minutes"], f["inject_min"] * 75 / 110, delta=1)
+        self.assertNotIn("plants", f)  # no per plant list any more
+        self.m.set_fert_mix(self.gid, "growth", ppm_n=60)
+        self.assertEqual(self.water()["fert"]["overfed"], [])  # a weaker mix suits both
 
     def test_pump_defaults_to_the_dosatron_d14mz2_and_is_editable(self):
         f = self.water()["fert"]

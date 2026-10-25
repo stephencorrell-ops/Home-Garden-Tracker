@@ -378,11 +378,13 @@ def _drip(base: dict, st: dict, layout: dict, info: dict, soil: tuple, row_in: i
     total_gph = 0.0
     line_flag = []
     seg_by_crop: dict[str, dict] = {k: {"emitters": 0, "gph": 0.0} for k in info}
+    rows_of: dict[str, set] = {}
     for r in layout["rows"]:
         items, per_line, lines_n = [], 0.0, 1
         for sg in r["segments"]:
             i = info[sg["crop"]]
             b = i["best"]
+            rows_of.setdefault(sg["crop"], set()).add(r["i"] + 1)
             ft = sg["len_in"] / 12
             n_em = int(sg["len_in"] / b["emit_in"] + 1e-6)
             gph_line = n_em * b["flow"]
@@ -407,7 +409,7 @@ def _drip(base: dict, st: dict, layout: dict, info: dict, soil: tuple, row_in: i
         gal_watering = s["gph"] * run_min / 60
         gal_week = s["gph"] * hours
         crops.append({"key": i["key"], "name": i["name"], "pattern": i["pattern"], "spacing_in": i["spacing_in"], "ft": i["ft"],
-                      "plants": i["plants"], "water_in_week": i["water_in_week"], "lines": i["lines"], "ppm_n": i["ppm_n"],
+                      "plants": i["plants"], "water_in_week": i["water_in_week"], "lines": i["lines"], "ppm_n": i["ppm_n"], "rows_list": sorted(rows_of.get(i["key"], ())),
                       "custom_water": i["custom_water"], "custom_lines": i["custom_lines"],
                       "pinned": bool(i["pin_flow"] or i["pin_emit"]), "flow_gph": b["flow"], "emit_in": b["emit_in"],
                       "label": label(b["flow"], b["emit_in"]), "emitters": s["emitters"], "gph": round(s["gph"], 1),
@@ -674,7 +676,7 @@ def fert(f: dict | None, crops: list[dict], gal: float, method: str, area: float
                            "active": active, "every_days": f["every_days"], "pumps": [{"key": k, **p} for k, p in f["pumps"].items()],
                            "tank_pump": f["tank_pump"], "first_pump": f["first_pump"], "ready": False,
                            "tank_names": sorted({c["tank"] for m in mixes.values() for c in m["components"]}) + ["acid"], "gal_watering": round(gal, 1),
-                           "run_min": run_min, "gpm": round(gpm, 2), "warnings": [], "components": [], "tanks": [], "plants": [],
+                           "run_min": run_min, "gpm": round(gpm, 2), "warnings": [], "components": [], "tanks": [], "overfed": [],
                            "mix": None}
     if not active:
         return out
@@ -746,12 +748,13 @@ def fert(f: dict | None, crops: list[dict], gal: float, method: str, area: float
     lb_n = n_g / 453.592
     out.update({"n_g": round(n_g, 1), "lb_n_1000": round(lb_n * 1000 / area, 3) if area else None,
                 "lb_n_week": round(lb_n * 7 / f["every_days"], 3)})
+    # Every crop in a zone gets the strength of the mix. A crop that wants far less would be over fed, so say how long
+    # its section should get fertilized water before its valve is shut (or it is moved to plain water).
+    out["overfed"] = []
     if method == "drip":
         for c in crops:
-            if not c.get("plants"):
-                continue
-            w = c["gal_plant_watering"] * frac
-            mg = w * 3.78541 * ppm
-            out["plants"].append({"key": c["key"], "name": c["name"], "gal": round(w, 2), "n_mg": round(mg), "your_ppm": c["ppm_n"],
-                                  "blend_g": round(mg / 1000 / n_frac, 2), "high": ppm > c["ppm_n"] * 1.25, "low": ppm < c["ppm_n"] * 0.75})
+            if c.get("plants") and ppm > c["ppm_n"] * 1.25:
+                full = out["inject_min"]
+                out["overfed"].append({"key": c["key"], "name": c["name"], "rows": c.get("rows_list", []), "your_ppm": c["ppm_n"],
+                                       "minutes": max(1, round(full * c["ppm_n"] / ppm)), "full_minutes": round(full)})
     return out

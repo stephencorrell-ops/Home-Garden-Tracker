@@ -1054,6 +1054,7 @@ class GardenTrackerCard extends HTMLElement {
       case "irr-acid": return this._open(this._fAcid(this._garden(d.g)));
       case "irr-pump": return this._open(this._fPump(this._garden(d.g), d.k));
       case "irr-tanks": return this._open(this._fTanks(this._garden(d.g)));
+      case "toggle-sec": this._exp = { ...(this._exp || {}), [d.s]: !(this._exp || {})[d.s] }; return this._render();
       case "irr-lime": return this._open(this._fLime(this._garden(d.g)));
       case "irr-acid-log": return this._open(this._fAcidLog(this._garden(d.g), d.q === "1"));
       case "irr-sched": return this._open(this._fSched(this._garden(d.g)));
@@ -1720,15 +1721,15 @@ class GardenTrackerCard extends HTMLElement {
       if (F.feed_runs.length > 1) h += `<div class="small" style="margin-top:10px"><b>Run plan:</b> ${F.feed_runs.map((r) => `watering ${r.n}: tank ${r.tanks.join(" and ")}`).join("; ")}.</div>`;
       const an = F.analysis;
       h += `<div class="small mut" style="margin-top:10px">What the plants get in the water: ${num(an.N, 0)} ppm N, ${num(an.P2O5, 0)} ppm P2O5, ${num(an.K2O, 0)} ppm K2O${an.Ca ? `, ${num(an.Ca, 0)} ppm Ca` : ""}${an.Mg ? `, ${num(an.Mg, 0)} ppm Mg` : ""}. The blend is ${num(F.n_pct, 1)}% nitrogen. That is ${num(F.lb_n_1000, 2)} lb of nitrogen per 1,000 sq ft a feeding, ${num(F.lb_n_week, 3)} lb a week for the garden.</div><div style="margin-top:6px">${this._btn("irr-sched", "calendar-clock", `Every ${F.every_days} days`, `data-g="${gid}"`)}</div>`;
-      if (F.plants.length) {
-        h += `<div class="sec" style="margin-top:12px">Per plant, each feeding</div>`;
-        for (const p of F.plants) h += `<div class="row" style="margin:6px 0;flex-wrap:wrap"><div class="grow"><b>${esc(p.name)}</b> <span class="small mut">${num(p.gal, 2)} gal</span></div><div class="small" style="text-align:right">${num(p.n_mg, 0)} mg N, ${num(p.blend_g, 2)} g of blend ${p.high ? `<span class="pill warn" style="margin:0">above its ${num(p.your_ppm, 0)} ppm</span>` : p.low ? `<span class="pill info" style="margin:0">below its ${num(p.your_ppm, 0)} ppm</span>` : ""}</div></div>`;
-        h += `<div class="small mut">Every crop in a zone gets the same strength. A crop that wants more or less is flagged; its own ppm is set with its pencil above, and it counts toward the strength when the mix has none of its own.</div>`;
+      if (F.overfed.length) {
+        h += `<div class="sec" style="margin-top:12px">Shorten these sections</div>`;
+        for (const o of F.overfed) h += `<div class="alarm" style="--hold:var(--spray)"><div class="small"><b>${esc(o.name)}</b>${o.rows.length ? ` (row${o.rows.length === 1 ? "" : "s"} ${o.rows.join(", ")})` : ""} wants about ${num(o.your_ppm, 0)} ppm and this mix is ${num(F.ppm_n, 0)}. Give it fertilized water for ${o.minutes} of the ${o.full_minutes} minutes, then shut its valve or switch it to plain water.</div></div>`;
       }
     }
     h += `</div>`;
+    const accStart = h.length;
     const A = W.acid, raise = A.mode === "raise";
-    h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("beaker-outline")} Water pH ${raise ? "(raise)" : "and acid"}</div>${this._btn("irr-acid", "pencil", "Water test", `data-g="${gid}"`)}</div>`;
+    h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("beaker-outline")} Water pH ${raise ? "(raise)" : "and acid"}</div>${this._btn("irr-acid", "pencil", "Water test", `data-g="${gid}"`)}${this._btn("toggle-sec", "chevron-up", "", `data-s="acid"`, "ic")}</div>`;
     if (!A.ready) h += `<div class="small mut" style="margin-top:6px">Enter your water's pH and total alkalinity (TA, in ppm as calcium carbonate) from a test. Water above your target pH gets sulfuric acid (${num(A.strength_pct, 0)}% by weight); water below it gets a base such as potassium bicarbonate.</div>`;
     else {
       h += `<div class="small mut" style="margin:6px 0">Water tested pH ${num(A.ph, 2)}, TA ${num(A.ta_ppm, 0)} ppm. Target pH ${num(A.target_ph, 1)}${raise ? ` with ${esc(A.base_name || "a base")}` : ` with ${num(A.strength_pct, 0)}% sulfuric acid (${num(A.sg, 3)} specific gravity, ${num(A.meq_per_ml, 1)} meq a mL)`}.</div>`;
@@ -1750,8 +1751,12 @@ class GardenTrackerCard extends HTMLElement {
       for (const e of AL.entries.slice(0, 8)) h += this._logRow("acid", gid, e.id, `${fmtDate(e.date)}, ${e.g ? `${num(e.g, 0)} g${e.product ? " " + esc(e.product) : ""}` : `${num(e.ml, 0)} mL`}`, `${e.water_gal ? `${num(e.water_gal, 0)} gal` : ""}${e.ph_before ? `${e.water_gal ? ", " : ""}pH ${num(e.ph_before, 2)}${e.ph_after ? ` to ${num(e.ph_after, 2)}` : ""}` : ""}${e.notes ? " · " + esc(e.notes) : ""}`);
     }
     h += `</div>`;
+    h = this._collapsible(h, accStart, "acid", "beaker-outline", raise ? "Water pH (raise)" : "Water pH and acid",
+      !A.ready ? "Enter a water test to work out the acid" : (raise ? `pH ${num(A.ph, 1)} to ${num(A.target_ph, 1)}: ${num(A.g_per_gal, 2)} g of base a gallon${A.tank ? `, ${A.tank.g} g in the tank` : ""}`
+        : `pH ${num(A.ph, 1)} to ${num(A.target_ph, 1)}: ${num(A.ml_per_gal, 2)} mL of acid a gallon${A.tank ? `, ${A.tank.ml} mL in the tank` : ""}`) + (W.acid_log.last ? `. Last applied ${W.acid_log.days_since === 0 ? "today" : `${W.acid_log.days_since} days ago`}` : ""));
+    const limeStart = h.length;
     const Li = W.lime;
-    h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("shovel")} Raise soil pH</div>${this._btn("irr-lime", "pencil", "Lime", `data-g="${gid}"`)}</div>`;
+    h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("shovel")} Raise soil pH</div>${this._btn("irr-lime", "pencil", "Lime", `data-g="${gid}"`)}${this._btn("toggle-sec", "chevron-up", "", `data-s="lime"`, "ic")}</div>`;
     if (!Li.ready) h += `<div class="small mut" style="margin-top:6px">Log a soil pH on the garden's page, or enter one under Lime, to work out how much garden lime to spread.</div>`;
     else {
       h += `<div class="small mut" style="margin:6px 0">Soil pH ${num(Li.ph, 1)} (${Li.ph_from === "you" ? "entered here" : "your latest log"}) to ${num(Li.target_ph, 1)}, ${esc(Li.type_name.toLowerCase())}, ${Li.tilled ? "worked in" : "left on top"} to ${num(Li.depth_in, 0)} in.</div>`;
@@ -1762,7 +1767,12 @@ class GardenTrackerCard extends HTMLElement {
         h += `<div class="small mut" style="margin-top:6px">Spread it dry and rake or till it in; it takes 3 to 9 months to work, so fall is a good time. Based on about ${num(Li.lb_per_unit, 0)} lb of pure limestone per 1,000 sq ft for each pH unit on ${esc((W.soils.find((x) => x.key === Li.soil) || {}).name || "this soil").toLowerCase()}. ${esc(Li.notes)}</div>`;
       }
     }
-    return h + `</div>`;
+    h += `</div>`;
+    return this._collapsible(h, limeStart, "lime", "shovel", "Raise soil pH", !Li.ready ? "Log a soil pH to work out the lime" : Li.lb_1000 ? `pH ${num(Li.ph, 1)} to ${num(Li.target_ph, 1)}: ${num(Li.lb_1000, 0)} lb per 1,000 sq ft${Li.area_given ? `, ${num(Li.lb_total, 0)} lb for this garden` : ""}` : "No lime needed");
+  }
+  _collapsible(h, start, key, icon, title, summary) {
+    if ((this._exp || {})[key]) return h;
+    return h.slice(0, start) + `<div class="card tile" data-act="toggle-sec" data-s="${key}"><div class="row"><div class="grow"><div class="sec" style="margin:0">${this._icon(icon)} ${esc(title)}</div><div class="small mut" style="margin-top:2px">${esc(summary)}</div></div>${this._icon("chevron-down")}</div></div>`;
   }
   _fIrr(g) {
     const W = g.irrigation;
