@@ -917,6 +917,19 @@ class GardenModel:
         I["fert"] = irr.fert_of(I.get("fert"))
         return I["fert"]
 
+    def set_acid(self, garden: str, ph: Any = None, ta_ppm: Any = None, target_ph: Any = None, strength_pct: Any = None,
+                 sg: Any = "keep") -> None:
+        g, I = self._irrigation_of(garden)
+        try:
+            vals = irr.validate_acid(ph, ta_ppm, target_ph, strength_pct, sg)
+        except irr.IrrigationError as e:
+            raise GardenError(str(e)) from None
+        a = {**irr.default_acid(), **(I.get("acid") or {}), **vals}
+        if ph is not None or ta_ppm is not None:
+            a["tested"] = self.today().isoformat()
+        I["acid"] = a
+        self._touch()
+
     def set_fertigation(self, garden: str, every_days: Any = None, active: Any = None) -> None:
         F = self._fert_of(garden)
         try:

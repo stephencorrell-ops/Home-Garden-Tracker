@@ -88,6 +88,7 @@ SERVICES: dict[str, dict] = {
     "set_irrigation_crop": {R("garden"): cv.string, R("crop"): cv.string, O("water_in_week"): NUM, O("lines"): vol.All(vol.Coerce(int), vol.Range(min=1, max=4)),
         O("flow_gph"): vol.Any(None, NUM), O("emit_in"): vol.Any(None, NUM), O("ppm_n"): NUM},
     "reset_irrigation_crop": {R("garden"): cv.string, R("crop"): cv.string},
+    "set_acid": {R("garden"): cv.string, O("ph"): NUM, O("ta_ppm"): NUM, O("target_ph"): NUM, O("strength_pct"): NUM, O("sg"): vol.Any(None, NUM)},
     "set_fertigation": {R("garden"): cv.string, O("every_days"): vol.All(vol.Coerce(int), vol.Range(min=1, max=90)), O("active"): cv.string},
     "set_injector": {R("garden"): cv.string, O("name"): cv.string, O("min_ratio"): NUM, O("max_ratio"): NUM, O("min_gpm"): NUM, O("max_gpm"): NUM,
         O("tank_gal"): NUM, O("flush_min"): NUM},

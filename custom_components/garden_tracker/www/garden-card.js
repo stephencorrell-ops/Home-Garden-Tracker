@@ -1051,6 +1051,7 @@ class GardenTrackerCard extends HTMLElement {
       case "irr-method": return this._act("set_irrigation", { garden: d.g, method: d.m });
       case "irr-set": return this._open(this._fIrr(this._garden(d.g)));
       case "irr-crop": return this._open(this._fIrrCrop(this._garden(d.g), d.c));
+      case "irr-acid": return this._open(this._fAcid(this._garden(d.g)));
       case "irr-inj": return this._open(this._fInj(this._garden(d.g)));
       case "irr-sched": return this._open(this._fSched(this._garden(d.g)));
       case "irr-mix": return this._open(this._fMix(this._garden(d.g), d.k));
@@ -1720,6 +1721,20 @@ class GardenTrackerCard extends HTMLElement {
         h += `<div class="small mut">Every crop in a zone gets the same strength. A crop that wants more or less is flagged; its own ppm is set with its pencil above, and it counts toward the strength when the mix has none of its own.</div>`;
       }
     }
+    h += `</div>`;
+    const A = W.acid;
+    h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("beaker-outline")} Water pH and acid</div>${this._btn("irr-acid", "pencil", "Test and acid", `data-g="${gid}"`)}</div>`;
+    if (!A.ready) h += `<div class="small mut" style="margin-top:6px">Enter your water's pH and total alkalinity (TA, in ppm as calcium carbonate) from a test to work out the sulfuric acid for the stock tank. Set the acid you have (${num(A.strength_pct, 0)}% by weight).</div>`;
+    else {
+      h += `<div class="small mut" style="margin:6px 0">Water tested pH ${num(A.ph, 2)}, TA ${num(A.ta_ppm, 0)} ppm. Target pH ${num(A.target_ph, 1)} with ${num(A.strength_pct, 0)}% sulfuric acid (${num(A.sg, 3)} specific gravity, ${num(A.meq_per_ml, 1)} meq a mL).</div>`;
+      for (const w of A.warnings) h += `<div class="alarm" style="--hold:var(--spray)"><div class="small">${this._icon("alert")} ${esc(w)}</div></div>`;
+      if (A.ml_per_gal) {
+        h += `<div class="stats"><div class="stat"><span>Acid per gallon of water</span><b>${num(A.ml_per_gal, 2)} mL</b></div><div class="stat"><span>Per 1,000 gal</span><b>${num(A.ml_per_1000 / 1000, 2)} L</b></div></div>`;
+        if (A.tank) h += `<div class="card" style="margin:10px 0 0;background:color-mix(in srgb,var(--c,var(--ok)) 6%,transparent)"><div class="row"><div class="sec grow" style="margin:0">Acid tank</div><b>Dial ${esc(A.tank.dial)}</b></div><div class="row" style="margin:4px 0"><div class="grow">${num(A.strength_pct, 0)}% sulfuric acid</div><div style="text-align:right"><b>${A.tank.ml} mL</b> <span class="small mut">${num(A.tank.oz, 1)} fl oz</span></div></div><div class="small mut">Pour the acid slowly into about ${num(A.tank.stock_gal, 1)} gal of water (never water into acid) so it makes ${num(A.tank.stock_gal, 2)} gal${A.tank.batches > 1 ? ` a batch, ${A.tank.batches} batches` : ""}. Set the pump to ${esc(A.tank.dial)} and run it with the zone for the ${num(A.water_gal, 0)} gal of a watering.</div></div>`;
+        if (A.table.length) h += `<div class="small mut" style="margin-top:8px">Acid for other targets, per gallon: ${A.table.map((t) => `pH ${t.ph} ${num(t.ml_per_gal, 2)} mL`).join(", ")}.</div>`;
+        h += `<div class="small mut" style="margin-top:6px">This is for the water alone. Fertilizer in the water changes the pH too, so check the water at an emitter with a meter and adjust. Keep acid in its own labeled tank, away from fertilizer, wear eye protection and gloves, and make sure your injector's seals and tubing are rated for acid.</div>`;
+      }
+    }
     return h + `</div>`;
   }
   _fIrr(g) {
@@ -1751,6 +1766,21 @@ class GardenTrackerCard extends HTMLElement {
       ],
       note: "Choosing a flow or spacing here overrides the suggestion for this crop. Leave both on Suggested to let the planner pick.",
       submit: (x) => this._call("set_irrigation_crop", { garden: g.id, crop: key, water_in_week: x.water_in_week, ppm_n: x.ppm_n, lines: x.lines, flow_gph: drip ? (x.flow_gph ? Number(x.flow_gph) : null) : undefined, emit_in: drip ? (x.emit_in ? Number(x.emit_in) : null) : undefined }),
+    };
+  }
+  _fAcid(g) {
+    const A = g.irrigation.acid;
+    return {
+      title: "Water test and acid", submitLabel: "Save",
+      fields: [
+        { name: "ph", label: "Water pH", type: "number", step: "any", value: A.ph === null ? "" : A.ph, req: true },
+        { name: "ta_ppm", label: "Total alkalinity, TA (ppm as calcium carbonate)", type: "number", step: "any", value: A.ta_ppm === null ? "" : A.ta_ppm, req: true },
+        { name: "target_ph", label: "Target pH", type: "number", step: "any", value: A.target_ph },
+        { name: "strength_pct", label: "Sulfuric acid strength (% by weight)", type: "number", step: "any", value: A.strength_pct },
+        { name: "sg", label: "Specific gravity (empty to work it out)", type: "number", step: "any", value: A.sg_set || "" },
+      ],
+      note: "Test the water before it goes through the pump. 35% is battery acid and 93% is concentrated; the specific gravity follows from the strength. Re-test now and then, as the water changes with the seasons.",
+      submit: (x) => this._call("set_acid", { garden: g.id, ph: x.ph, ta_ppm: x.ta_ppm, target_ph: x.target_ph, strength_pct: x.strength_pct, sg: x.sg === undefined ? null : x.sg }),
     };
   }
   _fInj(g) {

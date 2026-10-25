@@ -67,6 +67,7 @@ HANDLERS: dict[str, Handler] = {
     "set_irrigation": lambda m, c: m.set_irrigation(c["garden"], c.get("method"), c.get("soil"), c.get("per_week"), c.get("run_min", "keep"), c.get("sprinkler_in_hr"), c.get("sprinkler_gpm", "keep"), c.get("max_line_gph")),
     "set_irrigation_crop": lambda m, c: m.set_irrigation_crop(c["garden"], c["crop"], c.get("water_in_week"), c.get("lines"), c.get("flow_gph", "keep"), c.get("emit_in", "keep"), c.get("ppm_n")),
     "reset_irrigation_crop": lambda m, c: m.reset_irrigation_crop(c["garden"], c["crop"]),
+    "set_acid": lambda m, c: m.set_acid(c["garden"], c.get("ph"), c.get("ta_ppm"), c.get("target_ph"), c.get("strength_pct"), c.get("sg", "keep")),
     "set_fertigation": lambda m, c: m.set_fertigation(c["garden"], c.get("every_days"), c.get("active")),
     "set_injector": lambda m, c: m.set_injector(c["garden"], c.get("name"), c.get("min_ratio"), c.get("max_ratio"), c.get("min_gpm"), c.get("max_gpm"), c.get("tank_gal"), c.get("flush_min")),
     "set_fert_mix": lambda m, c: m.set_fert_mix(c["garden"], c.get("mix"), c.get("name"), c.get("ppm_n", "keep")),

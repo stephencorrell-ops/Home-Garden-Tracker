@@ -53,6 +53,10 @@ class IrrigationError(ValueError):
     pass
 
 
+def default_acid() -> dict:
+    return {"ph": None, "ta_ppm": None, "target_ph": 5.5, "strength_pct": 35.0, "sg": None, "tested": None}
+
+
 def default_fert() -> dict:
     """The Dosatron D14MZ2 and two starting mixes: a high nitrogen one for growth, then MasterBlend 4-18-38 with
     calcium nitrate and Epsom salt for fruiting. Everything here is a starting value and can be edited."""
@@ -74,7 +78,7 @@ def default_fert() -> dict:
 def blank() -> dict:
     return {"method": "drip", "soil": DEFAULT_SOIL, "per_week": 3, "run_min": None, "sprinkler_in_hr": 0.75,
             "sprinkler_gpm": None, "max_line_gph": DEFAULT_MAX_LINE_GPH, "crops": {},
-            "fert": default_fert()}
+            "fert": default_fert(), "acid": default_acid()}
 
 
 def _num(v: Any, name: str, lo: float, hi: float) -> float:
@@ -200,6 +204,21 @@ def validate_component(name: Any = None, n: Any = None, p: Any = None, k: Any = 
     return out
 
 
+def validate_acid(ph: Any = None, ta_ppm: Any = None, target_ph: Any = None, strength_pct: Any = None, sg: Any = "keep") -> dict:
+    out: dict[str, Any] = {}
+    if ph is not None:
+        out["ph"] = _num(ph, "Water pH", 3, 12)
+    if ta_ppm is not None:
+        out["ta_ppm"] = _num(ta_ppm, "Total alkalinity (ppm as calcium carbonate)", 0, 2000)
+    if target_ph is not None:
+        out["target_ph"] = _num(target_ph, "Target pH", 3, 9)
+    if strength_pct is not None:
+        out["strength_pct"] = _num(strength_pct, "Acid strength", 1, 100)
+    if sg != "keep":  # empty means work it out from the strength
+        out["sg"] = None if sg in (None, "", 0) else _num(sg, "Specific gravity", 0.9, 2.0)
+    return out
+
+
 def fert_of(f: dict | None) -> dict:
     """The fertigation settings with anything missing filled in from the defaults."""
     d = default_fert()
@@ -215,7 +234,8 @@ def fert_of(f: dict | None) -> dict:
 def settings_for(s: dict | None) -> dict:
     base = blank()
     if s:
-        base.update({k: v for k, v in s.items() if k not in ("fert", "crops")})
+        base.update({k: v for k, v in s.items() if k not in ("fert", "crops", "acid")})
+        base["acid"] = {**default_acid(), **(s.get("acid") or {})}
         base["fert"] = fert_of(s.get("fert"))
         base["crops"] = {k: dict(v) for k, v in (s.get("crops") or {}).items()}
     return base
@@ -377,12 +397,13 @@ def _drip(base: dict, st: dict, layout: dict, info: dict, soil: tuple, row_in: i
         order.append({"flow": f, "emit_in": e, "label": label(f, e), "feet": round(ft, 1), "order_ft": math.ceil(ft * WASTE),
                       "emitters": order_n[(f, e)], "rolls": rolls_for(ft)})
     gal_week = sum(c["gal_week"] for c in crops)
+    ft = fert(st["fert"], crops, total_gph * run_min / 60, "drip", layout["width_ft"] * layout["length_ft"], run_min, total_gph / 60)
     return {**base, "run_min": run_min, "run_min_set": st["run_min"], "auto_run_min": round(auto * 60 / per, 1), "hours_week": round(hours, 2),
             "crops": crops, "rows": rows_out, "order": order, "waste": WASTE,
             "totals": {"gph": round(total_gph, 1), "gpm": round(total_gph / 60, 2), "gal_watering": round(total_gph * run_min / 60, 1),
                        "gal_week": round(gal_week, 1), "emitters": sum(o["emitters"] for o in order),
                        "feet": round(sum(o["feet"] for o in order), 1), "lines_over": line_flag},
-            "fert": fert(st["fert"], crops, total_gph * run_min / 60, "drip", layout["width_ft"] * layout["length_ft"], run_min, total_gph / 60)}
+            "fert": ft, "acid": acid(st["acid"], ft["injector"], ft.get("water_gal", total_gph * run_min / 60))}
 
 
 def _sprinkler(base: dict, st: dict, layout: dict, crops_in: list[dict], area: float) -> dict:
@@ -397,10 +418,81 @@ def _sprinkler(base: dict, st: dict, layout: dict, crops_in: list[dict], area: f
               "custom_water": i["custom_water"], "pct": round(100 * need_in / i["water_in_week"]) if i["water_in_week"] else None}
              for i in sorted(crops_in, key=lambda i: i["name"].lower())]
     gal_watering = round(gal_week / per, 1)
+    ft = fert(st["fert"], crops, gal_watering, "sprinkler", area, run_min, gpm)
     return {**base, "run_min": run_min, "run_min_set": None, "hours_week": round(hours, 2), "need_in_week": need_in, "crops": crops,
             "rows": [], "order": [], "totals": {"gph": round(gpm * 60, 1), "gpm": gpm, "gal_watering": gal_watering, "gal_week": round(gal_week, 1),
                                                 "gpm_given": bool(st["sprinkler_gpm"]), "area_sqft": round(area, 1)},
-            "fert": fert(st["fert"], crops, gal_watering, "sprinkler", area, run_min, gpm)}
+            "fert": ft, "acid": acid(st["acid"], ft["injector"], ft.get("water_gal", gal_watering))}
+
+
+PK1, PK2, KW = 6.35, 10.33, 1e-14  # carbonic acid at 25 C
+# sulfuric acid strength (% by weight) -> specific gravity, for working out how many equivalents are in a millilitre
+SULFURIC_SG = ((0, 1.0), (10, 1.069), (20, 1.139), (30, 1.219), (35, 1.260), (40, 1.303), (50, 1.395), (60, 1.498), (70, 1.610),
+               (80, 1.727), (90, 1.814), (93, 1.835), (98, 1.84), (100, 1.84))
+H2SO4_G_MOL = 98.079
+
+
+def sulfuric_sg(pct: float) -> float:
+    pts = SULFURIC_SG
+    for (a, sa), (b, sb) in zip(pts, pts[1:]):
+        if a <= pct <= b:
+            return sa + (sb - sa) * (pct - a) / (b - a)
+    return pts[-1][1]
+
+
+def _alpha(ph: float) -> tuple[float, float, float]:
+    h = 10 ** -ph
+    k1, k2 = 10 ** -PK1, 10 ** -PK2
+    d = h * h + k1 * h + k1 * k2
+    return h, k1 * h / d, k1 * k2 / d
+
+
+def acid_eq_per_litre(ph: float, ta_ppm: float, target_ph: float) -> float:
+    """Strong acid (equivalents per litre) that takes water of this pH and alkalinity down to the target pH.
+
+    Alkalinity is carried by bicarbonate and carbonate. The total carbon is fixed by the test (it is worked out from
+    the pH and alkalinity), and acid then uses up alkalinity until the pH has fallen to the target. Adding acid fast to
+    a closed vessel; CO2 that bubbles out afterwards would let the pH drift up a little, so check with a meter."""
+    a0 = ta_ppm / 50000.0  # mg a litre as calcium carbonate to equivalents a litre
+    h, a1, a2 = _alpha(ph)
+    ct = (a0 + h - KW / h) / (a1 + 2 * a2)
+    h2, b1, b2 = _alpha(target_ph)
+    a_target = ct * (b1 + 2 * b2) - h2 + KW / h2
+    return max(0.0, a0 - a_target)
+
+
+def acid(a: dict | None, inj: dict, water: float) -> dict:
+    """Acid for the stock tank. `water` is the gallons that pass through the injector in one watering."""
+    a = {**default_acid(), **(a or {})}
+    out: dict[str, Any] = {"ph": a["ph"], "ta_ppm": a["ta_ppm"], "target_ph": a["target_ph"], "strength_pct": a["strength_pct"],
+                           "sg_set": a["sg"], "ready": False, "warnings": []}
+    sg = a["sg"] or round(sulfuric_sg(a["strength_pct"]), 3)
+    meq_ml = sg * a["strength_pct"] / 100 * 1000 / H2SO4_G_MOL * 2  # two hydrogens in each molecule
+    out.update({"sg": sg, "meq_per_ml": round(meq_ml, 2)})
+    if a["ph"] is None or a["ta_ppm"] is None:
+        return out
+    out["ready"] = True
+    if a["ph"] <= a["target_ph"]:
+        out["warnings"].append("The water is already at or below the target pH, so it needs no acid.")
+    eq = acid_eq_per_litre(a["ph"], a["ta_ppm"], a["target_ph"])
+    ml_gal = eq * 1000 * 3.78541 / meq_ml
+    out.update({"meq_l": round(eq * 1000, 2), "ml_per_gal": round(ml_gal, 2), "ml_per_1000": round(ml_gal * 1000), "water_gal": round(water, 1),
+                "table": [{"ph": t, "ml_per_gal": round(acid_eq_per_litre(a["ph"], a["ta_ppm"], t) * 1000 * 3.78541 / meq_ml, 2)}
+                          for t in (6.5, 6.0, 5.5, 5.0) if t < a["ph"]]})
+    if water > 0:
+        ratio = max(inj["min_ratio"], math.ceil(water / inj["tank_gal"] - 1e-9))
+        batches = 1
+        if ratio > inj["max_ratio"]:
+            ratio = inj["max_ratio"]
+            batches = math.ceil(water / ratio / inj["tank_gal"] - 1e-9)
+        stock = water / ratio
+        ml = ml_gal * water / batches
+        out["tank"] = {"ratio": int(ratio), "percent": round(100 / ratio, 3), "dial": f"1:{int(ratio)} ({100 / ratio:.2f}%)",
+                       "stock_gal": round(stock / batches, 2), "batches": batches, "ml": round(ml), "oz": round(ml / 29.5735, 1),
+                       "ml_per_gal_stock": round(ml / (stock / batches)) if stock else None}
+    if a["ta_ppm"] and a["ph"] < 6.0:
+        out["warnings"].append("A pH this low with this much alkalinity is unusual. Re-test the water before adding acid.")
+    return out
 
 
 def fert(f: dict | None, crops: list[dict], gal: float, method: str, area: float, run_min: float, gpm: float) -> dict:

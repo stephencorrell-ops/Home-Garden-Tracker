@@ -534,6 +534,28 @@ class Irrigation(unittest.TestCase):
         with self.assertRaises(GardenError):
             self.m.set_fertigation(self.gid, active="nope")
 
+    def test_acid_for_a_water_test(self):
+        a = self.water()["acid"]
+        self.assertFalse(a["ready"])
+        self.m.set_acid(self.gid, ph=8.0, ta_ppm=100)
+        a = self.water()["acid"]
+        self.assertTrue(a["ready"])
+        self.assertAlmostEqual(a["meq_l"], 1.75, 1)  # most of the alkalinity (2 meq/L) is used up to reach pH 5.5
+        self.assertAlmostEqual(a["meq_per_ml"], 8.99, 1)  # 35% sulfuric acid is about 9 normal
+        self.assertAlmostEqual(a["ml_per_gal"], a["meq_l"] * 3.78541 / a["meq_per_ml"], 1)
+        f = self.water()["fert"]
+        self.assertAlmostEqual(a["tank"]["ml"], a["ml_per_gal"] * f["water_gal"], delta=1)
+        self.assertLessEqual(a["tank"]["stock_gal"], 4.0)
+        self.m.set_acid(self.gid, strength_pct=93)
+        self.assertLess(self.water()["acid"]["ml_per_gal"], a["ml_per_gal"] / 2)  # stronger acid, less of it
+        self.m.set_acid(self.gid, target_ph=6.5)
+        self.assertLess(self.water()["acid"]["meq_l"], a["meq_l"])
+        self.m.set_acid(self.gid, ph=5.0, ta_ppm=20)
+        self.assertEqual(self.water()["acid"]["ml_per_gal"], 0)
+        self.assertTrue(self.water()["acid"]["warnings"])
+        with self.assertRaises(GardenError):
+            self.m.set_acid(self.gid, ph=20)
+
     def test_bad_input(self):
         for bad in (dict(soil="gravel"), dict(per_week=0), dict(method="flood")):
             with self.assertRaises(GardenError):
