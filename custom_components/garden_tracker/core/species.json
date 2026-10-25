@@ -225,7 +225,7 @@
   "pests": []
  },
  "jalapeno": {
-  "name": "Jalapeño",
+  "name": "Jalape\u00f1o",
   "kind": "plant",
   "pests": [],
   "feeding_plan": [
@@ -319,5 +319,15 @@
   "kind": "plant",
   "pests": [],
   "single_harvest": true
+ },
+ "corn": {
+  "name": "Corn",
+  "kind": "plant",
+  "pests": []
+ },
+ "hops": {
+  "name": "Hops",
+  "kind": "plant",
+  "pests": []
  }
 }

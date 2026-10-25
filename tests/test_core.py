@@ -413,6 +413,50 @@ class Layout(unittest.TestCase):
         self.assertGreater(loss(south_tall), 0)
         self.assertLess(loss(north_tall), loss(south_tall))
 
+    def test_variety_height_and_habit_change_the_shade(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 30, 40, 30, 90)  # rows run east-west, row 0 on the north side
+        m.assign_layout_rows(gid, "tomato", [1])
+        m.assign_layout_rows(gid, "lettuce", [0])  # lettuce is north of the tomatoes, where their shade falls
+        m.set_variety_traits("tomato", "Sungold", habit="determinate")
+        m.assign_layout_rows(gid, "tomato", [1], "Sungold")
+        low = self.view(m, gid)["sun"]
+        self.assertEqual(low["tallest"]["height"], 3.5)
+        m.set_variety_traits("tomato", "Sungold", habit="indeterminate")
+        tall = self.view(m, gid)["sun"]
+        self.assertEqual(tall["tallest"]["height"], 6.0)
+        self.assertGreaterEqual(sum(w["pct"] for w in tall["shading"]), sum(w["pct"] for w in low["shading"]))
+        m.set_variety_traits("tomato", "Sungold", height_ft=9)  # a plain height wins, and the habit stays
+        huge = self.view(m, gid)["sun"]
+        self.assertEqual(huge["tallest"]["height"], 9)
+        self.assertEqual(low["shading"], [])
+        self.assertTrue(huge["shading"] and "Sungold" in huge["shading"][0]["by"][0])
+        self.assertEqual(next(t for t in m.snapshot()["variety_traits"] if t["name"] == "Sungold")["habit"], "indeterminate")
+        with self.assertRaises(GardenError):
+            m.set_variety_traits("tomato", "Sungold", habit="climbing")
+        with self.assertRaises(GardenError):
+            m.set_variety_traits("tomato", "Sungold", height_ft=60)
+
+    def test_a_variety_keeps_its_resistance_when_only_the_height_changes(self):
+        m, gid = self.garden()
+        m.set_variety_traits("tomato", "Roma VF", ["verticillium", "fusarium"])
+        m.set_variety_traits("tomato", "Roma VF", height_ft=4)
+        t = next(t for t in m.snapshot()["variety_traits"] if t["name"] == "Roma VF")
+        self.assertEqual(t["resist"], ["fusarium", "verticillium"])
+        self.assertEqual(t["height_ft"], 4)
+
+    def test_hops_and_corn_are_on_the_list_with_their_heights(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 20, 40, 30, 0)
+        m.assign_layout_rows(gid, "hops", [0])
+        m.assign_layout_rows(gid, "corn", [1])
+        v = self.view(m, gid)
+        by = {c["key"]: c for c in v["available"]}
+        self.assertEqual([h["key"] for h in by["hops"]["habits"]], ["dwarf", "standard", "tall"])
+        self.assertEqual(by["hops"]["height_ft"], 15)
+        self.assertEqual(by["corn"]["height_ft"], 7)
+        self.assertEqual(v["sun"]["tallest"]["name"], "Hops")
+
     def test_best_row_angle_follows_the_sun_and_the_heights(self):
         from custom_components.garden_tracker.core import sun
         b = sun.best_heading(47.3, 4.0, 30, 24, 0)

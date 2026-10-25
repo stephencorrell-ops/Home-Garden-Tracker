@@ -20,12 +20,27 @@ DEFAULT_HEIGHT_FT = 2.0
 
 # Mature height in feet. Starter values, editable for each crop in a garden.
 HEIGHTS: dict[str, float] = {
-    "corn": 7.0, "sunflower": 8.0, "tomato": 5.0, "pole_bean": 6.0, "pea": 5.0, "cucumber": 5.0, "okra": 5.0, "pepper": 2.5,
+    "corn": 7.0, "hops": 15.0, "sunflower": 8.0, "tomato": 5.0, "pole_bean": 6.0, "pea": 5.0, "cucumber": 5.0, "okra": 5.0, "pepper": 2.5,
     "jalapeno": 2.5, "habanero": 3.0, "eggplant": 3.0, "potato": 2.5, "horseradish": 3.0, "zucchini": 2.5, "squash": 2.5,
     "cauliflower": 2.0, "broccoli": 2.5, "kale": 2.0, "cabbage": 1.5, "bean": 1.5, "garlic": 1.5, "onion": 1.5, "onion_red": 1.5,
     "onion_white": 1.5, "onion_sweet": 1.5, "pumpkin": 1.5, "carrot": 1.0, "beet": 1.0, "watermelon": 1.0, "cantaloupe": 1.0,
     "lettuce": 0.7, "spinach": 0.5, "radish": 0.5,
 }
+
+
+# Growth habits that change how tall a crop gets: (key, name, feet). A variety can pick one or give its own height.
+HABITS: dict[str, list[tuple[str, str, float]]] = {
+    "tomato": [("determinate", "Determinate (bush)", 3.5), ("indeterminate", "Indeterminate (vining)", 6.0)],
+    "bean": [("bush", "Bush", 1.5), ("pole", "Pole or climbing", 7.0)],
+    "pea": [("dwarf", "Dwarf", 2.0), ("climbing", "Climbing", 5.5)],
+    "cucumber": [("bush", "Bush", 2.0), ("vining", "Vining on a trellis", 5.5)],
+    "corn": [("short", "Short, about 4 ft", 4.0), ("standard", "Standard, about 7 ft", 7.0), ("tall", "Tall, 9 ft or more", 9.0)],
+    "hops": [("dwarf", "Dwarf, about 10 ft", 10.0), ("standard", "Standard, about 15 ft", 15.0), ("tall", "Tall, about 20 ft", 20.0)],
+}
+
+
+def habits_for(key: str) -> list[dict]:
+    return [{"key": k, "name": n, "height": h} for k, n, h in HABITS.get(key, [])]
 
 
 def height_for(key: str) -> float:
@@ -117,7 +132,7 @@ def _shading(raw: str, rotation: float, lat: float) -> str:
         x0, x1, y0, y1 = s["box"]
         taller = []
         for t in segments:
-            if t["crop"] == s["crop"] or t["height"] - s["height"] < MIN_TALLER_FT:
+            if t["height"] - s["height"] < MIN_TALLER_FT:
                 continue
             reach = (t["height"] - s["height"]) * 12 / math.tan(math.radians(MIN_ALT))  # the longest shadow it can throw
             tx0, tx1, ty0, ty1 = t["box"]
@@ -146,7 +161,7 @@ def _shading(raw: str, rotation: float, lat: float) -> str:
                         break
         if not tot:
             continue
-        e = out.setdefault(s["crop"], {"crop": s["crop"], "name": s["name"], "height": s["height"], "tot": 0.0, "lost": 0.0, "am": 0.0, "pm": 0.0,
+        e = out.setdefault(s["name"], {"crop": s["crop"], "name": s["name"], "height": s["height"], "tot": 0.0, "lost": 0.0, "am": 0.0, "pm": 0.0,
                                        "by": {}, "rows": set()})
         e["tot"] += tot * (y1 - y0)
         e["lost"] += lost * (y1 - y0)
@@ -178,7 +193,8 @@ def analyse(layout_rows: list[dict], row_in: float, path_in: float, rotation: fl
     for r in layout_rows:
         for sg in r["segments"]:
             lines = sg["lines"] or [r["x"]]
-            segs.append({"crop": sg["crop"], "name": sg["name"], "row": r["i"], "height": heights.get(sg["crop"], height_for(sg["crop"])),
+            segs.append({"crop": sg["crop"], "name": sg["name"] + (f" ({sg['variety']})" if sg.get("variety") else ""), "row": r["i"],
+                         "height": sg.get("height_ft") or heights.get(sg["crop"], height_for(sg["crop"])),
                          "box": (min(lines) - 8, max(lines) + 8, sg["start_in"], sg["start_in"] + sg["len_in"])})
     tall = max(segs, key=lambda s: s["height"]) if segs else None
     short = min(segs, key=lambda s: s["height"]) if segs else None

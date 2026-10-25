@@ -62,7 +62,7 @@ HANDLERS: dict[str, Handler] = {
     "set_layout_draft": lambda m, c: m.set_layout_draft(c["garden"], c.get("crop"), c.get("mode"), c.get("value"), c.get("yield_lb"), c.get("spacing_in"), c.get("variety")),
     "place_layout_draft": lambda m, c: m.place_layout_draft(c["garden"], c["row"], c.get("start_ft")),
     "start_layout_season": lambda m, c: m.start_layout_season(c["garden"], c.get("year")),
-    "set_variety_traits": lambda m, c: m.set_variety_traits(c["crop"], c["variety"], c.get("resist")),
+    "set_variety_traits": lambda m, c: m.set_variety_traits(c["crop"], c["variety"], c["resist"] if "resist" in c else UNSET, c["height_ft"] if "height_ft" in c else UNSET, c["habit"] if "habit" in c else UNSET),
     "remove_variety_traits": lambda m, c: m.remove_variety_traits(c["crop"], c["variety"]),
     "set_irrigation": lambda m, c: m.set_irrigation(c["garden"], c.get("method"), c.get("soil"), c.get("per_week"), c.get("run_min", "keep"), c.get("max_line_gph"), c.get("weather")),
     "set_sprinkler": lambda m, c: m.set_sprinkler(c["garden"], c.get("mode"), c.get("pr_mode"), c.get("gpm"), c.get("radius_ft"), c.get("arc"), c.get("pr_in_hr", "keep"), c.get("heads", "keep"), c.get("per_week", "keep")),

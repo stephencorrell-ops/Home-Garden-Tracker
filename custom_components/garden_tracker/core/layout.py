@@ -36,6 +36,7 @@ DEFAULTS: dict[str, tuple[float, str, bool, str, float]] = {
     "cantaloupe": (24, "grid", True, "none", 4), "pumpkin": (48, "grid", True, "none", 4),
     "cabbage": (18, "grid", True, "none", 4), "lettuce": (8, "grid", True, "none", 4),
     "cauliflower": (18, "grid", True, "none", 4),
+    "corn": (12, "grid", True, "none", 4), "hops": (36, "single", False, "tpost", 10),  # hops climb a string or pole 10 to 20 ft up
 }
 GENERIC = (12, "grid", True, "none", 4)
 
@@ -274,7 +275,8 @@ def draft_result(layout: dict, names: dict[str, str], history: dict[int, dict], 
     fit = lambda seg_in: _per_line(s, seg_in, stagger) * len(offs)  # noqa: E731
     variety = (d.get("variety") or "").strip()
     resist = resistances(traits, key, variety)
-    res: dict = {"crop": key, "name": names[key], "variety": variety, "resist": sorted(resist), "mode": mode, "value": value, "spacing_in": s["spacing_in"], "pattern": s["pattern"],
+    res: dict = {"crop": key, "name": names[key], "variety": variety, "resist": sorted(resist),
+                 "height_ft": ((traits or {}).get(trait_key(key, variety)) or {}).get("height_ft") or s["height_ft"], "mode": mode, "value": value, "spacing_in": s["spacing_in"], "pattern": s["pattern"],
                  "yield_lb": s["yield_lb"], "lines": len(offs), "ready": False, "need": None, "flags": []}
     if not value or value <= 0:
         res["need"] = "value"
@@ -310,7 +312,7 @@ def plan(layout: dict | None, names: dict[str, str], history: dict[int, dict] | 
     """Work out every row and the totals. `names` maps crop key to display name (only plants, not trees)."""
     history = history or {}
     available = [{"key": k, "name": n, **defaults_for(k), **((layout or {}).get("crops", {}).get(k) or {}),
-                  "diseases": rot.diseases_for(k)} for k, n in sorted(names.items(), key=lambda kv: kv[1].lower())]
+                  "diseases": rot.diseases_for(k), "habits": sun.habits_for(k)} for k, n in sorted(names.items(), key=lambda kv: kv[1].lower())]
     if not layout:
         return {"configured": False, "available": available, "row_widths": list(ROW_WIDTHS), "supports": SUPPORTS,
                 "patterns": PATTERNS}
@@ -336,6 +338,8 @@ def plan(layout: dict | None, names: dict[str, str], history: dict[int, dict] | 
             c["twine_ft"] = round(c["twine_ft"] + seg["twine_ft"], 1)
             bed_ft2 += sg["ft"] * row_in / 12
             seg["variety"] = sg.get("variety") or ""
+            vt = (traits or {}).get(trait_key(sg["crop"], seg["variety"])) if seg["variety"] else None
+            seg["height_ft"] = (vt or {}).get("height_ft") or c["height_ft"]  # a variety can be taller or shorter than its crop usually is
             resist = resistances(traits, sg["crop"], seg["variety"])
             for bad in _conflicts(layout, x0, seg["start_in"], seg["start_in"] + seg["len_in"], sg["crop"], history, year, names, resist):
                 alerts.append({"row": i, "crop": sg["crop"], "name": names[sg["crop"]], "variety": seg["variety"], **bad,

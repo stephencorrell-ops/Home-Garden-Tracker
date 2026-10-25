@@ -2090,8 +2090,9 @@ class GardenTrackerCard extends HTMLElement {
       h += `<div class="card"><div class="sec">Plan a crop</div><div class="row wrap" style="margin-bottom:10px"><div class="grow" style="min-width:140px"><select data-brush data-g="${gid}">${L.available.map((a) => `<option value="${esc(a.key)}" ${a.key === brush ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select></div>${this._btn("lay-edit", "pencil", "Spacing", `data-g="${gid}" data-c="${esc(brush)}"`)}</div>`;
       const names = [...new Set([...(this._snap.variety_traits || []).filter((t) => t.crop === brush).map((t) => t.name), ...this._snap.varieties.filter((v) => v.species === brush).map((v) => v.name)])];
       const vr = (d && d.variety) || "";
-      h += `<label>Variety (optional)</label><div class="row" style="margin-bottom:10px"><div class="grow"><input type="text" list="vl" placeholder="Roma VF" value="${esc(vr)}" data-dvar data-g="${gid}"><datalist id="vl">${names.map((n) => `<option value="${esc(n)}"></option>`).join("")}</datalist></div>${this._btn("lay-traits", "pencil", "Resists", `data-g="${gid}"`)}</div>`;
+      h += `<label>Variety (optional)</label><div class="row" style="margin-bottom:10px"><div class="grow"><input type="text" list="vl" placeholder="Roma VF" value="${esc(vr)}" data-dvar data-g="${gid}"><datalist id="vl">${names.map((n) => `<option value="${esc(n)}"></option>`).join("")}</datalist></div>${this._btn("lay-traits", "pencil", "Height and resists", `data-g="${gid}"`)}</div>`;
       if (d && d.resist && d.resist.length) h += `<div class="small mut" style="margin:-4px 0 10px">${esc(vr)} resists ${esc(d.resist.map((k) => (cur.diseases.find((x) => x.key === k) || { name: k }).name).join(", "))}. Rotation alerts allow for that.</div>`;
+      if (d && d.height_ft) h += `<div class="small mut" style="margin:-4px 0 10px">${vr ? esc(vr) : esc(cur.name)} grows about ${num(d.height_ft, 1)} ft tall, which is what the shade check uses.</div>`;
       h += `<div class="seg">${[["weight", "Harvest weight"], ["plants", "Plants"], ["length", "Row length"]].map(([m, t2]) => `<button class="${mode === m ? "on" : ""}" data-act="lay-mode" data-g="${gid}" data-m="${m}">${t2}</button>`).join("")}</div>`;
       const lab = { weight: "Pounds you want to harvest", plants: "Number of plants", length: "Feet of row" }[mode];
       h += `<div class="grid6" style="margin-top:10px"><div style="grid-column:span 6"><label>${lab}</label><input type="number" inputmode="decimal" min="0" step="any" value="${d && d.value ? num(d.value, 2) : ""}" data-draft="value" data-g="${gid}"></div>`;
@@ -2150,15 +2151,17 @@ class GardenTrackerCard extends HTMLElement {
   _fTraits(g, crop, variety) {
     const L = g.layout, c = L.available.find((a) => a.key === crop);
     const have = (name) => (this._snap.variety_traits || []).find((t) => t.crop === crop && t.name.toLowerCase() === name.toLowerCase());
+    const cur = have(variety) || {};
+    const fields = [{ name: "variety", label: "Variety", type: "text", req: true, value: variety, placeholder: "Roma VF" }];
+    if (c.habits.length) fields.push({ name: "habit", label: "Growth habit", type: "select", options: [["", `Usual for ${c.name.toLowerCase()} (${num(c.height_ft, 1)} ft)`], ...c.habits.map((h) => [h.key, `${h.name} (${num(h.height, 1)} ft)`])], value: cur.habit || "" });
+    fields.push({ name: "height_ft", label: `Height when grown (ft), empty for ${c.habits.length ? "the habit's" : "the usual"} height`, type: "number", step: "any", value: cur.height_ft && !cur.habit ? cur.height_ft : "" });
+    fields.push({ name: "resist", label: "Resistant to (tap the letters on the seed packet)", type: "multi", options: c.diseases.map((x) => [x.key, x.code ? `${x.name} (${x.code})` : x.name]), value: (cur.resist || []).join(",") });
     return {
-      title: `${c.name}: disease resistance`, submitLabel: "Save",
-      fields: [
-        { name: "variety", label: "Variety", type: "text", req: true, value: variety, placeholder: "Roma VF" },
-        { name: "resist", label: "Resistant to (tap the letters on the seed packet)", type: "multi", options: c.diseases.map((x) => [x.key, x.code ? `${x.name} (${x.code})` : x.name]), value: ((have(variety) || {}).resist || []).join(",") },
-      ],
-      note: "A resistant variety can follow its own family sooner, because the diseases it resists are left out of the rotation wait. It lowers the risk but does not remove it.",
+      title: `${c.name}: height and resistance`, submitLabel: "Save", fields,
+      note: "Height decides which crops shade which: a determinate tomato or a bush bean stays low, while a vining tomato, a climbing bean or hops can tower over their neighbours. A resistant variety can follow its own family sooner, because the diseases it resists are left out of the rotation wait. It lowers the risk but does not remove it.",
       submit: async (x) => {
-        await this._call("set_variety_traits", { crop, variety: x.variety, resist: (x.resist || "").split(",").filter(Boolean) });
+        const hab = (c.habits || []).find((h) => h.key === x.habit);
+        await this._call("set_variety_traits", { crop, variety: x.variety, resist: (x.resist || "").split(",").filter(Boolean), habit: x.habit || null, height_ft: x.height_ft || (hab ? hab.height : null) });
         await this._call("set_layout_draft", { garden: g.id, crop, variety: x.variety });
       },
     };

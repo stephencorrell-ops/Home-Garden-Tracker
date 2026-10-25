@@ -13,6 +13,7 @@ from . import irrigation as irr
 from . import layout as lay
 from . import rotation as rot
 from . import microclimate as mc
+from . import sun as sun_mod
 
 
 DEFAULT_SETTINGS = {"frost_last": "04-25", "frost_first": "10-15",  # Ephrata, WA averages
@@ -1150,18 +1151,47 @@ class GardenModel:
         g["layout"] = trial
         self._touch()
 
-    def set_variety_traits(self, crop: str, variety: str, resist: list[str] | None = None) -> None:
-        """Remember which diseases a named variety resists (the letters on the seed packet), so rotation alerts can allow for it."""
+    def set_variety_traits(self, crop: str, variety: str, resist: Any = UNSET, height_ft: Any = UNSET, habit: Any = UNSET) -> None:
+        """Remember what a named variety resists (the letters on the seed packet) and how tall it grows, so rotation alerts
+        and the shade check can allow for it. Anything left out keeps its earlier value."""
         if crop not in self._plant_names():
             raise GardenError(f"Unknown crop '{crop}'")
         name = (variety or "").strip()
         if not name:
             raise GardenError("Give the variety a name")
-        valid = {d["key"] for d in rot.diseases_for(crop)}
-        bad = [r for r in resist or [] if r not in valid]
-        if bad:
-            raise GardenError(f"{bad[0]} is not a disease listed for {self._plant_names()[crop]}")
-        self.data["variety_traits"][lay.trait_key(crop, name)] = {"crop": crop, "name": name, "resist": sorted(set(resist or []))}
+        cur = self.data["variety_traits"].get(lay.trait_key(crop, name)) or {}
+        new = {"crop": crop, "name": name, "resist": cur.get("resist") or []}
+        if resist is not UNSET:
+            valid = {d["key"] for d in rot.diseases_for(crop)}
+            bad = [r for r in resist or [] if r not in valid]
+            if bad:
+                raise GardenError(f"{bad[0]} is not a disease listed for {self._plant_names()[crop]}")
+            new["resist"] = sorted(set(resist or []))
+        for k in ("height_ft", "habit"):
+            if cur.get(k) is not None:
+                new[k] = cur[k]
+        if habit is not UNSET:
+            known = {h["key"]: h for h in sun_mod.habits_for(crop)}
+            if habit in (None, ""):
+                new.pop("habit", None)
+            elif habit not in known:
+                raise GardenError(f"{habit} is not a growth habit for {self._plant_names()[crop]}")
+            else:
+                new["habit"] = habit
+                if height_ft is UNSET:  # picking a habit gives its usual height unless a height comes with it
+                    new["height_ft"] = known[habit]["height"]
+        if height_ft is not UNSET:
+            if height_ft in (None, ""):
+                new.pop("height_ft", None)
+            else:
+                try:
+                    h = float(height_ft)
+                except (TypeError, ValueError):
+                    raise GardenError("Height must be a number") from None
+                if not 0.1 <= h <= 30:
+                    raise GardenError("Height must be between 0.1 and 30 feet")
+                new["height_ft"] = h
+        self.data["variety_traits"][lay.trait_key(crop, name)] = new
         self._touch()
 
     def remove_variety_traits(self, crop: str, variety: str) -> None:
