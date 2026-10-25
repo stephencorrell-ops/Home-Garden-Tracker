@@ -76,7 +76,7 @@ def validate_size(layout: dict, width_ft: Any = None, length_ft: Any = None, row
         layout["length_ft"] = _num(length_ft, "Length", 1, MAX_FT)
     if row_in is not None:
         if int(row_in) not in ROW_WIDTHS:
-            raise LayoutError("Rows must be 24, 30 or 36 inches apart")
+            raise LayoutError("Rows must be 24, 30 or 36 inches wide")
         layout["row_in"] = int(row_in)
     if double is not None:
         layout["double"] = bool(double)
