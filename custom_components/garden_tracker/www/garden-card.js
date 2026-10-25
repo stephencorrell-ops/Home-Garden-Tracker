@@ -902,7 +902,7 @@ class GardenTrackerCard extends HTMLElement {
     if (g.kind !== "garden") return this._placeView(g);
     const ph = g.ph, gid = g.id;
     let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="grow"><div class="ttl">${esc(g.name)}</div><div class="sub">${this._vars().filter((v) => v.garden === gid).length} plants</div></div>${this._btn("edit-g", "cog", "", `data-g="${gid}"`, "ic")}</div>`;
-    h += this._frostPill(g, false) + this._sensorBanner(g) + this._layoutTile(g) + this._irrTile(g) + this._seasonCard(g);
+    h += this._frostPill(g, false) + this._sensorBanner(g) + this._choreCard(g) + this._layoutTile(g) + this._irrTile(g) + this._seasonCard(g);
     h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">Soil pH</div>${ph.level ? `<span class="pill ${ph.level === "ok" ? "ok" : "warn"}" style="margin:0">${ph.level === "ok" ? "In range" : ph.level === "low" ? "Below target" : "Above target"}</span>` : ""}</div>`;
     if (ph.current !== null) {
       const d = ph.first && ph.first.date !== ph.date ? ph.current - ph.first.value : null;
@@ -1827,6 +1827,11 @@ class GardenTrackerCard extends HTMLElement {
       submit: (x) => this._call("set_crop_days", { crop: key || x.crop, days: x.days, hardy: x.hardy }),
     };
   }
+  _choreCard(g) {
+    const cs = g.chores || [];
+    return cs.map((c) => `<div class="card"><div class="alarm" style="--hold:var(--spray)"><div class="small"><b>${this._icon("alert")} ${esc(c.title)}.</b> ${esc(c.text)}</div></div></div>`).join("");
+  }
+
   _seasonCard(g) {
     const S = g.season;
     if (!S) return "";

@@ -13,7 +13,7 @@ from . import irrigation as irr
 from . import layout as lay
 from . import rotation as rot
 from . import microclimate as mc
-from . import season as season_mod
+from . import season as season_mod, chores as chores_mod
 from . import sun as sun_mod
 
 
@@ -2166,6 +2166,7 @@ class GardenModel:
             "layout": lay.plan(g.get("layout"), self._plant_names(), self._history(g), today.year, self.data["variety_traits"], self._lat(), *self._soil_ph(g)) if soil else None,
             "irrigation": self._irrigation_view(g, today) if soil else None,
             "season": self._season_view(g, today) if soil and kind == "garden" else None,
+            "chores": self._chores_view(g, today) if soil and kind == "garden" else [],
             "layout_history": ({y: lay.plan(h, self._plant_names(), None, int(y)) for y, h in g["layout_history"].items()} if soil else {}),
             "trays": g.get("trays", 0), "water": self._water_view(g, today),
             "trays_calc": self._trays_calc(g) if kind != "garden" else None,
@@ -2180,6 +2181,10 @@ class GardenModel:
             "adjuncts": [calc.adjunct_status(t, g["adjuncts"], today) for t in g["adjunct_types"].values()],
             "adjunct_log": [{**e, "type_name": names.get(e["type"], e["type"])} for e in log],
         }
+
+    def _chores_view(self, g: dict, today: date) -> list:
+        planted = {c["key"] for c in (lay.plan(g.get("layout"), self._plant_names(), None, today.year).get("crops") or [])} if g.get("layout") else set()
+        return chores_mod.due(planted, today)
 
     def _season_view(self, g: dict, today: date) -> dict:
         st = self.data["settings"]
