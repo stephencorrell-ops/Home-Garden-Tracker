@@ -112,7 +112,7 @@ KINDS = {  # entry kind -> (parent type, list key)
     "review": ("v", "reviews"), "upotted": ("v", "upotted"),
     "adjunct": ("g", "adjuncts"), "ph": ("g", "ph_readings"),
     "moisture": ("g", "moisture"), "ec": ("g", "ec"), "soil_temp": ("g", "soil_temp"),
-    "cover": ("g", "cover_crops"), "water": ("g", "watering"),
+    "cover": ("g", "cover_crops"), "water": ("g", "watering"), "acid": ("g", "acid_log"),
     "air_temp": ("g", "air_temp"), "par": ("g", "par"), "out_temp": ("g", "out_temp"),
 }
 EDITABLE = {
@@ -123,6 +123,7 @@ EDITABLE = {
     "adjunct": ("type", "product", "amount", "date", "notes"), "ph": ("value", "date"),
     "moisture": ("value", "date"), "ec": ("value", "date"), "soil_temp": ("value", "date"),
     "air_temp": ("value", "date"), "par": ("value", "date"), "out_temp": ("value", "date"), "water": ("date", "notes"),
+    "acid": ("date", "ml", "water_gal", "ph_before", "ph_after", "notes"),
     "cover": ("crop", "sown", "terminated", "method", "notes", "wait_days", "amount_lbs"),
 }
 
@@ -192,6 +193,7 @@ class GardenModel:
         g.setdefault("layout", None)
         g.setdefault("layout_history", {})
         g.setdefault("irrigation", None)
+        g.setdefault("acid_log", [])
         g.setdefault("watering", [])
         g.setdefault("water_every", None)
         g.setdefault("power_sensors", {})
@@ -941,18 +943,68 @@ class GardenModel:
         F.update(vals)
         self._touch()
 
-    def set_injector(self, garden: str, name: Any = None, min_ratio: Any = None, max_ratio: Any = None, min_gpm: Any = None,
-                     max_gpm: Any = None, tank_gal: Any = None, flush_min: Any = None) -> None:
+    def set_pump(self, garden: str, pump: str | None = None, name: Any = None, min_ratio: Any = None, max_ratio: Any = None,
+                 min_gpm: Any = None, max_gpm: Any = None, tank_gal: Any = None, flush_min: Any = None) -> str:
+        """Change a pump, or add one when `pump` is empty. Returns its key."""
         F = self._fert_of(garden)
         try:
-            new = {**F["injector"], **irr.validate_injector(name, min_ratio, max_ratio, min_gpm, max_gpm, tank_gal, flush_min)}
+            vals = irr.validate_injector(name, min_ratio, max_ratio, min_gpm, max_gpm, tank_gal, flush_min)
+            if pump:
+                if pump not in F["pumps"]:
+                    raise irr.IrrigationError("Unknown pump")
+                new = {**F["pumps"][pump], **vals}
+            else:
+                if not vals.get("name"):
+                    raise irr.IrrigationError("A pump needs a name")
+                new = {**irr.DEFAULT_PUMP, **vals}
             if new["min_ratio"] > new["max_ratio"]:
                 raise irr.IrrigationError("The strongest dilution (1:50) must be a smaller number than the weakest (1:500)")
             if new["min_gpm"] > new["max_gpm"]:
                 raise irr.IrrigationError("The lowest flow must be less than the highest")
         except irr.IrrigationError as e:
             raise GardenError(str(e)) from None
-        F["injector"] = new
+        if not pump:
+            base = slug(new["name"])
+            pump, n = base, 2
+            while pump in F["pumps"]:
+                pump, n = f"{base}_{n}", n + 1
+        F["pumps"][pump] = new
+        self._touch()
+        return pump
+
+    def remove_pump(self, garden: str, pump: str) -> None:
+        F = self._fert_of(garden)
+        if pump not in F["pumps"]:
+            raise GardenError("Unknown pump")
+        if len(F["pumps"]) == 1:
+            raise GardenError("Keep at least one pump")
+        del F["pumps"][pump]
+        F["tank_pump"] = {t: k for t, k in F["tank_pump"].items() if k != pump}  # those tanks go back to the first pump
+        self._touch()
+
+    def set_tank_pump(self, garden: str, tank: str, pump: str) -> None:
+        """Which pump a stock tank (a letter, or acid) runs through."""
+        F = self._fert_of(garden)
+        t = str(tank).strip()
+        t = "acid" if t.lower() == "acid" else t.upper()[:1]
+        if not t.isalpha():
+            raise GardenError("A tank is a letter, or acid")
+        if pump not in F["pumps"]:
+            raise GardenError("Unknown pump")
+        F["tank_pump"][t] = pump
+        self._touch()
+
+    def log_acid(self, garden: str, when: Any = None, ml: Any = None, water_gal: Any = None, ph_before: Any = None,
+                 ph_after: Any = None, notes: str | None = None) -> None:
+        g = self._layout_garden(garden)
+        try:
+            vals = {"ml": irr._num(ml, "Acid (mL)", 0, 100000)}
+            vals["water_gal"] = irr._num(water_gal, "Water (gallons)", 0, 1000000) if water_gal not in (None, "") else None
+            vals["ph_before"] = irr._num(ph_before, "pH before", 0, 14) if ph_before not in (None, "") else None
+            vals["ph_after"] = irr._num(ph_after, "pH after", 0, 14) if ph_after not in (None, "") else None
+        except irr.IrrigationError as e:
+            raise GardenError(str(e)) from None
+        g.setdefault("acid_log", []).append({"id": new_id(), "date": iso(when) or self.today().isoformat(), "notes": notes or "", **vals})
         self._touch()
 
     def set_fert_mix(self, garden: str, mix: str | None = None, name: Any = None, ppm_n: Any = "keep") -> str:
@@ -2033,8 +2085,7 @@ class GardenModel:
             "paused": {k: bool(g.get("sensors_paused", {}).get(k)) for k in METRICS},
             "fertility": self._fertility_view(g, metrics, today) if soil else None,
             "layout": lay.plan(g.get("layout"), self._plant_names(), self._history(g), today.year, self.data["variety_traits"]) if soil else None,
-            "irrigation": (irr.plan(lay.plan(g.get("layout"), self._plant_names(), None, today.year), g.get("irrigation"))
-                           if soil else None),
+            "irrigation": self._irrigation_view(g, today) if soil else None,
             "layout_history": ({y: lay.plan(h, self._plant_names(), None, int(y)) for y, h in g["layout_history"].items()} if soil else {}),
             "trays": g.get("trays", 0), "water": self._water_view(g, today),
             "trays_calc": self._trays_calc(g) if kind != "garden" else None,
@@ -2049,6 +2100,14 @@ class GardenModel:
             "adjuncts": [calc.adjunct_status(t, g["adjuncts"], today) for t in g["adjunct_types"].values()],
             "adjunct_log": [{**e, "type_name": names.get(e["type"], e["type"])} for e in log],
         }
+
+    def _irrigation_view(self, g: dict, today: date) -> dict:
+        w = irr.plan(lay.plan(g.get("layout"), self._plant_names(), None, today.year), g.get("irrigation"))
+        log = sorted(g.get("acid_log", []), key=lambda e: (e["date"], e["id"]), reverse=True)
+        year = [e for e in log if e["date"][:4] == str(today.year)]
+        w["acid_log"] = {"entries": log[:60], "last": log[0]["date"] if log else None, "days_since": calc.days_since(log[0]["date"], today) if log else None,
+                         "count_year": len(year), "ml_year": round(sum(e["ml"] for e in year)), "year": today.year}
+        return w
 
     @staticmethod
     def _water_view(g: dict, today: date) -> dict:

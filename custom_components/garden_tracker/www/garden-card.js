@@ -1052,7 +1052,9 @@ class GardenTrackerCard extends HTMLElement {
       case "irr-set": return this._open(this._fIrr(this._garden(d.g)));
       case "irr-crop": return this._open(this._fIrrCrop(this._garden(d.g), d.c));
       case "irr-acid": return this._open(this._fAcid(this._garden(d.g)));
-      case "irr-inj": return this._open(this._fInj(this._garden(d.g)));
+      case "irr-pump": return this._open(this._fPump(this._garden(d.g), d.k));
+      case "irr-tanks": return this._open(this._fTanks(this._garden(d.g)));
+      case "irr-acid-log": return this._open(this._fAcidLog(this._garden(d.g), d.q === "1"));
       case "irr-sched": return this._open(this._fSched(this._garden(d.g)));
       case "irr-mix": return this._open(this._fMix(this._garden(d.g), d.k));
       case "irr-mix-sel": return this._act("set_fertigation", { garden: d.g, active: d.k });
@@ -1696,9 +1698,10 @@ class GardenTrackerCard extends HTMLElement {
       for (const o of W.order) h += `<div class="row" style="margin:8px 0;align-items:flex-start"><div class="grow"><div style="font-weight:500">${esc(o.label)}</div><div class="small mut">${o.emitters} emitters, ${num(o.feet, 0)} ft laid</div></div><div style="text-align:right"><b>${o.order_ft} ft</b><div class="small mut">${o.rolls.map((r) => `${r.count} x ${r.len} ft`).join(" + ")}</div></div></div>`;
       h += `<div class="row" style="margin-top:8px"><div class="grow"><b>Total</b></div><b>${num(T.feet, 0)} ft laid</b></div><div class="small mut" style="margin-top:6px">Feet are for the drip line in the rows, with ${Math.round((W.waste - 1) * 100)}% added for cuts and fittings when ordering. Supply tubing from the valve to the garden is not counted. Flows (${W.flows.join(", ")} gph), spacings (${W.spacings.join(", ")} in) and rolls (${W.rolls.join(", ")} ft) are for <a href="https://www.dripdepot.com/half-inch-polyethylene-pressure-compensating-drip-line" target="_blank" rel="noopener">Drip Depot's 1/2 inch pressure compensating drip line</a>; check them on the product page when you order.</div></div>`;
     }
-    const F = W.fert, inj = F.injector;
-    h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("flask-outline")} Fertigation</div>${this._btn("irr-inj", "cog", "Pump", `data-g="${gid}"`)}</div>`;
-    h += `<div class="small mut" style="margin:4px 0 8px">${esc(inj.name)}: 1:${num(inj.min_ratio, 0)} to 1:${num(inj.max_ratio, 0)}, ${num(inj.min_gpm, 2)} to ${num(inj.max_gpm, 1)} GPM, stock tank up to ${num(inj.tank_gal, 1)} gal. Feeding every ${F.every_days} days.</div>`;
+    const F = W.fert;
+    h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("flask-outline")} Fertigation</div>${this._btn("irr-pump", "plus", "Pump", `data-g="${gid}"`)}${F.tank_names.length ? this._btn("irr-tanks", "swap-horizontal", "Tanks", `data-g="${gid}"`) : ""}</div>`;
+    for (const p of F.pumps) h += `<div class="row small" style="margin:4px 0"><div class="grow"><b>${esc(p.name)}</b> <span class="mut">1:${num(p.min_ratio, 0)} to 1:${num(p.max_ratio, 0)}, ${num(p.min_gpm, 2)} to ${num(p.max_gpm, 1)} GPM, tank up to ${num(p.tank_gal, 1)} gal</span></div>${this._btn("irr-pump", "pencil", "", `data-g="${gid}" data-k="${esc(p.key)}"`, "ic")}</div>`;
+    h += `<div class="small mut" style="margin:2px 0 8px">Feeding every ${F.every_days} days.</div>`;
     h += `<div class="chips">${F.mixes.map((m) => `<button class="chip ${m.active ? "on" : ""}" data-act="irr-mix-sel" data-g="${gid}" data-k="${esc(m.key)}">${esc(m.name)}</button>`).join("")}<button class="chip" data-act="irr-mix" data-g="${gid}">+ Mix</button></div>`;
     if (F.mix) {
       h += `<div class="row" style="margin:8px 0 4px;flex-wrap:wrap;gap:6px"><div class="grow small mut">${F.mix.ppm_n ? `Strength set to ${num(F.mix.ppm_n, 0)} ppm nitrogen.` : "Strength worked out from your plants' needs."}</div>${this._btn("irr-mix", "pencil", "Edit mix", `data-g="${gid}" data-k="${esc(F.mix.key)}"`)}${this._btn("irr-comp", "plus", "Fertilizer", `data-g="${gid}" data-k="${esc(F.mix.key)}"`)}</div>`;
@@ -1709,10 +1712,11 @@ class GardenTrackerCard extends HTMLElement {
     else {
       h += `<div class="sec" style="margin-top:12px">Each feeding</div><div class="stats"><div class="stat"><span>Nitrogen strength</span><b>${num(F.ppm_n, 0)} ppm</b></div><div class="stat"><span>Water through the pump</span><b>${num(F.water_gal, 0)} gal</b></div><div class="stat"><span>Injector on for</span><b>${num(F.inject_min, 0)} min</b></div><div class="stat"><span>Then plain water</span><b>${num(F.flush_min, 0)} min</b></div></div>`;
       for (const t of F.tanks) {
-        h += `<div class="card" style="margin:10px 0 0;background:color-mix(in srgb,var(--c,var(--ok)) 6%,transparent)"><div class="row"><div class="sec grow" style="margin:0">Tank ${esc(t.tank)}${t.batches > 1 ? `, ${t.batches} batches` : ""}</div><b>Dial ${esc(t.dial)}</b></div>`;
+        h += `<div class="card" style="margin:10px 0 0;background:color-mix(in srgb,var(--c,var(--ok)) 6%,transparent)"><div class="row"><div class="sec grow" style="margin:0">Tank ${esc(t.tank)}${t.batches > 1 ? `, ${t.batches} batches` : ""} <span class="small mut">on ${esc(t.pump_name)}</span></div><b>Dial ${esc(t.dial)}</b></div>`;
         for (const c of t.components) h += `<div class="row" style="margin:4px 0"><div class="grow">${esc(c.name)}</div><div style="text-align:right"><b>${num(c.g, 0)} g</b> <span class="small mut">${num(c.oz, 1)} oz${c.lb >= 0.5 ? `, ${num(c.lb, 2)} lb` : ""}</span></div></div>`;
         h += `<div class="small mut">Dissolve in water to make ${num(t.stock_gal, 2)} gal${t.batches > 1 ? " each batch" : ""} (${num(t.g_per_gal, 0)} g a gallon). Set the pump to ${esc(t.dial)} and run it for ${num(F.inject_min, 0)} minutes with the zone, then ${num(F.flush_min, 0)} minutes of plain water.</div></div>`;
       }
+      if (F.feed_runs.length > 1) h += `<div class="small" style="margin-top:10px"><b>Run plan:</b> ${F.feed_runs.map((r) => `watering ${r.n}: tank ${r.tanks.join(" and ")}`).join("; ")}.</div>`;
       const an = F.analysis;
       h += `<div class="small mut" style="margin-top:10px">What the plants get in the water: ${num(an.N, 0)} ppm N, ${num(an.P2O5, 0)} ppm P2O5, ${num(an.K2O, 0)} ppm K2O${an.Ca ? `, ${num(an.Ca, 0)} ppm Ca` : ""}${an.Mg ? `, ${num(an.Mg, 0)} ppm Mg` : ""}. The blend is ${num(F.n_pct, 1)}% nitrogen. That is ${num(F.lb_n_1000, 2)} lb of nitrogen per 1,000 sq ft a feeding, ${num(F.lb_n_week, 3)} lb a week for the garden.</div><div style="margin-top:6px">${this._btn("irr-sched", "calendar-clock", `Every ${F.every_days} days`, `data-g="${gid}"`)}</div>`;
       if (F.plants.length) {
@@ -1730,10 +1734,16 @@ class GardenTrackerCard extends HTMLElement {
       for (const w of A.warnings) h += `<div class="alarm" style="--hold:var(--spray)"><div class="small">${this._icon("alert")} ${esc(w)}</div></div>`;
       if (A.ml_per_gal) {
         h += `<div class="stats"><div class="stat"><span>Acid per gallon of water</span><b>${num(A.ml_per_gal, 2)} mL</b></div><div class="stat"><span>Per 1,000 gal</span><b>${num(A.ml_per_1000 / 1000, 2)} L</b></div></div>`;
-        if (A.tank) h += `<div class="card" style="margin:10px 0 0;background:color-mix(in srgb,var(--c,var(--ok)) 6%,transparent)"><div class="row"><div class="sec grow" style="margin:0">Acid tank</div><b>Dial ${esc(A.tank.dial)}</b></div><div class="row" style="margin:4px 0"><div class="grow">${num(A.strength_pct, 0)}% sulfuric acid</div><div style="text-align:right"><b>${A.tank.ml} mL</b> <span class="small mut">${num(A.tank.oz, 1)} fl oz</span></div></div><div class="small mut">Pour the acid slowly into about ${num(A.tank.stock_gal, 1)} gal of water (never water into acid) so it makes ${num(A.tank.stock_gal, 2)} gal${A.tank.batches > 1 ? ` a batch, ${A.tank.batches} batches` : ""}. Set the pump to ${esc(A.tank.dial)} and run it with the zone for the ${num(A.water_gal, 0)} gal of a watering.</div></div>`;
+        if (A.tank) h += `<div class="card" style="margin:10px 0 0;background:color-mix(in srgb,var(--c,var(--ok)) 6%,transparent)"><div class="row"><div class="sec grow" style="margin:0">Acid tank <span class="small mut">on ${esc(A.pump_name)}</span></div><b>Dial ${esc(A.tank.dial)}</b></div><div class="row" style="margin:4px 0"><div class="grow">${num(A.strength_pct, 0)}% sulfuric acid</div><div style="text-align:right"><b>${A.tank.ml} mL</b> <span class="small mut">${num(A.tank.oz, 1)} fl oz</span></div></div><div class="small mut">Pour the acid slowly into about ${num(A.tank.stock_gal, 1)} gal of water (never water into acid) so it makes ${num(A.tank.stock_gal, 2)} gal${A.tank.batches > 1 ? ` a batch, ${A.tank.batches} batches` : ""}. Set the pump to ${esc(A.tank.dial)} and run it with the zone for the ${num(A.water_gal, 0)} gal of a watering. ${esc(A.note || "")}</div></div>`;
+        if (A.tank) h += `<div class="row" style="margin-top:10px;flex-wrap:wrap;gap:6px">${this._btn("irr-acid-log", "check", "Log this application", `data-g="${gid}" data-q="1"`)}${this._btn("irr-acid-log", "plus", "Log another amount", `data-g="${gid}"`)}</div>`;
         if (A.table.length) h += `<div class="small mut" style="margin-top:8px">Acid for other targets, per gallon: ${A.table.map((t) => `pH ${t.ph} ${num(t.ml_per_gal, 2)} mL`).join(", ")}.</div>`;
         h += `<div class="small mut" style="margin-top:6px">This is for the water alone. Fertilizer in the water changes the pH too, so check the water at an emitter with a meter and adjust. Keep acid in its own labeled tank, away from fertilizer, wear eye protection and gloves, and make sure your injector's seals and tubing are rated for acid.</div>`;
       }
+    }
+    const AL = W.acid_log;
+    if (AL.entries.length) {
+      h += `<div class="sec" style="margin-top:12px">Acid applied</div><div class="small mut" style="margin-bottom:4px">${AL.days_since === 0 ? "Today" : `${AL.days_since} days ago`} was the last. ${AL.count_year} application${AL.count_year === 1 ? "" : "s"} in ${AL.year}, ${num(AL.ml_year / 1000, 2)} L of acid in all.</div>`;
+      for (const e of AL.entries.slice(0, 8)) h += this._logRow("acid", gid, e.id, `${fmtDate(e.date)}, ${num(e.ml, 0)} mL`, `${e.water_gal ? `${num(e.water_gal, 0)} gal` : ""}${e.ph_before ? `${e.water_gal ? ", " : ""}pH ${num(e.ph_before, 2)}${e.ph_after ? ` to ${num(e.ph_after, 2)}` : ""}` : ""}${e.notes ? " · " + esc(e.notes) : ""}`);
     }
     return h + `</div>`;
   }
@@ -1783,21 +1793,47 @@ class GardenTrackerCard extends HTMLElement {
       submit: (x) => this._call("set_acid", { garden: g.id, ph: x.ph, ta_ppm: x.ta_ppm, target_ph: x.target_ph, strength_pct: x.strength_pct, sg: x.sg === undefined ? null : x.sg }),
     };
   }
-  _fInj(g) {
-    const i = g.irrigation.fert.injector;
+  _fPump(g, key) {
+    const F = g.irrigation.fert, i = key ? F.pumps.find((p) => p.key === key) : { name: "", min_ratio: 50, max_ratio: 500, min_gpm: 0.05, max_gpm: 14, tank_gal: 4, flush_min: 5 };
     return {
-      title: "Injector and stock tank", submitLabel: "Save",
+      title: key ? `Pump: ${i.name}` : "Add a pump", submitLabel: "Save",
       fields: [
-        { name: "name", label: "Injector", type: "text", value: i.name },
+        { name: "name", label: "Pump", type: "text", value: i.name, req: true, placeholder: "Dosatron D14MZ2" },
         { name: "min_ratio", label: "Strongest dilution (the 50 in 1:50)", type: "number", step: "any", value: i.min_ratio, req: true },
         { name: "max_ratio", label: "Weakest dilution (the 500 in 1:500)", type: "number", step: "any", value: i.max_ratio, req: true },
         { name: "min_gpm", label: "Lowest flow (GPM)", type: "number", step: "any", value: i.min_gpm },
         { name: "max_gpm", label: "Highest flow (GPM)", type: "number", step: "any", value: i.max_gpm },
-        { name: "tank_gal", label: "Most stock solution to mix (gallons)", type: "number", step: "any", value: i.tank_gal, req: true },
+        { name: "tank_gal", label: "Most stock solution to mix for this pump (gallons)", type: "number", step: "any", value: i.tank_gal, req: true },
         { name: "flush_min", label: "Plain water at the end of a run (minutes)", type: "number", step: "any", value: i.flush_min },
       ],
-      note: "A 5 gallon bucket is easiest to mix at about 4 gallons. The flush pushes the last of the feed out of the lines and is skipped for short runs.",
-      submit: (x) => this._call("set_injector", { garden: g.id, ...x }),
+      note: "A 5 gallon bucket is easiest to mix at about 4 gallons. A pump only injects one tank at a time. With a second pump, tanks on different pumps run together. After adding one, use Tanks to say which pump runs which tank.",
+      submit: (x) => this._call("set_pump", { garden: g.id, pump: key || undefined, ...x }),
+      extra: key && F.pumps.length > 1 ? { label: "Remove this pump", act: () => this._call("remove_pump", { garden: g.id, pump: key }) } : null,
+    };
+  }
+  _fTanks(g) {
+    const F = g.irrigation.fert;
+    return {
+      title: "Which pump runs which tank", submitLabel: "Save",
+      fields: F.tank_names.map((t) => ({ name: t, label: t === "acid" ? "Acid tank" : `Tank ${t}`, type: "select", options: F.pumps.map((p) => [p.key, p.name]), value: F.tank_pump[t] || F.first_pump })),
+      note: "Tanks on the same pump take turns on separate waterings. Tanks on different pumps can run at the same time, so acid on its own pump can run with a feeding.",
+      submit: async (x) => { for (const t of F.tank_names) if (x[t] && x[t] !== (F.tank_pump[t] || F.first_pump)) await this._call("set_tank_pump", { garden: g.id, tank: t, pump: x[t] }); },
+    };
+  }
+  _fAcidLog(g, quick) {
+    const A = g.irrigation.acid, t = A.tank;
+    return {
+      title: "Log an acid application", submitLabel: "Log",
+      fields: [
+        { name: "date", label: "Date", type: "date", value: "", span: 3 },
+        { name: "ml", label: "Acid put in the tank (mL)", type: "number", step: "any", value: quick && t ? t.ml : "", req: true, span: 3 },
+        { name: "water_gal", label: "Water it went into (gal)", type: "number", step: "any", value: quick && t ? A.water_gal : "", span: 3 },
+        { name: "ph_before", label: "pH before", type: "number", step: "any", value: quick && A.ph ? A.ph : "", span: 3 },
+        { name: "ph_after", label: "pH after (measured at an emitter)", type: "number", step: "any", value: "", span: 3 },
+        { name: "notes", label: "Notes", type: "text", value: "" },
+      ],
+      note: quick ? "Filled in from the calculation. Change anything that was different." : "",
+      submit: (x) => this._call("log_acid", { garden: g.id, ...x }),
     };
   }
   _fSched(g) {
@@ -2109,7 +2145,7 @@ class GardenTrackerCard extends HTMLElement {
   _findEntry(kind, parent, id) {
     const v = this._variety(parent), g = this._garden(parent);
     const mh = (k) => (g && g.metrics[k] ? g.metrics[k].history : undefined);
-    const list = { harvest: v && v.harvests, fertilizer: v && v.fertilizations, spray: v && v.sprays, review: v && v.reviews, upotted: v && v.upotted, adjunct: g && g.adjunct_log, ph: g && g.ph.history, moisture: mh("moisture"), ec: mh("ec"), soil_temp: mh("soil_temp"), air_temp: mh("air_temp"), par: mh("par"), water: g && g.water.log, cover: g && g.cover.items }[kind];
+    const list = { acid: g && g.irrigation && g.irrigation.acid_log.entries, harvest: v && v.harvests, fertilizer: v && v.fertilizations, spray: v && v.sprays, review: v && v.reviews, upotted: v && v.upotted, adjunct: g && g.adjunct_log, ph: g && g.ph.history, moisture: mh("moisture"), ec: mh("ec"), soil_temp: mh("soil_temp"), air_temp: mh("air_temp"), par: mh("par"), water: g && g.water.log, cover: g && g.cover.items }[kind];
     return (list || []).find((e) => e.id === id) || {};
   }
   _fEntry(kind, parent, id) {
@@ -2124,6 +2160,7 @@ class GardenTrackerCard extends HTMLElement {
       ph: [{ name: "value", label: "pH", type: "number", step: "0.1", value: e.value, req: true, span: 3 }, { name: "date", label: "Date", type: "date", value: e.date, span: 3 }],
       cover: [{ name: "crop", label: "Cover crop", type: "text", value: e.crop, req: true }, { name: "amount_lbs", label: "Seed (lb)", type: "number", step: "0.1", value: e.amount_lbs }, { name: "sown", label: "Sown", type: "date", value: e.sown, span: 3 }, { name: "terminated", label: "Terminated", type: "date", value: e.terminated, span: 3 }, { name: "method", label: "How terminated", type: "chips", options: Object.entries(COVER_TEXT), value: e.method }, { name: "wait_days", label: "Wait after terminating (days)", type: "number", step: "1", value: e.wait_days, span: 3 }, { name: "notes", label: "Notes", type: "text", value: e.notes }],
       water: [{ name: "date", label: "Date", type: "date", value: e.date }, { name: "notes", label: "Notes", type: "text", value: e.notes }],
+      acid: [{ name: "date", label: "Date", type: "date", value: e.date, span: 3 }, { name: "ml", label: "Acid (mL)", type: "number", step: "any", value: e.ml, req: true, span: 3 }, { name: "water_gal", label: "Water (gal)", type: "number", step: "any", value: e.water_gal, span: 3 }, { name: "ph_before", label: "pH before", type: "number", step: "any", value: e.ph_before, span: 3 }, { name: "ph_after", label: "pH after", type: "number", step: "any", value: e.ph_after, span: 3 }, { name: "notes", label: "Notes", type: "text", value: e.notes }],
       ...Object.fromEntries(["moisture", "ec", "soil_temp", "air_temp", "out_temp", "par"].map((k) => [k, [{ name: "value", label: g && g.metrics[k] ? `${g.metrics[k].name} (${g.metrics[k].unit})` : "Value", type: "number", step: "0.01", value: e.value, req: true, span: 3 }, { name: "date", label: "Date", type: "date", value: e.date, span: 3 }]])),
     }[kind];
     return {

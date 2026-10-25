@@ -143,7 +143,7 @@ def main():
         # watering: drip is the default, with a run time, a GPM and drip line to order
         card.locator("[data-act=back]").first.click()
         card.locator("[data-act=open-water]").click()
-        card.locator("[data-act=irr-inj]").wait_for(timeout=5000)
+        card.locator("[data-act=irr-pump]").first.wait_for(timeout=5000)
         w = pg.evaluate("window.__garden.engine.snapshot()")["gardens"][0]["irrigation"]
         check(w["method"] == "drip" and w["order"] and w["totals"]["gpm"] > 0, f"drip line planned: {w['totals']}")
         text = card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText")

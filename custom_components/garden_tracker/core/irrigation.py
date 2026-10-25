@@ -53,6 +53,10 @@ class IrrigationError(ValueError):
     pass
 
 
+DEFAULT_PUMP = {"name": "Dosatron D14MZ2", "min_ratio": 50, "max_ratio": 500, "min_gpm": 0.05, "max_gpm": 14.0,
+                "tank_gal": 4.0, "flush_min": 5.0}
+
+
 def default_acid() -> dict:
     return {"ph": None, "ta_ppm": None, "target_ph": 5.5, "strength_pct": 35.0, "sg": None, "tested": None}
 
@@ -62,8 +66,7 @@ def default_fert() -> dict:
     calcium nitrate and Epsom salt for fruiting. Everything here is a starting value and can be edited."""
     return {
         "every_days": 14, "active": "growth",
-        "injector": {"name": "Dosatron D14MZ2", "min_ratio": 50, "max_ratio": 500, "min_gpm": 0.05, "max_gpm": 14.0,
-                     "tank_gal": 4.0, "flush_min": 5.0},
+        "pumps": {"pump1": dict(DEFAULT_PUMP)}, "tank_pump": {},
         "mixes": {
             "growth": {"name": "Growth (high nitrogen)", "ppm_n": None, "components": [
                 {"name": "High nitrogen 20-10-20", "n": 20.0, "p": 10.0, "k": 20.0, "ca": 0.0, "mg": 0.0, "parts": 1.0, "tank": "A"}]},
@@ -224,11 +227,22 @@ def fert_of(f: dict | None) -> dict:
     d = default_fert()
     if not f or "mixes" not in f:
         return d
-    out = {"every_days": f.get("every_days") or d["every_days"], "active": f.get("active") or d["active"],
-           "injector": {**d["injector"], **(f.get("injector") or {})}, "mixes": {}}
+    pumps = {k: {**DEFAULT_PUMP, **p} for k, p in (f.get("pumps") or {}).items()}
+    if not pumps:  # an older save with a single injector
+        pumps = {"pump1": {**DEFAULT_PUMP, **(f.get("injector") or {})}}
+    first = next(iter(pumps))
+    out = {"every_days": f.get("every_days") or d["every_days"], "active": f.get("active") or d["active"], "pumps": pumps,
+           "tank_pump": {t: k for t, k in (f.get("tank_pump") or {}).items() if k in pumps}, "mixes": {}}
+    out["first_pump"] = first
     for k, m in f["mixes"].items():
         out["mixes"][k] = {"name": m.get("name") or k, "ppm_n": m.get("ppm_n"), "components": [dict(c) for c in m.get("components") or []]}
     return out
+
+
+def pump_for(f: dict, tank: str) -> tuple[str, dict]:
+    """Which pump a stock tank ("A", "B" and so on, or "acid") is run through."""
+    k = f["tank_pump"].get(tank) or f.get("first_pump") or next(iter(f["pumps"]))
+    return k, f["pumps"][k]
 
 
 def settings_for(s: dict | None) -> dict:
@@ -403,7 +417,7 @@ def _drip(base: dict, st: dict, layout: dict, info: dict, soil: tuple, row_in: i
             "totals": {"gph": round(total_gph, 1), "gpm": round(total_gph / 60, 2), "gal_watering": round(total_gph * run_min / 60, 1),
                        "gal_week": round(gal_week, 1), "emitters": sum(o["emitters"] for o in order),
                        "feet": round(sum(o["feet"] for o in order), 1), "lines_over": line_flag},
-            "fert": ft, "acid": acid(st["acid"], ft["injector"], ft.get("water_gal", total_gph * run_min / 60))}
+            "fert": ft, "acid": _acid_for(st, total_gph * run_min / 60, run_min, ft)}
 
 
 def _sprinkler(base: dict, st: dict, layout: dict, crops_in: list[dict], area: float) -> dict:
@@ -422,7 +436,7 @@ def _sprinkler(base: dict, st: dict, layout: dict, crops_in: list[dict], area: f
     return {**base, "run_min": run_min, "run_min_set": None, "hours_week": round(hours, 2), "need_in_week": need_in, "crops": crops,
             "rows": [], "order": [], "totals": {"gph": round(gpm * 60, 1), "gpm": gpm, "gal_watering": gal_watering, "gal_week": round(gal_week, 1),
                                                 "gpm_given": bool(st["sprinkler_gpm"]), "area_sqft": round(area, 1)},
-            "fert": ft, "acid": acid(st["acid"], ft["injector"], ft.get("water_gal", gal_watering))}
+            "fert": ft, "acid": _acid_for(st, gal_watering, run_min, ft)}
 
 
 PK1, PK2, KW = 6.35, 10.33, 1e-14  # carbonic acid at 25 C
@@ -461,14 +475,18 @@ def acid_eq_per_litre(ph: float, ta_ppm: float, target_ph: float) -> float:
     return max(0.0, a0 - a_target)
 
 
-def acid(a: dict | None, inj: dict, water: float) -> dict:
+def flush_for(inj: dict, run_min: float) -> float:
+    return inj["flush_min"] if run_min > 3 * inj["flush_min"] else 0.0
+
+
+def acid(a: dict | None, inj: dict, water: float, pump: str = "pump1") -> dict:
     """Acid for the stock tank. `water` is the gallons that pass through the injector in one watering."""
     a = {**default_acid(), **(a or {})}
     out: dict[str, Any] = {"ph": a["ph"], "ta_ppm": a["ta_ppm"], "target_ph": a["target_ph"], "strength_pct": a["strength_pct"],
                            "sg_set": a["sg"], "ready": False, "warnings": []}
     sg = a["sg"] or round(sulfuric_sg(a["strength_pct"]), 3)
     meq_ml = sg * a["strength_pct"] / 100 * 1000 / H2SO4_G_MOL * 2  # two hydrogens in each molecule
-    out.update({"sg": sg, "meq_per_ml": round(meq_ml, 2)})
+    out.update({"sg": sg, "meq_per_ml": round(meq_ml, 2), "pump": pump, "pump_name": inj["name"]})
     if a["ph"] is None or a["ta_ppm"] is None:
         return out
     out["ready"] = True
@@ -495,6 +513,19 @@ def acid(a: dict | None, inj: dict, water: float) -> dict:
     return out
 
 
+def _acid_for(st: dict, gal: float, run_min: float, ft: dict) -> dict:
+    """Acid goes through its own pump; it can only run with the feeding when that pump is not one the feeding uses."""
+    f = fert_of(st["fert"])
+    pk, inj = pump_for(f, "acid")
+    water = gal * (run_min - flush_for(inj, run_min)) / run_min if run_min else gal
+    out = acid(st["acid"], inj, water, pk)
+    out["with_feed"] = bool(ft.get("feed_pumps")) and pk not in ft["feed_pumps"]
+    if ft.get("feed_pumps"):
+        out["note"] = ("Runs with the feeding, on its own pump." if out["with_feed"]
+                       else f"Runs on its own watering, because {inj['name']} also runs the fertilizer.")
+    return out
+
+
 def fert(f: dict | None, crops: list[dict], gal: float, method: str, area: float, run_min: float, gpm: float) -> dict:
     """What to put in the stock tank, where to set the injector and how long to run it for one feeding.
 
@@ -504,17 +535,21 @@ def fert(f: dict | None, crops: list[dict], gal: float, method: str, area: float
     weighted by the water each one gets. Each fertilizer's share is its parts by weight, and fertilizers that cannot
     sit together in a concentrate (calcium nitrate with sulfates and phosphates) go in separate tanks."""
     f = fert_of(f)
-    inj, mixes = f["injector"], f["mixes"]
+    mixes = f["mixes"]
     active = f["active"] if f["active"] in mixes else next(iter(mixes), None)
     out: dict[str, Any] = {"mixes": [{"key": k, "name": m["name"], "active": k == active} for k, m in mixes.items()],
-                           "active": active, "every_days": f["every_days"], "injector": inj, "ready": False, "gal_watering": round(gal, 1),
+                           "active": active, "every_days": f["every_days"], "pumps": [{"key": k, **p} for k, p in f["pumps"].items()],
+                           "tank_pump": f["tank_pump"], "first_pump": f["first_pump"], "ready": False,
+                           "tank_names": sorted({c["tank"] for m in mixes.values() for c in m["components"]}) + ["acid"], "gal_watering": round(gal, 1),
                            "run_min": run_min, "gpm": round(gpm, 2), "warnings": [], "components": [], "tanks": [], "plants": [],
                            "mix": None}
     if not active:
         return out
     mix = mixes[active]
     out["mix"] = {"key": active, "name": mix["name"], "ppm_n": mix["ppm_n"], "components": mix["components"]}
-    flush = inj["flush_min"] if run_min > 3 * inj["flush_min"] else 0.0
+    letters = sorted({c["tank"] for c in mix["components"]})
+    used = [pump_for(f, t)[1] for t in letters] or [f["pumps"][f["first_pump"]]]
+    flush = max(flush_for(p, run_min) for p in used)  # the longest flush of the pumps the feeding uses
     frac = (run_min - flush) / run_min if run_min else 1.0
     water = gal * frac
     inject_min = round(run_min - flush, 1)
@@ -543,9 +578,12 @@ def fert(f: dict | None, crops: list[dict], gal: float, method: str, area: float
         return round(sum(c["g"] * c[key] / 100 for c in out["components"]) * 1000 / litres * share)
 
     out["analysis"] = {"N": round(ppm), "P2O5": ppm_of("p"), "K2O": ppm_of("k"), "Ca": ppm_of("ca"), "Mg": ppm_of("mg")}
+    runs: dict[str, list[str]] = {}
     for t in sorted({c["tank"] for c in out["components"]}):
         mine = [c for c in out["components"] if c["tank"] == t]
         grams = sum(c["g"] for c in mine)
+        pk, inj = pump_for(f, t)
+        runs.setdefault(pk, []).append(t)
         ratio = max(inj["min_ratio"], math.ceil(water / inj["tank_gal"] - 1e-9))
         batches = 1
         if ratio > inj["max_ratio"]:
@@ -553,18 +591,25 @@ def fert(f: dict | None, crops: list[dict], gal: float, method: str, area: float
             batches = math.ceil(water / ratio / inj["tank_gal"] - 1e-9)
         stock = water / ratio
         per_batch = stock / batches
-        tk = {"tank": t, "components": [{"name": c["name"], "g": round(c["g"] / batches, 1), "oz": round(c["g"] / batches / 28.3495, 2),
-                                         "lb": round(c["g"] / batches / 453.592, 3)} for c in mine],
+        tk = {"tank": t, "pump": pk, "pump_name": inj["name"],
+              "components": [{"name": c["name"], "g": round(c["g"] / batches, 1), "oz": round(c["g"] / batches / 28.3495, 2),
+                              "lb": round(c["g"] / batches / 453.592, 3)} for c in mine],
               "grams": round(grams / batches, 1), "ratio": int(ratio), "percent": round(100 / ratio, 3), "stock_gal": round(per_batch, 2),
               "batches": batches, "g_per_gal": round(grams / batches / per_batch) if per_batch else None,
               "dial": f"1:{int(ratio)} ({100 / ratio:.2f}%)"}
         if tk["g_per_gal"] and tk["g_per_gal"] > 570:  # about 150 g a litre, more than most fertilizers dissolve
             out["warnings"].append(f"Tank {t} is very strong ({tk['g_per_gal']} g a gallon) and may not dissolve all the way. Use a bigger tank or a weaker dilution.")
         out["tanks"].append(tk)
-    if len(out["tanks"]) > 1:
-        out["warnings"].append("Keep tanks " + " and ".join(t["tank"] for t in out["tanks"]) + " apart: calcium nitrate turns cloudy and drops out when mixed strong with sulfates and phosphates. With one injector, run one tank on one watering and the other on the next, at the same run time, so the plants get every fertilizer in the feeding.")
-    if gpm and not inj["min_gpm"] <= gpm <= inj["max_gpm"]:
-        out["warnings"].append(f"The garden runs at {gpm:g} GPM, outside the {inj['name']}'s {inj['min_gpm']:g} to {inj['max_gpm']:g} GPM range.")
+        if gpm and not inj["min_gpm"] <= gpm <= inj["max_gpm"]:
+            out["warnings"].append(f"The garden runs at {gpm:g} GPM, outside the {inj['name']}'s {inj['min_gpm']:g} to {inj['max_gpm']:g} GPM range.")
+    n_runs = max((len(v) for v in runs.values()), default=1)
+    out["feed_runs"] = [{"n": i + 1, "tanks": [v[i] for v in runs.values() if i < len(v)]} for i in range(n_runs)]
+    out["feed_pumps"] = list(runs)
+    if n_runs > 1:
+        shared = [f["pumps"][k]["name"] for k, v in runs.items() if len(v) > 1]
+        out["warnings"].append("Tanks " + " and ".join(t["tank"] for t in out["tanks"]) + " cannot be mixed strong (calcium nitrate turns cloudy and drops out with sulfates and phosphates), and " + " and ".join(shared) + " can only run one at a time. Run them on " + str(n_runs) + " waterings in a row, at the same run time, so the plants get every fertilizer in the feeding. A second pump would let them run together.")
+    elif len(out["tanks"]) > 1:
+        out["warnings"].append("Tanks " + " and ".join(t["tank"] for t in out["tanks"]) + " run together on separate pumps, so they never meet strong.")
     lb_n = n_g / 453.592
     out.update({"n_g": round(n_g, 1), "lb_n_1000": round(lb_n * 1000 / area, 3) if area else None,
                 "lb_n_week": round(lb_n * 7 / f["every_days"], 3)})
