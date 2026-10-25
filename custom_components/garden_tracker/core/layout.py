@@ -43,12 +43,24 @@ DEFAULTS: dict[str, tuple[float, str, bool, str, float]] = {
     "dill": (8, "grid", True, "none", 4), "chives": (6, "grid", True, "none", 4), "mint": (18, "single", False, "none", 4),
     "oregano": (12, "single", False, "none", 4), "thyme": (12, "single", False, "none", 4), "rosemary": (24, "single", False, "none", 4),
     "sage": (18, "single", False, "none", 4), "strawberry": (12, "double", True, "none", 4),
+    "blueberry": (48, "single", False, "none", 4), "raspberry": (24, "single", False, "tpost", 10), "blackberry": (36, "single", False, "tpost", 10),
     "sweet_potato": (12, "single", False, "none", 4),  # slips set 12 in apart along a ridge
     "corn": (12, "grid", True, "none", 4), "hops": (36, "single", False, "tpost", 10),  # hops climb a string or pole 10 to 20 ft up
 }
 GENERIC = (12, "grid", True, "none", 4)
 # Corn is pollinated by wind, so it needs a block at least 4 ft across (and 4 ft long) instead of a narrow row.
 BLOCKS: dict[str, int] = {"corn": 48}
+# Blueberries need acid soil. Above this pH they yellow and fail, whatever else you do for them.
+ACID_ONLY: dict[str, float] = {"blueberry": 5.5}
+
+
+def acid_text(name: str, top: float, ph: float | None, source: str) -> str:
+    if ph is None:
+        return (f"DO NOT PLANT {name.upper()} UNTIL YOU HAVE TESTED THE SOIL. This garden has no pH reading, and {name.lower()} need acid soil, "
+                f"pH {top - 1.0:.1f} to {top:.1f}. Most garden soil is far above that, and {name.lower()} planted in it turn yellow, stall and die within a year or two.")
+    return (f"DO NOT PLANT {name.upper()} HERE. The {source or 'garden'} pH is {ph:.1f}, and {name.lower()} need acid soil, pH {top - 1.0:.1f} to {top:.1f}. "
+            f"Above {top:.1f} they cannot take up iron, so the leaves yellow, growth stalls and the plants usually die within a year or two, however much you feed or water them. "
+            f"Lower the soil pH first (see the acid and sulfur tools), or grow them in pots or a raised bed filled with acid mix.")
 
 
 class LayoutError(ValueError):
@@ -324,7 +336,7 @@ def draft_result(layout: dict, names: dict[str, str], history: dict[int, dict], 
 
 
 def plan(layout: dict | None, names: dict[str, str], history: dict[int, dict] | None = None, year: int | None = None,
-         traits: dict | None = None, lat: float | None = None) -> dict:
+         traits: dict | None = None, lat: float | None = None, ph: float | None = None, ph_source: str = "") -> dict:
     """Work out every row and the totals. `names` maps crop key to display name (only plants, not trees)."""
     history = history or {}
     available = [{"key": k, "name": n, **defaults_for(k), **((layout or {}).get("crops", {}).get(k) or {}),
@@ -371,6 +383,9 @@ def plan(layout: dict | None, names: dict[str, str], history: dict[int, dict] | 
     plants = sum(c["plants"] for c in crops.values())
     warnings = []
     for c in crops.values():
+        top = ACID_ONLY.get(c["key"])
+        if top is not None and (ph is None or ph > top):
+            warnings.append({"crop": c["key"], "name": c["name"], "strong": True, "text": acid_text(c["name"], top, ph, ph_source)})
         need = BLOCKS.get(c["key"])
         if need and row_in < need:
             warnings.append({"crop": c["key"], "name": c["name"], "text": block_text(c["name"], need, row_in)})

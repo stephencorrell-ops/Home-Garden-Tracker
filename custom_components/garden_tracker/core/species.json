@@ -225,7 +225,7 @@
   "pests": []
  },
  "jalapeno": {
-  "name": "Jalape\u00f1o",
+  "name": "Jalapeño",
   "kind": "plant",
   "pests": [],
   "feeding_plan": [
@@ -427,6 +427,21 @@
  },
  "sweet_potato": {
   "name": "Sweet potatoes",
+  "kind": "plant",
+  "pests": []
+ },
+ "blueberry": {
+  "name": "Blueberries",
+  "kind": "plant",
+  "pests": []
+ },
+ "raspberry": {
+  "name": "Raspberries",
+  "kind": "plant",
+  "pests": []
+ },
+ "blackberry": {
+  "name": "Blackberries",
   "kind": "plant",
   "pests": []
  }

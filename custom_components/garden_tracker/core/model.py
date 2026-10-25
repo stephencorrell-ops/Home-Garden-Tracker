@@ -2163,7 +2163,7 @@ class GardenModel:
             "frost": self._frost_view(g, today),
             "paused": {k: bool(g.get("sensors_paused", {}).get(k)) for k in METRICS},
             "fertility": self._fertility_view(g, metrics, today) if soil else None,
-            "layout": lay.plan(g.get("layout"), self._plant_names(), self._history(g), today.year, self.data["variety_traits"], self._lat()) if soil else None,
+            "layout": lay.plan(g.get("layout"), self._plant_names(), self._history(g), today.year, self.data["variety_traits"], self._lat(), *self._soil_ph(g)) if soil else None,
             "irrigation": self._irrigation_view(g, today) if soil else None,
             "season": self._season_view(g, today) if soil and kind == "garden" else None,
             "layout_history": ({y: lay.plan(h, self._plant_names(), None, int(y)) for y, h in g["layout_history"].items()} if soil else {}),
@@ -2187,6 +2187,14 @@ class GardenModel:
         first = (g.get("frost") or {}).get("first") or st["frost_first"]
         planted = {c["key"] for c in (lay.plan(g.get("layout"), self._plant_names(), None, today.year).get("crops") or [])} if g.get("layout") else set()
         return season_mod.analyse(self._plant_names(), last, first, today, planted, self.data.get("crop_days"))
+
+    def _soil_ph(self, g: dict) -> tuple:
+        """The pH to judge acid-loving crops by: the latest reading (sensor or logged), else the soil test typed into the lime tool."""
+        hist = sorted(g["ph_readings"], key=lambda r: (r["date"], r["id"]))
+        if hist:
+            return hist[-1]["value"], ("tested" if hist[-1].get("source") != "sensor" else "sensor")
+        est = ((g.get("irrigation") or {}).get("lime") or {}).get("ph")
+        return (est, "estimated") if est else (None, "")
 
     def _lat(self) -> float | None:
         """Where the garden is, north to south: the place you set, otherwise Home Assistant's own latitude."""

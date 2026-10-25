@@ -514,6 +514,23 @@ class Layout(unittest.TestCase):
         m.set_crop_days("mint", 30, "hardy")
         self.assertIn("mint", season())
 
+    def test_berries_and_blueberry_acid_warning(self):
+        m, gid = self.garden()
+        for k in ("blueberry", "raspberry", "blackberry"):
+            self.assertIn(k, m._plant_names())
+        m.set_layout(gid, 6, 12, 36)
+        m.assign_layout_rows(gid, "blueberry")
+
+        def warn():
+            L = next(g for g in m.snapshot()["gardens"] if g["id"] == gid)["layout"]
+            return [w for w in L["warnings"] if w["crop"] == "blueberry"]
+        self.assertTrue(warn() and "TESTED" in warn()[0]["text"])  # no reading: test first
+        m.log_ph(gid, 6.8)
+        w = warn()
+        self.assertTrue(w and w[0]["strong"] and "6.8" in w[0]["text"])
+        m.log_ph(gid, 5.2, "2099-01-01")
+        self.assertEqual(warn(), [])
+
     def test_herbs_and_more_garden_plants_are_on_the_list(self):
         m, gid = self.garden()
         names = m._plant_names()

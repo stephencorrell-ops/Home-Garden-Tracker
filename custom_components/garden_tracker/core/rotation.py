@@ -18,7 +18,7 @@ LEGUME = ("bean", "pea")
 
 DISEASES: list[dict] = [
     # nightshade
-    {"key": "verticillium", "name": "Verticillium wilt", "code": "V", "rest": 3, "hosts": NIGHTSHADE + ("eggplant", "strawberry")},  # strawberries should not follow nightshades
+    {"key": "verticillium", "name": "Verticillium wilt", "code": "V", "rest": 3, "hosts": NIGHTSHADE + ("eggplant", "strawberry", "raspberry", "blackberry")},  # strawberries should not follow nightshades
     {"key": "fusarium", "name": "Fusarium wilt", "code": "F", "rest": 3, "hosts": ("tomato",)},
     {"key": "nematode", "name": "Root-knot nematodes", "code": "N", "rest": 2, "hosts": ("tomato", "pepper", "jalapeno", "habanero")},
     {"key": "early_blight", "name": "Early blight", "code": "A", "rest": 2, "hosts": ("tomato", "potato")},

@@ -2120,9 +2120,9 @@ class GardenTrackerCard extends HTMLElement {
       h += `<div class="card"><div class="sec">Garden size</div><div class="grid6">${dim("length_ft", "Row length (ft)", num(L.length_ft, 2))}${dim("width_ft", "Depth (ft)", num(L.width_ft, 2))}${dim("path_in", "Access path between rows (in)", num(L.path_in, 1), 6, 0)}</div>`;
       h += `<label style="margin-top:10px">Row width</label><div class="seg">${L.row_widths.map((n) => `<button class="${L.row_in === n ? "on" : ""}" data-act="lay-rowin" data-g="${gid}" data-n="${n}">${n} in</button>`).join("")}</div>`;
       h += `<div class="small mut" style="margin-top:8px">Fits ${t.rows} row${t.rows === 1 ? "" : "s"} of ${L.row_in} in with ${num(L.path_in, 0)} in paths between them. Each crop has its own pattern: a single line, a double line or an offset grid.</div></div>`;
+      if ((L.warnings || []).length) h += `<div class="card">` + (L.warnings || []).map((w) => `<div class="alarm" style="--hold:var(${w.strong ? "--error-color,#db4437" : "--spray"})"><div class="small"${w.strong ? ' style="font-weight:700"' : ""}>${this._icon("alert")} ${esc(w.text)}</div></div>`).join("") + `</div>`;
       if (L.alerts.length) {
         h += `<div class="card"><div class="sec">Crop rotation</div>`;
-        h += (L.warnings || []).map((w) => `<div class="alarm" style="--hold:var(--spray)"><div class="small">${this._icon("alert")} ${esc(w.text)}</div></div>`).join("");
         h += L.alerts.map((a) => `<div class="alarm" ${a.level === "family" ? 'style="--hold:var(--spray)"' : a.level === "resistant" ? 'style="--hold:var(--ok)"' : ""}><b>${this._icon(a.level === "resistant" ? "check" : "alert")} ${esc(a.name)}${a.variety ? ` (${esc(a.variety)})` : ""}, row ${a.row + 1}</b><div class="small" style="margin-top:4px">${esc(a.text)}</div></div>`).join("");
         h += `<div class="small mut">Rest times follow <a href="${L.rotation_sources[0]}" target="_blank" rel="noopener">WSU Extension</a> and <a href="${L.rotation_sources[1]}" target="_blank" rel="noopener">Cornell Vegetable MD Online</a>.</div></div>`;
       }
