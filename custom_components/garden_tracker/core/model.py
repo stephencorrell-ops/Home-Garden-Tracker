@@ -123,7 +123,7 @@ EDITABLE = {
     "adjunct": ("type", "product", "amount", "date", "notes"), "ph": ("value", "date"),
     "moisture": ("value", "date"), "ec": ("value", "date"), "soil_temp": ("value", "date"),
     "air_temp": ("value", "date"), "par": ("value", "date"), "out_temp": ("value", "date"), "water": ("date", "notes"),
-    "acid": ("date", "ml", "water_gal", "ph_before", "ph_after", "notes"),
+    "acid": ("date", "ml", "g", "water_gal", "ph_before", "ph_after", "notes", "product"),
     "cover": ("crop", "sown", "terminated", "method", "notes", "wait_days", "amount_lbs"),
 }
 
@@ -920,10 +920,10 @@ class GardenModel:
         return I["fert"]
 
     def set_acid(self, garden: str, ph: Any = None, ta_ppm: Any = None, target_ph: Any = None, strength_pct: Any = None,
-                 sg: Any = "keep") -> None:
+                 sg: Any = "keep", base: Any = None) -> None:
         g, I = self._irrigation_of(garden)
         try:
-            vals = irr.validate_acid(ph, ta_ppm, target_ph, strength_pct, sg)
+            vals = irr.validate_acid(ph, ta_ppm, target_ph, strength_pct, sg, base)
         except irr.IrrigationError as e:
             raise GardenError(str(e)) from None
         a = {**irr.default_acid(), **(I.get("acid") or {}), **vals}
@@ -941,6 +941,16 @@ class GardenModel:
         if "active" in vals and vals["active"] not in F["mixes"]:
             raise GardenError("Pick one of the mixes")
         F.update(vals)
+        self._touch()
+
+    def set_lime(self, garden: str, target_ph: Any = None, lime_type: Any = None, depth_in: Any = None, tilled: Any = None,
+                 ph: Any = "keep", lb_per_unit: Any = "keep") -> None:
+        g, I = self._irrigation_of(garden)
+        try:
+            vals = irr.validate_lime(target_ph, lime_type, depth_in, tilled, ph, lb_per_unit)
+        except irr.IrrigationError as e:
+            raise GardenError(str(e)) from None
+        I["lime"] = {**irr.default_lime(), **(I.get("lime") or {}), **vals}
         self._touch()
 
     def set_pump(self, garden: str, pump: str | None = None, name: Any = None, min_ratio: Any = None, max_ratio: Any = None,
@@ -995,16 +1005,21 @@ class GardenModel:
         self._touch()
 
     def log_acid(self, garden: str, when: Any = None, ml: Any = None, water_gal: Any = None, ph_before: Any = None,
-                 ph_after: Any = None, notes: str | None = None) -> None:
-        g = self._layout_garden(garden)
+                 ph_after: Any = None, notes: str | None = None, g: Any = None, product: str | None = None) -> None:
+        """Log an acid application (mL) or, when the water was raised, a base (grams)."""
+        gd = self._layout_garden(garden)
+        if ml in (None, "") and g in (None, ""):
+            raise GardenError("Enter the amount of acid in mL, or of base in grams")
         try:
-            vals = {"ml": irr._num(ml, "Acid (mL)", 0, 100000)}
-            vals["water_gal"] = irr._num(water_gal, "Water (gallons)", 0, 1000000) if water_gal not in (None, "") else None
-            vals["ph_before"] = irr._num(ph_before, "pH before", 0, 14) if ph_before not in (None, "") else None
-            vals["ph_after"] = irr._num(ph_after, "pH after", 0, 14) if ph_after not in (None, "") else None
+            vals = {"ml": irr._num(ml, "Acid (mL)", 0, 100000) if ml not in (None, "") else None,
+                    "g": irr._num(g, "Base (g)", 0, 1000000) if g not in (None, "") else None,
+                    "water_gal": irr._num(water_gal, "Water (gallons)", 0, 1000000) if water_gal not in (None, "") else None,
+                    "ph_before": irr._num(ph_before, "pH before", 0, 14) if ph_before not in (None, "") else None,
+                    "ph_after": irr._num(ph_after, "pH after", 0, 14) if ph_after not in (None, "") else None}
         except irr.IrrigationError as e:
             raise GardenError(str(e)) from None
-        g.setdefault("acid_log", []).append({"id": new_id(), "date": iso(when) or self.today().isoformat(), "notes": notes or "", **vals})
+        gd.setdefault("acid_log", []).append({"id": new_id(), "date": iso(when) or self.today().isoformat(), "notes": notes or "",
+                                              "product": (product or "").strip()[:60], **vals})
         self._touch()
 
     def set_fert_mix(self, garden: str, mix: str | None = None, name: Any = None, ppm_n: Any = "keep") -> str:
@@ -2102,11 +2117,13 @@ class GardenModel:
         }
 
     def _irrigation_view(self, g: dict, today: date) -> dict:
-        w = irr.plan(lay.plan(g.get("layout"), self._plant_names(), None, today.year), g.get("irrigation"))
+        hist = sorted(g["ph_readings"], key=lambda r: (r["date"], r["id"]))
+        cur = hist[-1]["value"] if hist else None
+        w = irr.plan(lay.plan(g.get("layout"), self._plant_names(), None, today.year), g.get("irrigation"), None, cur)
         log = sorted(g.get("acid_log", []), key=lambda e: (e["date"], e["id"]), reverse=True)
         year = [e for e in log if e["date"][:4] == str(today.year)]
         w["acid_log"] = {"entries": log[:60], "last": log[0]["date"] if log else None, "days_since": calc.days_since(log[0]["date"], today) if log else None,
-                         "count_year": len(year), "ml_year": round(sum(e["ml"] for e in year)), "year": today.year}
+                         "count_year": len(year), "ml_year": round(sum(e.get("ml") or 0 for e in year)), "g_year": round(sum(e.get("g") or 0 for e in year)), "year": today.year}
         return w
 
     @staticmethod

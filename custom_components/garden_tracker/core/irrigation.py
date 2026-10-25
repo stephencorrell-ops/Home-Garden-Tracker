@@ -58,7 +58,11 @@ DEFAULT_PUMP = {"name": "Dosatron D14MZ2", "min_ratio": 50, "max_ratio": 500, "m
 
 
 def default_acid() -> dict:
-    return {"ph": None, "ta_ppm": None, "target_ph": 5.5, "strength_pct": 35.0, "sg": None, "tested": None}
+    return {"ph": None, "ta_ppm": None, "target_ph": 5.5, "strength_pct": 35.0, "sg": None, "tested": None, "base": "kbic"}
+
+
+def default_lime() -> dict:
+    return {"target_ph": 6.5, "type": "calcitic", "depth_in": 6.0, "tilled": True, "ph": None, "lb_per_unit": None}
 
 
 def default_fert() -> dict:
@@ -81,7 +85,7 @@ def default_fert() -> dict:
 def blank() -> dict:
     return {"method": "drip", "soil": DEFAULT_SOIL, "per_week": 3, "run_min": None, "sprinkler_in_hr": 0.75,
             "sprinkler_gpm": None, "max_line_gph": DEFAULT_MAX_LINE_GPH, "crops": {},
-            "fert": default_fert(), "acid": default_acid()}
+            "fert": default_fert(), "acid": default_acid(), "lime": default_lime()}
 
 
 def _num(v: Any, name: str, lo: float, hi: float) -> float:
@@ -207,8 +211,13 @@ def validate_component(name: Any = None, n: Any = None, p: Any = None, k: Any = 
     return out
 
 
-def validate_acid(ph: Any = None, ta_ppm: Any = None, target_ph: Any = None, strength_pct: Any = None, sg: Any = "keep") -> dict:
+def validate_acid(ph: Any = None, ta_ppm: Any = None, target_ph: Any = None, strength_pct: Any = None, sg: Any = "keep",
+                  base: Any = None) -> dict:
     out: dict[str, Any] = {}
+    if base is not None:
+        if base not in BASES:
+            raise IrrigationError("Pick a base from the list")
+        out["base"] = base
     if ph is not None:
         out["ph"] = _num(ph, "Water pH", 3, 12)
     if ta_ppm is not None:
@@ -250,6 +259,7 @@ def settings_for(s: dict | None) -> dict:
     if s:
         base.update({k: v for k, v in s.items() if k not in ("fert", "crops", "acid")})
         base["acid"] = {**default_acid(), **(s.get("acid") or {})}
+        base["lime"] = {**default_lime(), **(s.get("lime") or {})}
         base["fert"] = fert_of(s.get("fert"))
         base["crops"] = {k: dict(v) for k, v in (s.get("crops") or {}).items()}
     return base
@@ -292,7 +302,7 @@ def _lines_for(cfg: dict, pattern: str, row_in: int) -> int:
     return 2 if pattern == "grid" and row_in >= 30 else 1
 
 
-def plan(layout: dict, settings: dict | None, names: dict[str, str] | None = None) -> dict:
+def plan(layout: dict, settings: dict | None, names: dict[str, str] | None = None, soil_ph: float | None = None) -> dict:
     """Watering for a laid-out garden. `layout` is the result of layout.plan."""
     st = settings_for(settings)
     soil = SOILS.get(st["soil"], SOILS[DEFAULT_SOIL])
@@ -300,7 +310,8 @@ def plan(layout: dict, settings: dict | None, names: dict[str, str] | None = Non
             "soil": st["soil"], "soils": [{"key": k, "name": v[0], "max_gph": v[1], "note": v[3]} for k, v in SOILS.items()],
             "soil_note": soil[3], "per_week": st["per_week"], "flows": list(DRIP_FLOWS), "spacings": list(DRIP_SPACINGS),
             "rolls": list(ROLLS), "max_line_gph": st["max_line_gph"], "sprinkler_in_hr": st["sprinkler_in_hr"],
-            "sprinkler_gpm": st["sprinkler_gpm"], "fert_settings": fert_of(st["fert"])}
+            "sprinkler_gpm": st["sprinkler_gpm"], "fert_settings": fert_of(st["fert"]),
+            "lime": lime(st["lime"], st["soil"], soil_ph, (layout.get("width_ft", 0) * layout.get("length_ft", 0)) if layout and layout.get("configured") else None)}
     if not base["configured"]:
         return base
     row_in = layout["row_in"]
@@ -461,6 +472,29 @@ def _alpha(ph: float) -> tuple[float, float, float]:
     return h, k1 * h / d, k1 * k2 / d
 
 
+# base -> (name, grams in one equivalent of alkalinity at full strength, purity, a bicarbonate adds carbon as well)
+BASES: dict[str, tuple[str, float, float, bool]] = {
+    "kbic": ("Potassium bicarbonate", 100.115, 1.0, True),
+    "nabic": ("Sodium bicarbonate (baking soda)", 84.007, 1.0, True),
+    "koh": ("Potassium hydroxide (caustic potash, 85% flakes)", 56.106, 0.85, False),
+}
+
+
+def base_eq_per_litre(ph: float, ta_ppm: float, target_ph: float, bicarbonate: bool) -> float | None:
+    """Alkalinity (equivalents per litre) to add to raise the water to the target pH. A bicarbonate also adds carbon, so
+    it cannot take the water past about pH 8.3, where the carbon is all bicarbonate; None when the target is out of reach."""
+    a0 = ta_ppm / 50000.0
+    h, a1, a2 = _alpha(ph)
+    ct = (a0 + h - KW / h) / (a1 + 2 * a2)
+    h2, b1, b2 = _alpha(target_ph)
+    f = b1 + 2 * b2
+    if bicarbonate:
+        if f >= 1 - 1e-9:
+            return None
+        return max(0.0, (ct * f + KW / h2 - h2 - a0) / (1 - f))
+    return max(0.0, ct * f + KW / h2 - h2 - a0)
+
+
 def acid_eq_per_litre(ph: float, ta_ppm: float, target_ph: float) -> float:
     """Strong acid (equivalents per litre) that takes water of this pH and alkalinity down to the target pH.
 
@@ -479,6 +513,42 @@ def flush_for(inj: dict, run_min: float) -> float:
     return inj["flush_min"] if run_min > 3 * inj["flush_min"] else 0.0
 
 
+def _dilution(inj: dict, water: float) -> tuple[int, int]:
+    """The ratio to set and the number of batches, so each batch fits the stock tank and the pump's range."""
+    ratio = max(inj["min_ratio"], math.ceil(water / inj["tank_gal"] - 1e-9))
+    batches = 1
+    if ratio > inj["max_ratio"]:
+        ratio = inj["max_ratio"]
+        batches = math.ceil(water / ratio / inj["tank_gal"] - 1e-9)
+    return int(ratio), batches
+
+
+def _raise(out: dict, a: dict, inj: dict, water: float) -> dict:
+    """Base for the stock tank when the water's pH is below the target."""
+    name, g_eq, purity, bicarb = BASES[out["base"]]
+    eq = base_eq_per_litre(a["ph"], a["ta_ppm"], a["target_ph"], bicarb)
+    if eq is None:
+        out["warnings"].append(f"{name} cannot take water above about pH 8.3. Pick a lower target, or use potassium hydroxide.")
+        out.update({"meq_l": 0, "g_per_gal": 0, "water_gal": round(water, 1), "table": []})
+        return out
+    g_gal = eq * g_eq / purity * 3.78541
+    out.update({"meq_l": round(eq * 1000, 2), "g_per_gal": round(g_gal, 2), "kg_per_1000": round(g_gal, 2), "base_name": name,
+                "water_gal": round(water, 1),
+                "table": [{"ph": t, "g_per_gal": round((base_eq_per_litre(a["ph"], a["ta_ppm"], t, bicarb) or 0) * g_eq / purity * 3.78541, 2)}
+                          for t in (6.0, 6.5, 7.0, 7.5) if t > a["ph"] and (not bicarb or t < 8.3)]})
+    if water > 0:
+        ratio, batches = _dilution(inj, water)
+        stock = water / ratio / batches
+        grams = g_gal * water / batches
+        out["tank"] = {"ratio": ratio, "percent": round(100 / ratio, 3), "dial": f"1:{ratio} ({100 / ratio:.2f}%)", "stock_gal": round(stock, 2),
+                       "batches": batches, "g": round(grams), "oz": round(grams / 28.3495, 1), "g_per_gal_stock": round(grams / stock) if stock else None}
+        if out["tank"]["g_per_gal_stock"] and out["tank"]["g_per_gal_stock"] > 400:
+            out["warnings"].append("That is a strong stock solution; bicarbonate dissolves to about 330 g a gallon, so use a weaker dilution or a bigger tank.")
+    if not bicarb:
+        out["warnings"].append("Potassium hydroxide is caustic: wear eye protection and gloves, add it to water slowly, and use it only if your pump's seals and tubing are rated for it.")
+    return out
+
+
 def acid(a: dict | None, inj: dict, water: float, pump: str = "pump1") -> dict:
     """Acid for the stock tank. `water` is the gallons that pass through the injector in one watering."""
     a = {**default_acid(), **(a or {})}
@@ -486,30 +556,93 @@ def acid(a: dict | None, inj: dict, water: float, pump: str = "pump1") -> dict:
                            "sg_set": a["sg"], "ready": False, "warnings": []}
     sg = a["sg"] or round(sulfuric_sg(a["strength_pct"]), 3)
     meq_ml = sg * a["strength_pct"] / 100 * 1000 / H2SO4_G_MOL * 2  # two hydrogens in each molecule
-    out.update({"sg": sg, "meq_per_ml": round(meq_ml, 2), "pump": pump, "pump_name": inj["name"]})
+    out.update({"sg": sg, "meq_per_ml": round(meq_ml, 2), "pump": pump, "pump_name": inj["name"],
+                "bases": [{"key": k, "name": v[0]} for k, v in BASES.items()], "base": a["base"] if a["base"] in BASES else "kbic"})
     if a["ph"] is None or a["ta_ppm"] is None:
         return out
     out["ready"] = True
-    if a["ph"] <= a["target_ph"]:
-        out["warnings"].append("The water is already at or below the target pH, so it needs no acid.")
+    out["mode"] = "raise" if a["ph"] < a["target_ph"] else "lower"
+    if a["ph"] == a["target_ph"]:
+        out["warnings"].append("The water is already at the target pH.")
+    if out["mode"] == "raise":
+        return _raise(out, a, inj, water)
     eq = acid_eq_per_litre(a["ph"], a["ta_ppm"], a["target_ph"])
     ml_gal = eq * 1000 * 3.78541 / meq_ml
     out.update({"meq_l": round(eq * 1000, 2), "ml_per_gal": round(ml_gal, 2), "ml_per_1000": round(ml_gal * 1000), "water_gal": round(water, 1),
                 "table": [{"ph": t, "ml_per_gal": round(acid_eq_per_litre(a["ph"], a["ta_ppm"], t) * 1000 * 3.78541 / meq_ml, 2)}
                           for t in (6.5, 6.0, 5.5, 5.0) if t < a["ph"]]})
     if water > 0:
-        ratio = max(inj["min_ratio"], math.ceil(water / inj["tank_gal"] - 1e-9))
-        batches = 1
-        if ratio > inj["max_ratio"]:
-            ratio = inj["max_ratio"]
-            batches = math.ceil(water / ratio / inj["tank_gal"] - 1e-9)
+        ratio, batches = _dilution(inj, water)
         stock = water / ratio
         ml = ml_gal * water / batches
         out["tank"] = {"ratio": int(ratio), "percent": round(100 / ratio, 3), "dial": f"1:{int(ratio)} ({100 / ratio:.2f}%)",
                        "stock_gal": round(stock / batches, 2), "batches": batches, "ml": round(ml), "oz": round(ml / 29.5735, 1),
                        "ml_per_gal_stock": round(ml / (stock / batches)) if stock else None}
-    if a["ta_ppm"] and a["ph"] < 6.0:
-        out["warnings"].append("A pH this low with this much alkalinity is unusual. Re-test the water before adding acid.")
+    if a["ta_ppm"] and a["ph"] < 6.0 and a["ta_ppm"] > 60:
+        out["warnings"].append("A pH this low with this much alkalinity is unusual. Re-test the water before treating it.")
+    return out
+
+
+# soil -> pounds of pure limestone to raise 1,000 sq ft of soil one pH unit, worked 6 inches deep. These are rough
+# figures that grow with clay and organic matter; a lab's buffer pH result is better, and can be entered instead.
+LIME_PER_UNIT = {"sand": 25.0, "sandy_loam": 40.0, "loam": 60.0, "silt_loam": 75.0, "clay_loam": 90.0, "clay": 110.0}
+LIMES = {"calcitic": ("Ground limestone (calcitic)", 1.00), "dolomitic": ("Dolomitic limestone", 1.05),
+         "hydrated": ("Hydrated lime", 1.35), "ash": ("Wood ash", 0.67)}
+LIME_MAX_LB_1000 = {True: 100.0, False: 70.0}  # most to put on at once: worked in (10 lb per 100 sq ft) or left on top (5 to 7)
+LIME_NOTES = ("UConn Extension: no more than 5 to 7 lb of limestone per 100 sq ft on the surface, or 10 lb worked in to 6 inches, at one time; "
+              "it takes about 3 to 9 months to work. Cornell Cooperative Extension: rates come from a soil test.")
+
+
+def validate_lime(target_ph: Any = None, lime_type: Any = None, depth_in: Any = None, tilled: Any = None, ph: Any = "keep",
+                  lb_per_unit: Any = "keep") -> dict:
+    out: dict[str, Any] = {}
+    if target_ph is not None:
+        out["target_ph"] = _num(target_ph, "Target pH", 4, 8)
+    if lime_type is not None:
+        if lime_type not in LIMES:
+            raise IrrigationError("Pick a lime from the list")
+        out["type"] = lime_type
+    if depth_in is not None:
+        out["depth_in"] = _num(depth_in, "Depth", 1, 24)
+    if tilled is not None:
+        out["tilled"] = bool(tilled)
+    if ph != "keep":  # empty means use the garden's latest logged pH
+        out["ph"] = None if ph in (None, "", 0) else _num(ph, "Soil pH", 3, 9)
+    if lb_per_unit != "keep":
+        out["lb_per_unit"] = None if lb_per_unit in (None, "", 0) else _num(lb_per_unit, "Lime per pH unit", 1, 1000)
+    return out
+
+
+def lime(l: dict | None, soil: str, logged_ph: float | None, area: float | None) -> dict:
+    """Lime to raise the soil's pH, spread dry, for `area` square feet (1,000 when the garden has no layout)."""
+    l = {**default_lime(), **(l or {})}
+    cur = l["ph"] if l["ph"] is not None else logged_ph
+    area_given = bool(area)
+    area = area or 1000.0
+    lname, cce = LIMES.get(l["type"], LIMES["calcitic"])
+    per = l["lb_per_unit"] or LIME_PER_UNIT.get(soil, 60.0)
+    out: dict[str, Any] = {"ph": cur, "ph_from": "you" if l["ph"] is not None else ("log" if logged_ph is not None else None),
+                           "target_ph": l["target_ph"], "type": l["type"], "types": [{"key": k, "name": v[0]} for k, v in LIMES.items()],
+                           "type_name": lname, "depth_in": l["depth_in"], "tilled": l["tilled"], "lb_per_unit": per,
+                           "lb_per_unit_set": l["lb_per_unit"], "soil": soil, "area_sqft": round(area, 0), "area_given": area_given,
+                           "ready": False, "warnings": [], "notes": LIME_NOTES}
+    if cur is None:
+        return out
+    out["ready"] = True
+    if cur >= l["target_ph"]:
+        out["warnings"].append("The soil is already at or above the target pH, so it needs no lime.")
+        out.update({"lb_1000": 0, "lb_total": 0, "applications": 0})
+        return out
+    lb_1000 = per * (l["target_ph"] - cur) * (l["depth_in"] / 6.0) / cce
+    cap = LIME_MAX_LB_1000[bool(l["tilled"])]
+    n = max(1, math.ceil(lb_1000 / cap - 1e-9))
+    out.update({"lb_1000": round(lb_1000, 1), "lb_100": round(lb_1000 / 10, 1), "lb_total": round(lb_1000 * area / 1000, 1),
+                "applications": n, "per_application_1000": round(lb_1000 / n, 1),
+                "per_application_total": round(lb_1000 * area / 1000 / n, 1), "cap_1000": cap})
+    if n > 1:
+        out["warnings"].append(f"That is more than {cap:g} lb per 1,000 sq ft, the most to apply at once, so split it into {n} applications and re-test the soil between them. It takes 3 to 9 months to work.")
+    if per == LIME_PER_UNIT.get(soil) and not l["lb_per_unit"]:
+        out["warnings"].append("This is an estimate from the soil type. A lab's lime recommendation is better; enter its pounds per 1,000 sq ft for one pH unit to use it.")
     return out
 
 

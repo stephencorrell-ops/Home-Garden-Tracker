@@ -1054,6 +1054,7 @@ class GardenTrackerCard extends HTMLElement {
       case "irr-acid": return this._open(this._fAcid(this._garden(d.g)));
       case "irr-pump": return this._open(this._fPump(this._garden(d.g), d.k));
       case "irr-tanks": return this._open(this._fTanks(this._garden(d.g)));
+      case "irr-lime": return this._open(this._fLime(this._garden(d.g)));
       case "irr-acid-log": return this._open(this._fAcidLog(this._garden(d.g), d.q === "1"));
       case "irr-sched": return this._open(this._fSched(this._garden(d.g)));
       case "irr-mix": return this._open(this._fMix(this._garden(d.g), d.k));
@@ -1726,24 +1727,40 @@ class GardenTrackerCard extends HTMLElement {
       }
     }
     h += `</div>`;
-    const A = W.acid;
-    h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("beaker-outline")} Water pH and acid</div>${this._btn("irr-acid", "pencil", "Test and acid", `data-g="${gid}"`)}</div>`;
-    if (!A.ready) h += `<div class="small mut" style="margin-top:6px">Enter your water's pH and total alkalinity (TA, in ppm as calcium carbonate) from a test to work out the sulfuric acid for the stock tank. Set the acid you have (${num(A.strength_pct, 0)}% by weight).</div>`;
+    const A = W.acid, raise = A.mode === "raise";
+    h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("beaker-outline")} Water pH ${raise ? "(raise)" : "and acid"}</div>${this._btn("irr-acid", "pencil", "Water test", `data-g="${gid}"`)}</div>`;
+    if (!A.ready) h += `<div class="small mut" style="margin-top:6px">Enter your water's pH and total alkalinity (TA, in ppm as calcium carbonate) from a test. Water above your target pH gets sulfuric acid (${num(A.strength_pct, 0)}% by weight); water below it gets a base such as potassium bicarbonate.</div>`;
     else {
-      h += `<div class="small mut" style="margin:6px 0">Water tested pH ${num(A.ph, 2)}, TA ${num(A.ta_ppm, 0)} ppm. Target pH ${num(A.target_ph, 1)} with ${num(A.strength_pct, 0)}% sulfuric acid (${num(A.sg, 3)} specific gravity, ${num(A.meq_per_ml, 1)} meq a mL).</div>`;
+      h += `<div class="small mut" style="margin:6px 0">Water tested pH ${num(A.ph, 2)}, TA ${num(A.ta_ppm, 0)} ppm. Target pH ${num(A.target_ph, 1)}${raise ? ` with ${esc(A.base_name || "a base")}` : ` with ${num(A.strength_pct, 0)}% sulfuric acid (${num(A.sg, 3)} specific gravity, ${num(A.meq_per_ml, 1)} meq a mL)`}.</div>`;
       for (const w of A.warnings) h += `<div class="alarm" style="--hold:var(--spray)"><div class="small">${this._icon("alert")} ${esc(w)}</div></div>`;
-      if (A.ml_per_gal) {
-        h += `<div class="stats"><div class="stat"><span>Acid per gallon of water</span><b>${num(A.ml_per_gal, 2)} mL</b></div><div class="stat"><span>Per 1,000 gal</span><b>${num(A.ml_per_1000 / 1000, 2)} L</b></div></div>`;
-        if (A.tank) h += `<div class="card" style="margin:10px 0 0;background:color-mix(in srgb,var(--c,var(--ok)) 6%,transparent)"><div class="row"><div class="sec grow" style="margin:0">Acid tank <span class="small mut">on ${esc(A.pump_name)}</span></div><b>Dial ${esc(A.tank.dial)}</b></div><div class="row" style="margin:4px 0"><div class="grow">${num(A.strength_pct, 0)}% sulfuric acid</div><div style="text-align:right"><b>${A.tank.ml} mL</b> <span class="small mut">${num(A.tank.oz, 1)} fl oz</span></div></div><div class="small mut">Pour the acid slowly into about ${num(A.tank.stock_gal, 1)} gal of water (never water into acid) so it makes ${num(A.tank.stock_gal, 2)} gal${A.tank.batches > 1 ? ` a batch, ${A.tank.batches} batches` : ""}. Set the pump to ${esc(A.tank.dial)} and run it with the zone for the ${num(A.water_gal, 0)} gal of a watering. ${esc(A.note || "")}</div></div>`;
+      const amt = raise ? A.g_per_gal : A.ml_per_gal;
+      if (amt) {
+        h += raise
+          ? `<div class="stats"><div class="stat"><span>Base per gallon of water</span><b>${num(A.g_per_gal, 2)} g</b></div><div class="stat"><span>Per 1,000 gal</span><b>${num(A.kg_per_1000, 2)} kg</b></div></div>`
+          : `<div class="stats"><div class="stat"><span>Acid per gallon of water</span><b>${num(A.ml_per_gal, 2)} mL</b></div><div class="stat"><span>Per 1,000 gal</span><b>${num(A.ml_per_1000 / 1000, 2)} L</b></div></div>`;
+        if (A.tank) h += `<div class="card" style="margin:10px 0 0;background:color-mix(in srgb,var(--c,var(--ok)) 6%,transparent)"><div class="row"><div class="sec grow" style="margin:0">${raise ? "Base" : "Acid"} tank <span class="small mut">on ${esc(A.pump_name)}</span></div><b>Dial ${esc(A.tank.dial)}</b></div><div class="row" style="margin:4px 0"><div class="grow">${raise ? esc(A.base_name) : `${num(A.strength_pct, 0)}% sulfuric acid`}</div><div style="text-align:right"><b>${raise ? `${A.tank.g} g` : `${A.tank.ml} mL`}</b> <span class="small mut">${raise ? `${num(A.tank.oz, 1)} oz` : `${num(A.tank.oz, 1)} fl oz`}</span></div></div><div class="small mut">${raise ? "Dissolve it in" : "Pour the acid slowly into"} about ${num(A.tank.stock_gal, 1)} gal of water${raise ? "" : " (never water into acid)"} so it makes ${num(A.tank.stock_gal, 2)} gal${A.tank.batches > 1 ? ` a batch, ${A.tank.batches} batches` : ""}. Set the pump to ${esc(A.tank.dial)} and run it with the zone for the ${num(A.water_gal, 0)} gal of a watering. ${esc(A.note || "")}</div></div>`;
         if (A.tank) h += `<div class="row" style="margin-top:10px;flex-wrap:wrap;gap:6px">${this._btn("irr-acid-log", "check", "Log this application", `data-g="${gid}" data-q="1"`)}${this._btn("irr-acid-log", "plus", "Log another amount", `data-g="${gid}"`)}</div>`;
-        if (A.table.length) h += `<div class="small mut" style="margin-top:8px">Acid for other targets, per gallon: ${A.table.map((t) => `pH ${t.ph} ${num(t.ml_per_gal, 2)} mL`).join(", ")}.</div>`;
-        h += `<div class="small mut" style="margin-top:6px">This is for the water alone. Fertilizer in the water changes the pH too, so check the water at an emitter with a meter and adjust. Keep acid in its own labeled tank, away from fertilizer, wear eye protection and gloves, and make sure your injector's seals and tubing are rated for acid.</div>`;
+        if (A.table.length) h += `<div class="small mut" style="margin-top:8px">${raise ? "Base" : "Acid"} for other targets, per gallon: ${A.table.map((t) => `pH ${t.ph} ${raise ? `${num(t.g_per_gal, 2)} g` : `${num(t.ml_per_gal, 2)} mL`}`).join(", ")}.</div>`;
+        h += `<div class="small mut" style="margin-top:6px">This is for the water alone and assumes no carbon dioxide escapes, so measure at an emitter with a meter and adjust. Fertilizer in the water changes the pH too. Keep ${raise ? "base" : "acid"} in its own labeled tank, away from fertilizer, wear eye protection and gloves, and make sure your pump's seals and tubing are rated for it.</div>`;
       }
     }
     const AL = W.acid_log;
     if (AL.entries.length) {
-      h += `<div class="sec" style="margin-top:12px">Acid applied</div><div class="small mut" style="margin-bottom:4px">${AL.days_since === 0 ? "Today" : `${AL.days_since} days ago`} was the last. ${AL.count_year} application${AL.count_year === 1 ? "" : "s"} in ${AL.year}, ${num(AL.ml_year / 1000, 2)} L of acid in all.</div>`;
-      for (const e of AL.entries.slice(0, 8)) h += this._logRow("acid", gid, e.id, `${fmtDate(e.date)}, ${num(e.ml, 0)} mL`, `${e.water_gal ? `${num(e.water_gal, 0)} gal` : ""}${e.ph_before ? `${e.water_gal ? ", " : ""}pH ${num(e.ph_before, 2)}${e.ph_after ? ` to ${num(e.ph_after, 2)}` : ""}` : ""}${e.notes ? " · " + esc(e.notes) : ""}`);
+      h += `<div class="sec" style="margin-top:12px">Applied</div><div class="small mut" style="margin-bottom:4px">${AL.days_since === 0 ? "Today" : `${AL.days_since} days ago`} was the last. ${AL.count_year} application${AL.count_year === 1 ? "" : "s"} in ${AL.year}${AL.ml_year ? `, ${num(AL.ml_year / 1000, 2)} L of acid` : ""}${AL.g_year ? `, ${num(AL.g_year / 1000, 2)} kg of base` : ""}.</div>`;
+      for (const e of AL.entries.slice(0, 8)) h += this._logRow("acid", gid, e.id, `${fmtDate(e.date)}, ${e.g ? `${num(e.g, 0)} g${e.product ? " " + esc(e.product) : ""}` : `${num(e.ml, 0)} mL`}`, `${e.water_gal ? `${num(e.water_gal, 0)} gal` : ""}${e.ph_before ? `${e.water_gal ? ", " : ""}pH ${num(e.ph_before, 2)}${e.ph_after ? ` to ${num(e.ph_after, 2)}` : ""}` : ""}${e.notes ? " · " + esc(e.notes) : ""}`);
+    }
+    h += `</div>`;
+    const Li = W.lime;
+    h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("shovel")} Raise soil pH</div>${this._btn("irr-lime", "pencil", "Lime", `data-g="${gid}"`)}</div>`;
+    if (!Li.ready) h += `<div class="small mut" style="margin-top:6px">Log a soil pH on the garden's page, or enter one under Lime, to work out how much garden lime to spread.</div>`;
+    else {
+      h += `<div class="small mut" style="margin:6px 0">Soil pH ${num(Li.ph, 1)} (${Li.ph_from === "you" ? "entered here" : "your latest log"}) to ${num(Li.target_ph, 1)}, ${esc(Li.type_name.toLowerCase())}, ${Li.tilled ? "worked in" : "left on top"} to ${num(Li.depth_in, 0)} in.</div>`;
+      for (const w of Li.warnings) h += `<div class="alarm" style="--hold:var(--spray)"><div class="small">${this._icon("alert")} ${esc(w)}</div></div>`;
+      if (Li.lb_1000) {
+        h += `<div class="stats"><div class="stat"><span>Per 1,000 sq ft</span><b>${num(Li.lb_1000, 0)} lb</b></div><div class="stat"><span>Per 100 sq ft</span><b>${num(Li.lb_100, 1)} lb</b></div><div class="stat"><span>${Li.area_given ? `This garden (${num(Li.area_sqft, 0)} sq ft)` : "Per 1,000 sq ft"}</span><b>${num(Li.lb_total, 0)} lb</b></div><div class="stat"><span>Applications</span><b>${Li.applications}</b></div></div>`;
+        if (Li.applications > 1) h += `<div class="small" style="margin-top:8px">Spread ${num(Li.per_application_total, 0)} lb (${num(Li.per_application_1000, 0)} lb per 1,000 sq ft) each time, months apart, and re-test the soil between.</div>`;
+        h += `<div class="small mut" style="margin-top:6px">Spread it dry and rake or till it in; it takes 3 to 9 months to work, so fall is a good time. Based on about ${num(Li.lb_per_unit, 0)} lb of pure limestone per 1,000 sq ft for each pH unit on ${esc((W.soils.find((x) => x.key === Li.soil) || {}).name || "this soil").toLowerCase()}. ${esc(Li.notes)}</div>`;
+      }
     }
     return h + `</div>`;
   }
@@ -1778,6 +1795,22 @@ class GardenTrackerCard extends HTMLElement {
       submit: (x) => this._call("set_irrigation_crop", { garden: g.id, crop: key, water_in_week: x.water_in_week, ppm_n: x.ppm_n, lines: x.lines, flow_gph: drip ? (x.flow_gph ? Number(x.flow_gph) : null) : undefined, emit_in: drip ? (x.emit_in ? Number(x.emit_in) : null) : undefined }),
     };
   }
+  _fLime(g) {
+    const L = g.irrigation.lime;
+    return {
+      title: "Lime for low soil pH", submitLabel: "Save",
+      fields: [
+        { name: "ph", label: "Soil pH (empty to use your latest log)", type: "number", step: "any", value: L.ph_from === "you" ? L.ph : "" },
+        { name: "target_ph", label: "Target soil pH", type: "number", step: "any", value: L.target_ph, req: true },
+        { name: "type", label: "What you spread", type: "select", options: L.types.map((t) => [t.key, t.name]), value: L.type },
+        { name: "tilled", label: "How it goes on", type: "select", options: [["1", "Worked in"], ["0", "Left on the surface"]], value: L.tilled ? "1" : "0" },
+        { name: "depth_in", label: "Depth worked in (inches)", type: "number", step: "any", value: L.depth_in },
+        { name: "lb_per_unit", label: "Lab figure: lb of limestone per 1,000 sq ft for 1 pH unit (empty to estimate)", type: "number", step: "any", value: L.lb_per_unit_set || "" },
+      ],
+      note: "Most vegetables like 6.0 to 6.8. The estimate follows the soil type set under Soil and run time, and grows with clay and organic matter, so a lab test is better. Hydrated lime acts faster and is stronger; wood ash is about two thirds as strong as limestone.",
+      submit: (x) => this._call("set_lime", { garden: g.id, ph: x.ph === undefined ? null : x.ph, target_ph: x.target_ph, type: x.type, tilled: x.tilled === "1", depth_in: x.depth_in, lb_per_unit: x.lb_per_unit === undefined ? null : x.lb_per_unit }),
+    };
+  }
   _fAcid(g) {
     const A = g.irrigation.acid;
     return {
@@ -1788,9 +1821,10 @@ class GardenTrackerCard extends HTMLElement {
         { name: "target_ph", label: "Target pH", type: "number", step: "any", value: A.target_ph },
         { name: "strength_pct", label: "Sulfuric acid strength (% by weight)", type: "number", step: "any", value: A.strength_pct },
         { name: "sg", label: "Specific gravity (empty to work it out)", type: "number", step: "any", value: A.sg_set || "" },
+        { name: "base", label: "Base to raise a low pH", type: "select", options: (A.bases || [["kbic", "Potassium bicarbonate"], ["nabic", "Sodium bicarbonate (baking soda)"], ["koh", "Potassium hydroxide"]].map(([key, name]) => ({ key, name }))).map((b) => [b.key, b.name]), value: A.base || "kbic" },
       ],
-      note: "Test the water before it goes through the pump. 35% is battery acid and 93% is concentrated; the specific gravity follows from the strength. Re-test now and then, as the water changes with the seasons.",
-      submit: (x) => this._call("set_acid", { garden: g.id, ph: x.ph, ta_ppm: x.ta_ppm, target_ph: x.target_ph, strength_pct: x.strength_pct, sg: x.sg === undefined ? null : x.sg }),
+      note: "Test the water before it goes through the pump. If it is below the target pH you get a base to add instead. 35% is battery acid and 93% is concentrated; the specific gravity follows from the strength. Re-test now and then, as the water changes with the seasons.",
+      submit: (x) => this._call("set_acid", { garden: g.id, ph: x.ph, ta_ppm: x.ta_ppm, target_ph: x.target_ph, strength_pct: x.strength_pct, sg: x.sg === undefined ? null : x.sg, base: x.base }),
     };
   }
   _fPump(g, key) {
@@ -1821,19 +1855,20 @@ class GardenTrackerCard extends HTMLElement {
     };
   }
   _fAcidLog(g, quick) {
-    const A = g.irrigation.acid, t = A.tank;
+    const A = g.irrigation.acid, t = A.tank, raise = A.mode === "raise";
     return {
-      title: "Log an acid application", submitLabel: "Log",
+      title: raise ? "Log a base application" : "Log an acid application", submitLabel: "Log",
       fields: [
         { name: "date", label: "Date", type: "date", value: "", span: 3 },
-        { name: "ml", label: "Acid put in the tank (mL)", type: "number", step: "any", value: quick && t ? t.ml : "", req: true, span: 3 },
+        raise ? { name: "g", label: "Base put in the tank (g)", type: "number", step: "any", value: quick && t ? t.g : "", req: true, span: 3 }
+          : { name: "ml", label: "Acid put in the tank (mL)", type: "number", step: "any", value: quick && t ? t.ml : "", req: true, span: 3 },
         { name: "water_gal", label: "Water it went into (gal)", type: "number", step: "any", value: quick && t ? A.water_gal : "", span: 3 },
         { name: "ph_before", label: "pH before", type: "number", step: "any", value: quick && A.ph ? A.ph : "", span: 3 },
         { name: "ph_after", label: "pH after (measured at an emitter)", type: "number", step: "any", value: "", span: 3 },
         { name: "notes", label: "Notes", type: "text", value: "" },
       ],
       note: quick ? "Filled in from the calculation. Change anything that was different." : "",
-      submit: (x) => this._call("log_acid", { garden: g.id, ...x }),
+      submit: (x) => this._call("log_acid", { garden: g.id, ...x, product: raise ? A.base_name : undefined }),
     };
   }
   _fSched(g) {
@@ -2160,7 +2195,7 @@ class GardenTrackerCard extends HTMLElement {
       ph: [{ name: "value", label: "pH", type: "number", step: "0.1", value: e.value, req: true, span: 3 }, { name: "date", label: "Date", type: "date", value: e.date, span: 3 }],
       cover: [{ name: "crop", label: "Cover crop", type: "text", value: e.crop, req: true }, { name: "amount_lbs", label: "Seed (lb)", type: "number", step: "0.1", value: e.amount_lbs }, { name: "sown", label: "Sown", type: "date", value: e.sown, span: 3 }, { name: "terminated", label: "Terminated", type: "date", value: e.terminated, span: 3 }, { name: "method", label: "How terminated", type: "chips", options: Object.entries(COVER_TEXT), value: e.method }, { name: "wait_days", label: "Wait after terminating (days)", type: "number", step: "1", value: e.wait_days, span: 3 }, { name: "notes", label: "Notes", type: "text", value: e.notes }],
       water: [{ name: "date", label: "Date", type: "date", value: e.date }, { name: "notes", label: "Notes", type: "text", value: e.notes }],
-      acid: [{ name: "date", label: "Date", type: "date", value: e.date, span: 3 }, { name: "ml", label: "Acid (mL)", type: "number", step: "any", value: e.ml, req: true, span: 3 }, { name: "water_gal", label: "Water (gal)", type: "number", step: "any", value: e.water_gal, span: 3 }, { name: "ph_before", label: "pH before", type: "number", step: "any", value: e.ph_before, span: 3 }, { name: "ph_after", label: "pH after", type: "number", step: "any", value: e.ph_after, span: 3 }, { name: "notes", label: "Notes", type: "text", value: e.notes }],
+      acid: [{ name: "date", label: "Date", type: "date", value: e.date, span: 3 }, { name: "ml", label: "Acid (mL)", type: "number", step: "any", value: e.ml, span: 3 }, { name: "g", label: "Base (g)", type: "number", step: "any", value: e.g, span: 3 }, { name: "water_gal", label: "Water (gal)", type: "number", step: "any", value: e.water_gal, span: 3 }, { name: "ph_before", label: "pH before", type: "number", step: "any", value: e.ph_before, span: 3 }, { name: "ph_after", label: "pH after", type: "number", step: "any", value: e.ph_after, span: 3 }, { name: "notes", label: "Notes", type: "text", value: e.notes }],
       ...Object.fromEntries(["moisture", "ec", "soil_temp", "air_temp", "out_temp", "par"].map((k) => [k, [{ name: "value", label: g && g.metrics[k] ? `${g.metrics[k].name} (${g.metrics[k].unit})` : "Value", type: "number", step: "0.01", value: e.value, req: true, span: 3 }, { name: "date", label: "Date", type: "date", value: e.date, span: 3 }]])),
     }[kind];
     return {

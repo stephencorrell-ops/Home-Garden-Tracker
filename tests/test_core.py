@@ -590,11 +590,51 @@ class Irrigation(unittest.TestCase):
         self.assertLess(self.water()["acid"]["ml_per_gal"], a["ml_per_gal"] / 2)  # stronger acid, less of it
         self.m.set_acid(self.gid, target_ph=6.5)
         self.assertLess(self.water()["acid"]["meq_l"], a["meq_l"])
-        self.m.set_acid(self.gid, ph=5.0, ta_ppm=20)
-        self.assertEqual(self.water()["acid"]["ml_per_gal"], 0)
+        self.m.set_acid(self.gid, ph=5.5, ta_ppm=20, target_ph=5.5)
+        self.assertEqual(self.water()["acid"]["ml_per_gal"], 0)  # already there
         self.assertTrue(self.water()["acid"]["warnings"])
         with self.assertRaises(GardenError):
             self.m.set_acid(self.gid, ph=20)
+
+    def test_low_water_ph_gets_a_base_for_the_tank_instead_of_acid(self):
+        self.m.set_acid(self.gid, ph=5.6, ta_ppm=20, target_ph=6.5)
+        a = self.water()["acid"]
+        self.assertEqual((a["mode"], a["base"]), ("raise", "kbic"))
+        self.assertGreater(a["g_per_gal"], 0)
+        self.assertNotIn("ml_per_gal", a)
+        self.assertAlmostEqual(a["tank"]["g"], a["g_per_gal"] * a["water_gal"], delta=1)
+        k = a["g_per_gal"]
+        self.m.set_acid(self.gid, base="nabic")
+        self.assertLess(self.water()["acid"]["g_per_gal"], k)  # a lighter salt, so less by weight
+        self.m.set_acid(self.gid, base="koh")
+        koh = self.water()["acid"]
+        self.assertLess(koh["g_per_gal"], k)
+        self.assertTrue(any("caustic" in w for w in koh["warnings"]))
+        self.m.set_acid(self.gid, base="kbic", target_ph=8.8)
+        self.assertTrue(any("8.3" in w for w in self.water()["acid"]["warnings"]))  # bicarbonate cannot get there
+        with self.assertRaises(GardenError):
+            self.m.set_acid(self.gid, base="lye")
+
+    def test_lime_for_low_soil_ph(self):
+        w = self.water()["lime"]
+        self.assertFalse(w["ready"])  # no soil pH logged yet
+        self.m.log_ph(self.gid, 5.5)
+        w = self.water()["lime"]
+        self.assertEqual((w["ready"], w["ph_from"], w["soil"]), (True, "log", "clay_loam"))
+        self.assertAlmostEqual(w["lb_1000"], 90.0, 1)  # 90 lb a unit on clay loam, one unit up
+        self.assertAlmostEqual(w["lb_total"], 90.0 * 20 * 40 / 1000, 1)  # the garden is 20 x 40 ft
+        self.assertEqual(w["applications"], 1)
+        self.m.set_lime(self.gid, lime_type="dolomitic", target_ph=7.0)
+        w = self.water()["lime"]
+        self.assertAlmostEqual(w["lb_1000"], 90 * 1.5 / 1.05, 0)
+        self.assertEqual(w["applications"], 2)  # over the 100 lb a time limit
+        self.m.set_lime(self.gid, lb_per_unit=50, ph=6.0, target_ph=6.5, lime_type="calcitic")
+        w = self.water()["lime"]
+        self.assertEqual((w["ph_from"], w["lb_1000"]), ("you", 25.0))
+        self.m.set_lime(self.gid, ph=7.0)
+        self.assertEqual(self.water()["lime"]["lb_total"], 0)
+        with self.assertRaises(GardenError):
+            self.m.set_lime(self.gid, lime_type="chalk")
 
     def test_bad_input(self):
         for bad in (dict(soil="gravel"), dict(per_week=0), dict(method="flood")):
