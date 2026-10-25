@@ -9,6 +9,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Callable
 
 from . import calc
+from . import layout as lay
 from . import microclimate as mc
 
 
@@ -186,6 +187,7 @@ class GardenModel:
         g.setdefault("frost", {})
         g.setdefault("kind", "garden")
         g.setdefault("trays", 0)
+        g.setdefault("layout", None)
         g.setdefault("watering", [])
         g.setdefault("water_every", None)
         g.setdefault("power_sensors", {})
@@ -762,6 +764,61 @@ class GardenModel:
         if g["kind"] == "garden":
             raise GardenError(f"{g['name']} is a garden. This only works for a seedling rack or greenhouse")
         return g
+
+    # ---- layout planner -------------------------------------------------------------------------------
+    def _plant_names(self) -> dict[str, str]:
+        return {k: sp["name"] for k, sp in {**self.presets, **self.data["species"]}.items() if sp.get("kind") != "tree"}
+
+    def _layout_garden(self, ref: str) -> dict:
+        g = self.find_garden(ref)
+        self._ensure_garden(g)
+        if g["kind"] != "garden":
+            raise GardenError("Layouts are for gardens, not racks or greenhouses")
+        return g
+
+    def set_layout(self, garden: str, width_ft: Any = None, length_ft: Any = None, row_in: Any = None, double: Any = None) -> None:
+        g = self._layout_garden(garden)
+        new = copy.deepcopy(g["layout"]) if g["layout"] else lay.blank()
+        try:
+            lay.validate_size(new, width_ft, length_ft, row_in, double)
+        except lay.LayoutError as e:
+            raise GardenError(str(e)) from None
+        g["layout"] = new
+        self._touch()
+
+    def assign_layout_rows(self, garden: str, crop: str | None, rows: list[int] | None = None) -> None:
+        g = self._layout_garden(garden)
+        if not g["layout"]:
+            raise GardenError("Set the garden size first")
+        names = self._plant_names()
+        if crop and crop not in names:
+            raise GardenError(f"Unknown crop '{crop}'")
+        n = lay.row_count(g["layout"])
+        cur = (list(g["layout"].get("rows") or []) + [None] * n)[:n]
+        for i in (range(n) if rows is None else rows):
+            if not 0 <= int(i) < n:
+                raise GardenError(f"There is no row {int(i) + 1}")
+            cur[int(i)] = crop or None
+        g["layout"]["rows"] = cur
+        self._touch()
+
+    def set_layout_crop(self, garden: str, crop: str, spacing_in: Any = None, support: Any = None, post_ft: Any = None) -> None:
+        g = self._layout_garden(garden)
+        if not g["layout"]:
+            raise GardenError("Set the garden size first")
+        if crop not in self._plant_names():
+            raise GardenError(f"Unknown crop '{crop}'")
+        try:
+            vals = lay.validate_crop(spacing_in, support, post_ft)
+        except lay.LayoutError as e:
+            raise GardenError(str(e)) from None
+        g["layout"].setdefault("crops", {}).setdefault(crop, {}).update(vals)
+        self._touch()
+
+    def remove_layout(self, garden: str) -> None:
+        g = self._layout_garden(garden)
+        g["layout"] = None
+        self._touch()
 
     def set_trays(self, garden: str, trays: int) -> None:
         g = self._location(garden)
@@ -1682,6 +1739,7 @@ class GardenModel:
             "frost": self._frost_view(g, today),
             "paused": {k: bool(g.get("sensors_paused", {}).get(k)) for k in METRICS},
             "fertility": self._fertility_view(g, metrics, today) if soil else None,
+            "layout": lay.plan(g.get("layout"), self._plant_names()) if soil else None,
             "trays": g.get("trays", 0), "water": self._water_view(g, today),
             "trays_calc": self._trays_calc(g) if kind != "garden" else None,
             "power": self._power_view(g, today) if kind != "garden" else None,

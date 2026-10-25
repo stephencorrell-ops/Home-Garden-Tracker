@@ -139,3 +139,68 @@ class App(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Layout(unittest.TestCase):
+    def garden(self):
+        m = make()
+        gid = m.add_garden("Back yard")
+        return m, gid
+
+    def view(self, m, gid):
+        return next(g for g in m.snapshot()["gardens"] if g["id"] == gid)["layout"]
+
+    def test_rows_and_plants_for_tomatoes_with_t_posts(self):
+        m, gid = self.garden()
+        self.assertFalse(self.view(m, gid)["configured"])
+        m.set_layout(gid, 20, 40, 30, False)
+        m.assign_layout_rows(gid, "tomato")
+        v = self.view(m, gid)
+        self.assertEqual(v["totals"]["rows"], 8)  # 240 in across at 30 in a row
+        self.assertEqual(v["rows"][0]["plants"], 20)  # 480 in long at 24 in
+        self.assertEqual(v["totals"]["plants"], 160)
+        self.assertEqual(v["totals"]["posts"], 8 * 11)  # a post every 4 ft plus the end one: 40 / 4 + 1
+        self.assertEqual(v["totals"]["density"], 0.2)
+
+    def test_double_rows_double_the_plants_and_cages_follow_plants(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 12, 10, 36, True)
+        m.assign_layout_rows(gid, "pepper")
+        m.set_layout_crop(gid, "pepper", None, "cage", None)
+        v = self.view(m, gid)
+        self.assertEqual(len(v["rows"][0]["lines"]), 2)
+        self.assertEqual(v["totals"]["plants"], 4 * 2 * 6)  # 4 rows, 2 lines, 120 in / 18 in = 6
+        self.assertEqual(v["totals"]["cages"], v["totals"]["plants"])
+
+    def test_one_row_can_hold_a_different_crop_and_be_cleared(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 10, 10, 24, False)
+        m.assign_layout_rows(gid, "tomato")
+        m.assign_layout_rows(gid, "carrot", [1])
+        v = self.view(m, gid)
+        self.assertEqual({c["key"] for c in v["crops"]}, {"tomato", "carrot"})
+        m.assign_layout_rows(gid, None, [1])
+        self.assertEqual({c["key"] for c in self.view(m, gid)["crops"]}, {"tomato"})
+
+    def test_bad_input_is_refused(self):
+        m, gid = self.garden()
+        with self.assertRaises(GardenError):
+            m.set_layout(gid, 20, 40, 28, False)
+        with self.assertRaises(GardenError):
+            m.set_layout(gid, 0, 40, 30, False)
+        m.set_layout(gid, 20, 40, 30, False)
+        with self.assertRaises(GardenError):
+            m.assign_layout_rows(gid, "apple")  # a tree
+        with self.assertRaises(GardenError):
+            m.assign_layout_rows(gid, "tomato", [99])
+        with self.assertRaises(GardenError):
+            m.set_layout_crop(gid, "tomato", 0)
+
+    def test_layout_survives_saving_and_is_json(self):
+        a = App.app(self)
+        a.call("add_garden", json.dumps({"name": "Back yard"}))
+        gid = json.loads(a.snapshot())["gardens"][0]["id"]
+        for svc, args in (("set_layout", {"width_ft": 8, "length_ft": 8, "row_in": 24}), ("assign_layout_rows", {"crop": "garlic"})):
+            self.assertTrue(json.loads(a.call(svc, json.dumps({"garden": gid, **args})))["ok"])
+        b = App.app(self, a.data())
+        self.assertEqual(json.loads(b.snapshot())["gardens"][0]["layout"]["totals"]["plants"], 4 * 16)
