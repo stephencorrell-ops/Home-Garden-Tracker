@@ -761,7 +761,7 @@ class GardenTrackerCard extends HTMLElement {
     const inPlace = v.location_kind !== "garden";
     const sub = [v.species_name, tree ? null : `${v.alive} of ${v.count} plants`, inPlace ? v.container : null].filter(Boolean).join(", ");
     const pest = tree ? v.pests.find((p) => p.status && p.status.next_dd) : null;
-    const stats = this._stats(v).slice(0, 3), planted = stats.find((x) => x[0] === "Planted");
+    const stats = this._stats(v).slice(0, 3), planted = this._web ? stats.find((x) => x[0] === "Planted") : null;
     let h = `<div class="card tile" data-act="open-v" data-v="${v.id}"><div class="row">${this._picBox(v)}<div class="grow"><div style="font-size:15px;font-weight:500">${esc(v.name)}</div><div class="sub">${esc(sub)}</div><span class="pill ${v.status.level}">${esc(v.status.text)}</span></div>${planted ? `<div class="pdays"><span>Planted</span><b>${esc(planted[1])}</b></div>` : ""}</div>`;
     const rest = stats.filter((x) => x !== planted);
     if (rest.length) h += this._statGrid(rest);
