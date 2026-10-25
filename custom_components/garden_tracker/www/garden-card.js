@@ -46,6 +46,7 @@ label{display:block;font-size:12px;color:var(--mut);margin-bottom:4px}
 .ttl{font-size:18px;font-weight:500}.sub{font-size:12px;color:var(--mut)}.mut{color:var(--mut)}.small{font-size:12px}
 .card{background:var(--ha-card-background,var(--card-background-color));border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
 .sec{font-size:12px;color:var(--mut);margin:0 0 6px}
+.pdays{text-align:right;flex:none;align-self:flex-start}.pdays span{display:block;font-size:11px;color:var(--mut)}.pdays b{font-size:16px;font-weight:500}
 .tile{cursor:pointer}.tile:hover{border-color:var(--primary-color)}
 .pic{width:56px;height:56px;border-radius:12px;flex:none;display:flex;align-items:center;justify-content:center}
 .pill{font-size:12px;padding:2px 10px;border-radius:8px;display:inline-block;margin-top:4px;color:var(--c);background:color-mix(in srgb,var(--c) 16%,transparent)}
@@ -760,8 +761,10 @@ class GardenTrackerCard extends HTMLElement {
     const inPlace = v.location_kind !== "garden";
     const sub = [v.species_name, tree ? null : `${v.alive} of ${v.count} plants`, inPlace ? v.container : null].filter(Boolean).join(", ");
     const pest = tree ? v.pests.find((p) => p.status && p.status.next_dd) : null;
-    let h = `<div class="card tile" data-act="open-v" data-v="${v.id}"><div class="row">${this._picBox(v)}<div class="grow"><div style="font-size:15px;font-weight:500">${esc(v.name)}</div><div class="sub">${esc(sub)}</div><span class="pill ${v.status.level}">${esc(v.status.text)}</span></div></div>`;
-    h += this._statGrid(this._stats(v).slice(0, 3));
+    const stats = this._stats(v).slice(0, 3), planted = stats.find((x) => x[0] === "Planted");
+    let h = `<div class="card tile" data-act="open-v" data-v="${v.id}"><div class="row">${this._picBox(v)}<div class="grow"><div style="font-size:15px;font-weight:500">${esc(v.name)}</div><div class="sub">${esc(sub)}</div><span class="pill ${v.status.level}">${esc(v.status.text)}</span></div>${planted ? `<div class="pdays"><span>Planted</span><b>${esc(planted[1])}</b></div>` : ""}</div>`;
+    const rest = stats.filter((x) => x !== planted);
+    if (rest.length) h += this._statGrid(rest);
     if (pest) {
       const s = pest.status;
       h += `<div style="margin-top:10px;font-size:12px" class="row"><span class="mut grow">${esc(pest.name)} degree days</span><b>${s.dd} / ${s.next_dd}</b></div><div class="bar"><i style="width:${Math.min(100, (s.dd / s.next_dd) * 100)}%"></i></div>`;
