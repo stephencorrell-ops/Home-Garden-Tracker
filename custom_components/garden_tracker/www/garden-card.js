@@ -1055,6 +1055,7 @@ class GardenTrackerCard extends HTMLElement {
       case "irr-pump": return this._open(this._fPump(this._garden(d.g), d.k));
       case "irr-tanks": return this._open(this._fTanks(this._garden(d.g)));
       case "toggle-sec": this._exp = { ...(this._exp || {}), [d.s]: !(this._exp || {})[d.s] }; return this._render();
+      case "season-days": return this._open(this._fDays(this._garden(d.g), d.c));
       case "irr-sprk": return this._open(this._fSprk(this._garden(d.g)));
       case "irr-lime": return this._open(this._fLime(this._garden(d.g)));
       case "irr-acid-log": return this._open(this._fAcidLog(this._garden(d.g), d.q === "1"));
@@ -1811,6 +1812,21 @@ class GardenTrackerCard extends HTMLElement {
     if (!show) return `<div class="card tile" data-act="toggle-sec" data-s="sun"><div class="row"><div class="grow"><div class="sec" style="margin:0">${this._icon("weather-sunny")} Sun and shade</div><div class="small mut">${esc(sum)}</div></div>${this._icon("chevron-down")}</div></div>`;
     return `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("weather-sunny")} Sun and shade</div>${this._btn("toggle-sec", "chevron-up", "", `data-s="sun"`, "ic")}</div>${body}${turnBtn}</div>`;
   }
+  _fDays(g, key) {
+    const S = g.season, c = key ? S.crops.find((x) => x.key === key) : null;
+    const hard = Object.entries(S.hardiness);
+    return {
+      title: c ? `Days to harvest: ${c.name}` : "Give a crop a time", submitLabel: "Save",
+      fields: [
+        ...(c ? [] : [{ name: "crop", label: "Crop", type: "select", options: S.untimed.map((x) => [x.key, x.name]), value: S.untimed[0].key }]),
+        { name: "days", label: "Days from planting to harvest (seed packet)", type: "number", step: "1", value: c ? c.days : "", req: true },
+        { name: "hardy", label: "Frost", type: "select", options: hard, value: c ? c.hardy : "tender" },
+      ],
+      note: `${c && c.usual_days ? `The usual figure is ${c.usual_days} days. ` : ""}Use the days to maturity on the packet. For tomatoes, peppers and other transplants it counts from setting out the plant, so start the clock then. Perennials like mint or rosemary have no season to fit.`,
+      extra: c && c.edited ? { label: "Back to the usual", act: () => this._call("reset_crop_days", { crop: key }) } : null,
+      submit: (x) => this._call("set_crop_days", { crop: key || x.crop, days: x.days, hardy: x.hardy }),
+    };
+  }
   _seasonCard(g) {
     const S = g.season;
     if (!S) return "";
@@ -1822,7 +1838,7 @@ class GardenTrackerCard extends HTMLElement {
     const group = (title, rows, empty) => rows.length ? `<div class="sec" style="margin-top:12px">${title}</div>` + rows.map((c) => {
       const cls = c.status === "plant" ? "ok" : c.status === "tight" ? "warn" : c.status === "short" || c.status === "late" ? "bad" : "none";
       const extra = c.rounds > 1 && (c.status === "plant" || c.status === "tight" || c.status === "wait") ? `, up to ${c.rounds} plantings back to back` : "";
-      return `<div class="row" style="align-items:flex-start;margin:6px 0;gap:8px"><div class="grow"><div style="font-weight:500">${esc(c.name)}${c.planted ? ` <span class="mut small">in your layout</span>` : ""}</div><div class="small mut">${c.fall ? "Harvest next summer" : `${c.days} days to harvest${extra}`}</div></div><span class="pill ${cls}" style="margin:0;text-align:right">${esc(c.text)}</span></div>`;
+      return `<div class="row" style="align-items:flex-start;margin:6px 0;gap:8px"><div class="grow"><div style="font-weight:500">${esc(c.name)}${c.planted ? ` <span class="mut small">in your layout</span>` : ""}</div><div class="small mut">${c.fall ? "Harvest next summer" : `${c.days} days to harvest${extra}`}</div></div><span class="pill ${cls}" style="margin:0;text-align:right">${esc(c.text)}</span>${this._btn("season-days", "pencil", "", `data-g="${g.id}" data-c="${esc(c.key)}"`, "ic")}</div>`;
     }).join("") : (empty ? `<div class="small mut" style="margin-top:8px">${empty}</div>` : "");
     const by = (st) => S.crops.filter((c) => st.includes(c.status));
     let h = `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("snowflake-alert")} Time before frost</div>${this._btn("toggle-sec", "chevron-up", "", `data-s="season"`, "ic")}</div>`;
@@ -1831,7 +1847,8 @@ class GardenTrackerCard extends HTMLElement {
     h += group("Opens later", by(["wait"]));
     h += group("Too late this year", by(["late"]));
     h += group("Season too short", by(["short"]));
-    h += `<div class="small mut" style="margin-top:10px">Planting windows come from the frost dates of this garden (change them on the frost pill) and typical days to harvest. Frost-hardy crops go out up to four weeks early and keep growing a little past the first frost, tender ones wait until after the last frost. Fast crops like radishes can be sown again as soon as the last is out. Garlic goes in around the first frost for harvest next summer. A guide, not a promise.</div></div>`;
+    if (S.untimed.length) h += `<div class="row" style="margin-top:10px">${this._btn("season-days", "plus", "Give another crop a time", `data-g="${g.id}"`)}</div>`;
+    h += `<div class="small mut" style="margin-top:10px">Tap the pencil to enter the days to harvest from your seed packet. Planting windows come from the frost dates of this garden (change them on the frost pill) and typical days to harvest. Frost-hardy crops go out up to four weeks early and keep growing a little past the first frost, tender ones wait until after the last frost. Fast crops like radishes can be sown again as soon as the last is out. Garlic goes in around the first frost for harvest next summer. A guide, not a promise.</div></div>`;
     return h;
   }
   _wxCard(W) {

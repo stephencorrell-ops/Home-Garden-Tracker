@@ -491,6 +491,39 @@ class Layout(unittest.TestCase):
         g = next(x for x in m.snapshot()["gardens"] if x["id"] == gid)
         self.assertTrue(g["season"]["crops"])
 
+    def test_days_to_harvest_come_from_the_seed_packet(self):
+        m, gid = self.garden()
+        season = lambda: {c["key"]: c for c in next(x for x in m.snapshot()["gardens"] if x["id"] == gid)["season"]["crops"]}
+        usual = season()["tomato"]["days"]
+        m.set_crop_days("tomato", 62)
+        t = season()["tomato"]
+        self.assertEqual((t["days"], t["edited"], t["usual_days"]), (62, True, usual))
+        m.set_crop_days("tomato", 90, "half")
+        self.assertEqual(season()["tomato"]["hardy"], "half")
+        m.reset_crop_days("tomato")
+        self.assertEqual(season()["tomato"]["days"], usual)
+        with self.assertRaises(GardenError):
+            m.set_crop_days("tomato", 2)
+        with self.assertRaises(GardenError):
+            m.set_crop_days("tomato", 60, "icy")
+        with self.assertRaises(GardenError):
+            m.set_crop_days("nope", 60)
+        # a crop with no time listed (a perennial herb) can be given one
+        g = next(x for x in m.snapshot()["gardens"] if x["id"] == gid)
+        self.assertIn("mint", [x["key"] for x in g["season"]["untimed"]])
+        m.set_crop_days("mint", 30, "hardy")
+        self.assertIn("mint", season())
+
+    def test_herbs_and_more_garden_plants_are_on_the_list(self):
+        m, gid = self.garden()
+        names = m._plant_names()
+        for k in ("basil", "cilantro", "parsley", "dill", "chives", "mint", "oregano", "thyme", "rosemary", "sage", "broccoli", "kale",
+                  "spinach", "radish", "beet", "zucchini", "eggplant", "sunflower", "corn", "hops"):
+            self.assertIn(k, names, k)
+        m.set_layout(gid, 20, 40, 30, 0)
+        m.assign_layout_rows(gid, "basil", [0])
+        self.assertTrue(self.view(m, gid)["rows"][0]["plants"] > 0)
+
     def test_best_row_angle_follows_the_sun_and_the_heights(self):
         from custom_components.garden_tracker.core import sun
         b = sun.best_heading(47.3, 4.0, 30, 24, 0)

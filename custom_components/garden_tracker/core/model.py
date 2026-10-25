@@ -154,7 +154,7 @@ class GardenModel:
                  notify: Callable[[], None] | None = None,
                  structure: Callable[[], None] | None = None) -> None:
         self.data: dict[str, Any] = {"gardens": {}, "varieties": {}, "species": {}, "daily": {}, "rain": {}, "rain_src": {}, "humid": {}, "solar": {}, "air": {"q": {}, "h": {}, "d": {}},
-                                    "settings": dict(DEFAULT_SETTINGS), "variety_traits": {}}
+                                    "settings": dict(DEFAULT_SETTINGS), "variety_traits": {}, "crop_days": {}}
         self.presets = presets
         self._air_now: dict[str, tuple[float, float]] = {}
         self._air_touched = 0.0
@@ -1195,6 +1195,28 @@ class GardenModel:
         self.data["variety_traits"][lay.trait_key(crop, name)] = new
         self._touch()
 
+    def set_crop_days(self, crop: str, days: Any, hardy: Any = None) -> None:
+        """Days from planting to harvest for a crop, and how it takes frost, as the seed packet says. Used by the frost planner."""
+        if crop not in self._plant_names():
+            raise GardenError(f"Unknown crop '{crop}'")
+        try:
+            n = int(float(days))
+        except (TypeError, ValueError):
+            raise GardenError("Days to harvest must be a number") from None
+        if not 5 <= n <= 400:
+            raise GardenError("Days to harvest must be between 5 and 400")
+        cur = self.data["crop_days"].get(crop) or {}
+        usual = season_mod.CROPS.get(crop)
+        h = hardy or cur.get("hardy") or (usual[1] if usual else "tender")
+        if h not in season_mod.HARDY_NAMES:
+            raise GardenError("Frost hardiness must be tender, half, hardy or fall")
+        self.data["crop_days"][crop] = {"days": n, "hardy": h}
+        self._touch()
+
+    def reset_crop_days(self, crop: str) -> None:
+        self.data["crop_days"].pop(crop, None)
+        self._touch()
+
     def remove_variety_traits(self, crop: str, variety: str) -> None:
         self.data["variety_traits"].pop(lay.trait_key(crop, variety), None)
         self._touch()
@@ -2164,7 +2186,7 @@ class GardenModel:
         last = (g.get("frost") or {}).get("last") or st["frost_last"]
         first = (g.get("frost") or {}).get("first") or st["frost_first"]
         planted = {c["key"] for c in (lay.plan(g.get("layout"), self._plant_names(), None, today.year).get("crops") or [])} if g.get("layout") else set()
-        return season_mod.analyse(self._plant_names(), last, first, today, planted)
+        return season_mod.analyse(self._plant_names(), last, first, today, planted, self.data.get("crop_days"))
 
     def _lat(self) -> float | None:
         """Where the garden is, north to south: the place you set, otherwise Home Assistant's own latitude."""

@@ -36,6 +36,13 @@ DEFAULTS: dict[str, tuple[float, str, bool, str, float]] = {
     "cantaloupe": (24, "grid", True, "none", 4), "pumpkin": (48, "grid", True, "none", 4),
     "cabbage": (18, "grid", True, "none", 4), "lettuce": (8, "grid", True, "none", 4),
     "cauliflower": (18, "grid", True, "none", 4),
+    "broccoli": (18, "single", False, "none", 4), "kale": (14, "single", False, "none", 4), "spinach": (4, "grid", True, "none", 4),
+    "radish": (2, "grid", True, "none", 4), "beet": (3, "grid", True, "none", 4), "zucchini": (36, "single", False, "none", 4),
+    "eggplant": (24, "single", False, "cage", 3), "sunflower": (12, "single", False, "none", 4),
+    "basil": (10, "grid", True, "none", 4), "cilantro": (4, "grid", True, "none", 4), "parsley": (8, "grid", True, "none", 4),
+    "dill": (8, "grid", True, "none", 4), "chives": (6, "grid", True, "none", 4), "mint": (18, "single", False, "none", 4),
+    "oregano": (12, "single", False, "none", 4), "thyme": (12, "single", False, "none", 4), "rosemary": (24, "single", False, "none", 4),
+    "sage": (18, "single", False, "none", 4),
     "corn": (12, "grid", True, "none", 4), "hops": (36, "single", False, "tpost", 10),  # hops climb a string or pole 10 to 20 ft up
 }
 GENERIC = (12, "grid", True, "none", 4)

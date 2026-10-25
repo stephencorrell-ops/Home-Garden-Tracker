@@ -26,7 +26,11 @@ CROPS: dict[str, tuple[int, str]] = {
     "tomato": (75, "tender"), "pepper": (75, "tender"), "jalapeno": (75, "tender"), "habanero": (90, "tender"),
     "corn": (80, "tender"), "cantaloupe": (80, "tender"), "watermelon": (85, "tender"), "pumpkin": (100, "tender"),
     "garlic": (240, "fall"),
-}
+    "eggplant": (80, "tender"), "sunflower": (85, "tender"), "basil": (60, "tender"), "cilantro": (45, "half"), "dill": (60, "half"),
+    "parsley": (75, "hardy"),
+}  # perennials (hops, mint, chives, oregano, thyme, rosemary, sage) have no season to fit; give one a time yourself if you want it listed
+HARDY_NAMES = {"tender": "Tender: killed by frost", "half": "Half-hardy: takes a light frost", "hardy": "Hardy: takes a hard frost",
+               "fall": "Planted in fall, harvested next year"}
 
 
 def _md(md: str, year: int) -> date:
@@ -37,11 +41,12 @@ def _md(md: str, year: int) -> date:
         return date(year, m, 28)
 
 
-def window(key: str, last_md: str, first_md: str, year: int) -> tuple[date, date] | None:
-    """The first and last day this crop can be planted in `year`, or None if the crop is not in the table."""
-    if key not in CROPS:
+def window(key: str, last_md: str, first_md: str, year: int, spec: tuple[int, str] | None = None) -> tuple[date, date] | None:
+    """The first and last day this crop can be planted in `year`, or None if there is no time for the crop."""
+    spec = spec or CROPS.get(key)
+    if not spec:
         return None
-    days, hardy = CROPS[key]
+    days, hardy = spec
     first = _md(first_md, year)
     if hardy == "fall":
         return first + timedelta(days=FALL_PLANT[0]), first + timedelta(days=FALL_PLANT[1])
@@ -50,17 +55,22 @@ def window(key: str, last_md: str, first_md: str, year: int) -> tuple[date, date
     return start, end
 
 
-def analyse(names: dict[str, str], last_md: str, first_md: str, today: date, planted: set[str] | None = None) -> dict:
+def analyse(names: dict[str, str], last_md: str, first_md: str, today: date, planted: set[str] | None = None,
+            edits: dict[str, dict] | None = None) -> dict:
     last_d, first_d = _md(last_md, today.year), _md(first_md, today.year)
     rows = []
+    edits, untimed = edits or {}, []
     for key, name in names.items():
-        if key not in CROPS:
+        e = edits.get(key)
+        spec = (int(e["days"]), e["hardy"]) if e else CROPS.get(key)
+        if not spec:
+            untimed.append({"key": key, "name": name})
             continue
-        days, hardy = CROPS[key]
-        w = window(key, last_md, first_md, today.year)
+        days, hardy = spec
+        w = window(key, last_md, first_md, today.year, spec)
         closed = w[1] < today  # this year's window has closed, so the dates shown are next year's
         if closed:
-            w = window(key, last_md, first_md, today.year + 1)
+            w = window(key, last_md, first_md, today.year + 1, spec)
         start, end = w
         if hardy == "fall":
             season_days = (end - start).days
@@ -80,12 +90,13 @@ def analyse(names: dict[str, str], last_md: str, first_md: str, today: date, pla
             status, text = "wait", f"Opens {start.strftime('%b')} {start.day}"
         rows.append({"key": key, "name": name, "days": days, "hardy": hardy, "from": start.isoformat(), "by": end.isoformat(),
                      "status": status, "text": text, "open": opens, "left": left if opens else None, "wait": waits if waits > 0 else None,
-                     "spare": spare, "season_days": season_days, "fall": hardy == "fall",
+                     "spare": spare, "season_days": season_days, "fall": hardy == "fall", "edited": bool(e), "usual_days": CROPS[key][0] if key in CROPS else None,
+                     "usual_hardy": CROPS[key][1] if key in CROPS else None,
                      "rounds": (season_days // days if days <= SHORT_CROP_DAYS and hardy != "fall" and season_days >= days else 1),
                      "planted": bool(planted and key in planted)})
     order = {"plant": 0, "tight": 1, "wait": 2, "late": 3, "short": 4}
     rows.sort(key=lambda r: (order[r["status"]], r["days"], r["name"]))
     to_frost = (first_d - today).days
     return {"last_frost": last_d.isoformat(), "first_frost": first_d.isoformat(), "days_to_frost": to_frost,
-            "season_days": (first_d - last_d).days, "crops": rows,
+            "season_days": (first_d - last_d).days, "crops": rows, "untimed": sorted(untimed, key=lambda x: x["name"]), "hardiness": HARDY_NAMES,
             "now": sum(1 for r in rows if r["status"] in ("plant", "tight"))}

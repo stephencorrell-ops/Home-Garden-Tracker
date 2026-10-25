@@ -82,6 +82,8 @@ SERVICES: dict[str, dict] = {
     "start_layout_season": {R("garden"): cv.string, O("year"): vol.All(vol.Coerce(int), vol.Range(min=2000, max=2200))},
     "set_variety_traits": {R("crop"): cv.string, R("variety"): cv.string, O("resist"): vol.All(cv.ensure_list, [cv.string]),
         O("height_ft"): vol.Any(None, NUM), O("habit"): vol.Any(None, cv.string)},
+    "set_crop_days": {R("crop"): cv.string, R("days"): vol.All(vol.Coerce(int), vol.Range(min=5, max=400)), O("hardy"): vol.In(["tender", "half", "hardy", "fall"])},
+    "reset_crop_days": {R("crop"): cv.string},
     "remove_variety_traits": {R("crop"): cv.string, R("variety"): cv.string},
     "set_irrigation": {R("garden"): cv.string, O("method"): vol.In(["drip", "sprinkler"]), O("soil"): cv.string,
         O("per_week"): vol.All(vol.Coerce(int), vol.Range(min=1, max=14)), O("run_min"): vol.Any(None, NUM), O("max_line_gph"): NUM, O("weather"): cv.boolean},
