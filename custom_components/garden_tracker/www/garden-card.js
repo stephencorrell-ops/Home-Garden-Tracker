@@ -1723,7 +1723,7 @@ class GardenTrackerCard extends HTMLElement {
       h += `<div class="small mut" style="margin-top:10px">What the plants get in the water: ${num(an.N, 0)} ppm N, ${num(an.P2O5, 0)} ppm P2O5, ${num(an.K2O, 0)} ppm K2O${an.Ca ? `, ${num(an.Ca, 0)} ppm Ca` : ""}${an.Mg ? `, ${num(an.Mg, 0)} ppm Mg` : ""}. The blend is ${num(F.n_pct, 1)}% nitrogen. That is ${num(F.lb_n_1000, 2)} lb of nitrogen per 1,000 sq ft a feeding, ${num(F.lb_n_week, 3)} lb a week for the garden.</div><div style="margin-top:6px">${this._btn("irr-sched", "calendar-clock", `Every ${F.every_days} days`, `data-g="${gid}"`)}</div>`;
       if (F.overfed.length) {
         h += `<div class="sec" style="margin-top:12px">Shorten these sections</div>`;
-        for (const o of F.overfed) h += `<div class="alarm" style="--hold:var(--spray)"><div class="small"><b>${esc(o.name)}</b>${o.rows.length ? ` (row${o.rows.length === 1 ? "" : "s"} ${o.rows.join(", ")})` : ""} wants about ${num(o.your_ppm, 0)} ppm and this mix is ${num(F.ppm_n, 0)}. Give it fertilized water for ${o.minutes} of the ${o.full_minutes} minutes, then shut its valve or switch it to plain water.</div></div>`;
+        for (const o of F.overfed) h += `<div class="alarm" style="--hold:var(--spray)"><div class="small"><b>${esc(o.name)}</b>${o.rows.length ? ` (row${o.rows.length === 1 ? "" : "s"} ${o.rows.join(", ")})` : ""} wants about ${num(o.your_ppm, 0)} ppm and this mix is ${num(F.ppm_n, 0)}. Valve off its drip lines after ${o.minutes} of the ${o.full_minutes} minutes the injector is on.</div></div>`;
       }
     }
     h += `</div>`;
