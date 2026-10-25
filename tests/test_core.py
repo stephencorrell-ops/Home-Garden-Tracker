@@ -531,6 +531,18 @@ class Layout(unittest.TestCase):
         m.log_ph(gid, 5.2, "2099-01-01")
         self.assertEqual(warn(), [])
 
+    def test_bramble_cut_back_in_fall(self):
+        from datetime import date
+        from custom_components.garden_tracker.core import chores
+        self.assertEqual([c["crop"] for c in chores.due({"raspberry", "blackberry", "tomato"}, date(2026, 10, 25))], ["raspberry", "blackberry"])
+        self.assertEqual(chores.due({"raspberry"}, date(2026, 6, 1)), [])
+        self.assertEqual(chores.due({"blueberry"}, date(2026, 10, 25)), [])
+        m, gid = self.garden()
+        m.set_layout(gid, 6, 12, 36)
+        m.assign_layout_rows(gid, "raspberry")
+        g = next(g for g in m.snapshot()["gardens"] if g["id"] == gid)
+        self.assertEqual(bool(g["chores"]), 9 <= m.today().month <= 11)
+
     def test_herbs_and_more_garden_plants_are_on_the_list(self):
         m, gid = self.garden()
         names = m._plant_names()
