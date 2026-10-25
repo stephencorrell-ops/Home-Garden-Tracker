@@ -4,6 +4,17 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.19.0 - 2026-10-25
+
+### Added
+- **Rows at any angle.** The layout planner takes the angle the rows run off north (0 north-south, 90 east-west, any number between). The plan stays square to the screen with a north arrow, and a button shows the rows sideways or up and down on that screen. The size boxes are now "Row length" and "Depth".
+- **Sun and shade.** From the sun's path on the 15th of each month, April to September, at your latitude: the row angle that costs the least sun, a button to turn the rows to it, and warnings when a tall crop shades a shorter one beside it, with the side to plant the tall crops on.
+- **Heights.** Every crop has a full-grown height you can edit, and a variety can have its own: determinate or indeterminate tomatoes, bush or pole beans, short or tall corn, dwarf to tall hops, or any height you enter.
+- **48 in rows and corn blocks.** Row width gains 48 in, and corn warns when the rows are narrower or a stretch is under 4 ft.
+- **Time before frost.** For each garden, which crops can still be planted before the first frost, when each window opens, and how many quick crops fit back to back. The days to harvest and frost tolerance are editable from your seed packets, and any crop can be given a time.
+- **More plants.** Corn, hops, strawberries, sweet potatoes, broccoli, kale, spinach, radish, beets, zucchini, eggplant, sunflower, basil, cilantro, parsley, dill, chives, mint, oregano, thyme, rosemary and sage. Strawberries and eggplant join the verticillium rotation check.
+- New services: `set_variety_traits` takes `height_ft` and `habit`, `set_layout_crop` takes `height_ft`, `set_layout` takes any `rotation` angle and a 48 in `row_in`, and `set_crop_days` and `reset_crop_days` are new.
+
 ## 0.18.0 - 2026-10-25
 
 ### Added
