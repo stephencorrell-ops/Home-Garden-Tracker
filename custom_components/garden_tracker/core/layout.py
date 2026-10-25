@@ -11,7 +11,6 @@ ROW_WIDTHS = (24, 30, 36)  # inches between row centres
 PAIR_GAP_IN = 12  # distance between the two plant lines of a double row
 SUPPORTS = {"none": "No support", "tpost": "T-posts", "cage": "Cages", "corral": "Corral (posts and twine)"}
 POST_KINDS = {"stake": "Stakes", "tpost": "T-posts"}
-CORRAL_W_FT = {False: 1.0, True: 2.0}  # width of the twine box: one plant line, or two lines plus a margin
 MAX_FT = 500
 MAX_ROWS = 200
 
@@ -33,7 +32,8 @@ class LayoutError(ValueError):
 
 def defaults_for(key: str) -> dict:
     sp, sup, post = DEFAULTS.get(key, GENERIC)
-    return {"spacing_in": sp, "support": sup, "post_ft": post, "post_kind": "stake", "twine_levels": 2}
+    return {"spacing_in": sp, "support": sup, "post_ft": post, "post_kind": "stake", "twine_levels": 2,
+            "across_in": None, "stagger": False}
 
 
 def blank() -> dict:
@@ -59,7 +59,7 @@ def settings_for(layout: dict, key: str) -> dict:
 
 
 def validate_crop(spacing_in: Any = None, support: Any = None, post_ft: Any = None, post_kind: Any = None,
-                  twine_levels: Any = None) -> dict:
+                  twine_levels: Any = None, across_in: Any = None, stagger: Any = None) -> dict:
     out: dict = {}
     if spacing_in is not None:
         out["spacing_in"] = _num(spacing_in, "Spacing", 1, 240)
@@ -75,6 +75,10 @@ def validate_crop(spacing_in: Any = None, support: Any = None, post_ft: Any = No
         out["post_kind"] = post_kind
     if twine_levels is not None:
         out["twine_levels"] = int(_num(twine_levels, "Twine lines", 1, 6))
+    if across_in is not None:  # 0 goes back to following the row's single or double setting
+        out["across_in"] = None if float(across_in) == 0 else _num(across_in, "Spacing across the row", 1, 120)
+    if stagger is not None:
+        out["stagger"] = bool(stagger)
     return out
 
 
@@ -112,17 +116,22 @@ def plan(layout: dict | None, names: dict[str, str]) -> dict:
         key = stored[i] if i < len(stored) and stored[i] in names else None
         cx = pad + (i + 0.5) * row_in
         xs = [cx - PAIR_GAP_IN / 2, cx + PAIR_GAP_IN / 2] if double else [cx]
+        s = settings_for(layout, key) if key else None
+        grid = bool(s and s.get("across_in"))
+        if grid:  # a grid fills the width of the row: as many lines as fit, centred
+            lines = max(1, int((row_in + 1e-6) // s["across_in"]))
+            xs = [cx + (k - (lines - 1) / 2) * s["across_in"] for k in range(lines)]
+        row_stagger = bool(s["stagger"] and len(xs) > 1) if grid else stagger
         r: dict = {"i": i, "x": cx, "lines": xs, "crop": key, "plants": 0, "ys": [], "ys2": [], "posts": 0, "stakes": 0,
-                   "twine_ft": 0, "cages": 0}
+                   "twine_ft": 0, "cages": 0, "block_w_in": (xs[-1] - xs[0]) + 12, "grid": grid}
         if key:
-            s = settings_for(layout, key)
             sp = s["spacing_in"]
-            extra = sp / 2 if stagger else 0  # the second line is shifted half a step, so it needs half a step more room
+            extra = sp / 2 if row_stagger else 0  # the second line is shifted half a step, so it needs half a step more room
             per = max(0, int((l_in - extra + 1e-6) // sp))
             start = (l_in - per * sp - extra) / 2
             ok = per <= 2000
             r["ys"] = [round(start + (j + 0.5) * sp, 2) for j in range(per)] if ok else []
-            r["ys2"] = [round(y + extra, 2) for y in r["ys"]] if stagger else []
+            r["ys2"] = [round(y + extra, 2) for y in r["ys"]] if row_stagger else []
             r["plants"] = per * len(xs)
             r["per_line"] = per
             stations = int(layout["length_ft"] // s["post_ft"]) + 1
@@ -134,7 +143,7 @@ def plan(layout: dict | None, names: dict[str, str]) -> dict:
                 # a post on each side at every station, with twine run along both sides and closed across the ends
                 n_posts = stations * 2
                 r["posts" if s["post_kind"] == "tpost" else "stakes"] = n_posts
-                r["twine_ft"] = round(s["twine_levels"] * (2 * layout["length_ft"] + 2 * CORRAL_W_FT[double]), 1)
+                r["twine_ft"] = round(s["twine_levels"] * (2 * layout["length_ft"] + 2 * r["block_w_in"] / 12), 1)
             c = crops.setdefault(key, {"key": key, "name": names[key], **s, "rows": 0, "plants": 0, "posts": 0, "stakes": 0,
                                                                                  "twine_ft": 0, "cages": 0})
             c["rows"] += 1
@@ -157,5 +166,5 @@ def plan(layout: dict | None, names: dict[str, str]) -> dict:
                    "bed_density": round(plants / row_area, 2) if row_area else 0,
                    "posts": sum(c["posts"] for c in crops.values()), "stakes": sum(c["stakes"] for c in crops.values()),
                    "twine_ft": round(sum(c["twine_ft"] for c in crops.values()), 1),
-                   "corral_w_in": CORRAL_W_FT[double] * 12, "post_kinds": POST_KINDS, "cages": sum(c["cages"] for c in crops.values())},
+                   "post_kinds": POST_KINDS, "cages": sum(c["cages"] for c in crops.values())},
     }

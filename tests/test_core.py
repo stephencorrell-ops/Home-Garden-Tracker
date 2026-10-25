@@ -197,6 +197,21 @@ class Layout(unittest.TestCase):
         self.assertEqual((r["posts"], r["stakes"]), (2 * (12 // 4 + 1), 0))
         self.assertEqual(r["twine_ft"], 3 * 26)
 
+    def test_a_crop_can_be_planted_as_a_grid_across_the_row(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 5, 10, 30, False)  # two 30 in rows, 10 ft long
+        m.assign_layout_rows(gid, "lettuce")
+        m.set_layout_crop(gid, "lettuce", 6, None, None, None, None, 6, False)
+        v = self.view(m, gid)
+        self.assertEqual(len(v["rows"][0]["lines"]), 5)  # 30 in / 6 in
+        self.assertEqual(v["rows"][0]["plants"], 5 * 20)  # 120 in / 6 in = 20 along the row
+        m.set_layout_crop(gid, "lettuce", None, None, None, None, None, 6, True)
+        r = self.view(m, gid)["rows"][0]
+        self.assertEqual(r["plants"], 5 * 19)  # offset lines need half a step more room
+        self.assertEqual(round(r["ys2"][0] - r["ys"][0], 2), 3)
+        m.set_layout_crop(gid, "lettuce", None, None, None, None, None, 0)  # back to following the row
+        self.assertEqual(len(self.view(m, gid)["rows"][0]["lines"]), 1)
+
     def test_one_row_can_hold_a_different_crop_and_be_cleared(self):
         m, gid = self.garden()
         m.set_layout(gid, 10, 10, 24, False)

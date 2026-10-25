@@ -56,7 +56,7 @@ HANDLERS: dict[str, Handler] = {
     "log_garden_reading": lambda m, c: m.log_metric(c["garden"], c["metric"], c["value"], c.get("date")),
     "set_layout": lambda m, c: m.set_layout(c["garden"], c.get("width_ft"), c.get("length_ft"), c.get("row_in"), c.get("double"), c.get("stagger")),
     "assign_layout_rows": lambda m, c: m.assign_layout_rows(c["garden"], c.get("crop"), c.get("rows")),
-    "set_layout_crop": lambda m, c: m.set_layout_crop(c["garden"], c["crop"], c.get("spacing_in"), c.get("support"), c.get("post_ft"), c.get("post_kind"), c.get("twine_levels")),
+    "set_layout_crop": lambda m, c: m.set_layout_crop(c["garden"], c["crop"], c.get("spacing_in"), c.get("support"), c.get("post_ft"), c.get("post_kind"), c.get("twine_levels"), c.get("across_in"), c.get("stagger")),
     "remove_layout": lambda m, c: m.remove_layout(c["garden"]),
     "set_trays": lambda m, c: m.set_trays(c["garden"], c["trays"]),
     "log_watering": lambda m, c: m.log_watering(c["garden"], c.get("date"), c.get("notes")),

@@ -804,14 +804,14 @@ class GardenModel:
         self._touch()
 
     def set_layout_crop(self, garden: str, crop: str, spacing_in: Any = None, support: Any = None, post_ft: Any = None,
-                        post_kind: Any = None, twine_levels: Any = None) -> None:
+                        post_kind: Any = None, twine_levels: Any = None, across_in: Any = None, stagger: Any = None) -> None:
         g = self._layout_garden(garden)
         if not g["layout"]:
             raise GardenError("Set the garden size first")
         if crop not in self._plant_names():
             raise GardenError(f"Unknown crop '{crop}'")
         try:
-            vals = lay.validate_crop(spacing_in, support, post_ft, post_kind, twine_levels)
+            vals = lay.validate_crop(spacing_in, support, post_ft, post_kind, twine_levels, across_in, stagger)
         except lay.LayoutError as e:
             raise GardenError(str(e)) from None
         g["layout"].setdefault("crops", {}).setdefault(crop, {}).update(vals)
