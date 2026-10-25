@@ -43,6 +43,7 @@ DEFAULTS: dict[str, tuple[float, str, bool, str, float]] = {
     "dill": (8, "grid", True, "none", 4), "chives": (6, "grid", True, "none", 4), "mint": (18, "single", False, "none", 4),
     "oregano": (12, "single", False, "none", 4), "thyme": (12, "single", False, "none", 4), "rosemary": (24, "single", False, "none", 4),
     "sage": (18, "single", False, "none", 4), "strawberry": (12, "double", True, "none", 4),
+    "sweet_potato": (12, "single", False, "none", 4),  # slips set 12 in apart along a ridge
     "corn": (12, "grid", True, "none", 4), "hops": (36, "single", False, "tpost", 10),  # hops climb a string or pole 10 to 20 ft up
 }
 GENERIC = (12, "grid", True, "none", 4)

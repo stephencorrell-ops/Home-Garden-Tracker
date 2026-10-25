@@ -27,7 +27,7 @@ CROPS: dict[str, tuple[int, str]] = {
     "corn": (80, "tender"), "cantaloupe": (80, "tender"), "watermelon": (85, "tender"), "pumpkin": (100, "tender"),
     "garlic": (240, "fall"),
     "eggplant": (80, "tender"), "sunflower": (85, "tender"), "basil": (60, "tender"), "cilantro": (45, "half"), "dill": (60, "half"),
-    "parsley": (75, "hardy"),
+    "parsley": (75, "hardy"), "sweet_potato": (100, "tender"),  # counted from setting out the slips
 }  # perennials (hops, mint, chives, oregano, thyme, rosemary, sage) have no season to fit; give one a time yourself if you want it listed
 HARDY_NAMES = {"tender": "Tender: killed by frost", "half": "Half-hardy: takes a light frost", "hardy": "Hardy: takes a hard frost",
                "fall": "Planted in fall, harvested next year"}

@@ -424,5 +424,10 @@
   "name": "Strawberries",
   "kind": "plant",
   "pests": []
+ },
+ "sweet_potato": {
+  "name": "Sweet potatoes",
+  "kind": "plant",
+  "pests": []
  }
 }

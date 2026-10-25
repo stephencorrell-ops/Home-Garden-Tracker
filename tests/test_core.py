@@ -518,6 +518,7 @@ class Layout(unittest.TestCase):
         m, gid = self.garden()
         names = m._plant_names()
         self.assertIn("strawberry", names)
+        self.assertIn("sweet_potato", names)
         from custom_components.garden_tracker.core import rotation
         self.assertIsNotNone(rotation.check("strawberry", "tomato", 1))  # not after nightshades: verticillium wilt
         for k in ("basil", "cilantro", "parsley", "dill", "chives", "mint", "oregano", "thyme", "rosemary", "sage", "broccoli", "kale",
