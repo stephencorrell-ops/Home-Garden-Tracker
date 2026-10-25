@@ -1086,6 +1086,7 @@ class GardenTrackerCard extends HTMLElement {
       case "do-season": return this._act("start_layout_season", { garden: d.g }, () => { this._season = null; this._selRow = null; this._confirm = null; });
       case "lay-seg-rm": return this._act("remove_layout_segment", { garden: d.g, row: Number(d.r), index: Number(d.i) });
       case "lay-row-clear": return this._act("assign_layout_rows", { garden: d.g, crop: null, rows: [Number(d.r)] });
+      case "lay-view": { const v = this._turnOf(d.g) === 90 ? 0 : 90; this._turns[d.g] = v; try { localStorage.setItem("gt_turn_" + d.g, String(v)); } catch (e) { /* no storage */ } return this._render(); }
       case "lay-ang": return this._act("set_layout", { garden: d.g, rotation: Number(d.n) });
       case "lay-fill": return this._act("assign_layout_rows", { garden: d.g, crop: this._brushFor(this._garden(d.g).layout) });
       case "lay-clear": return this._act("assign_layout_rows", { garden: d.g, crop: null });
@@ -1997,10 +1998,15 @@ class GardenTrackerCard extends HTMLElement {
       extra: idx === undefined ? null : { label: "Remove", act: () => this._call("remove_fert_component", { garden: g.id, mix, index: idx }) },
     };
   }
+  _turnOf(gid) { // how the plan is shown on screen: 0 has the rows up and down, 90 has them sideways. Only this screen's view, not the garden.
+    this._turns = this._turns || {};
+    if (this._turns[gid] === undefined) { let v = 0; try { v = Number(localStorage.getItem("gt_turn_" + gid)) || 0; } catch (e) { /* no storage */ } this._turns[gid] = v === 90 ? 90 : 0; }
+    return this._turns[gid];
+  }
   _layoutSvg(L, g, ro) {
     const COL = ["#e5372d", "#2e7d32", "#f28c38", "#8e24aa", "#039be5", "#c0a000", "#795548", "#d81b60"];
     const color = (k) => COL[Math.max(0, L.available.findIndex((a) => a.key === k)) % COL.length];
-    const north = L.rotation || 0, rot = 0, W = L.width_ft * 12, N = L.length_ft * 12, M = 24; // the plan stays square to the screen; the arrow turns
+    const turn = this._turnOf(g.id), north = (L.rotation || 0) - turn, rot = turn, W = L.width_ft * 12, N = L.length_ft * 12, M = 24; // the plan stays square to the screen; the arrow turns
     const th = rot * Math.PI / 180, cs0 = Math.cos(th), sn0 = Math.sin(th), named = L.rows.some((r) => r.segments.length);
     const corners = [[0, 0], [W, 0], [W, N], [0, N]].map(([x, y]) => [x * cs0 - y * sn0, x * sn0 + y * cs0]);
     const ux = corners.map((c) => c[0]), uy = corners.map((c) => c[1]);
@@ -2111,6 +2117,7 @@ class GardenTrackerCard extends HTMLElement {
     h += this._layoutSvg(L, g, !!past);
     if (!past) h += this._shadeWarn(L.sun);
     const SU = L.sun, rotv = L.rotation || 0;
+    h += `<div class="row" style="justify-content:center;margin-top:6px">${this._btn("lay-view", "restore", this._turnOf(gid) === 90 ? "Show the rows up and down" : "Show the rows sideways", `data-g="${gid}"`)}</div>`;
     h += `<div class="small mut" style="margin-top:6px;text-align:center">${num(L.length_ft, 1)} ft row length, ${num(L.width_ft, 1)} ft deep. Rows run ${esc(SU.runs)}, row 1 is on the ${esc(SU.x_side)} side and they start at the ${esc(SU.start_end)} end.</div>`;
     const sel = !past && this._selRow !== null && this._selRow !== undefined ? L.rows[this._selRow] : null;
     if (sel) {
