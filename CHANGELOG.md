@@ -4,6 +4,11 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.21.0 - 2026-10-25
+
+### Added
+- **Fall cut-back reminder for brambles.** From September to November, a garden with raspberries or blackberries planted shows a reminder at the top of its page to cut the canes that fruited this year down to the ground. The plants live for years, but each cane fruits in its second year and then dies.
+
 ## 0.20.0 - 2026-10-25
 
 ### Added
