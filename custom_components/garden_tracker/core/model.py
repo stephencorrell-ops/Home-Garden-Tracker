@@ -13,6 +13,8 @@ from . import irrigation as irr
 from . import layout as lay
 from . import rotation as rot
 from . import microclimate as mc
+from . import season as season_mod
+from . import sun as sun_mod
 
 
 DEFAULT_SETTINGS = {"frost_last": "04-25", "frost_first": "10-15",  # Ephrata, WA averages
@@ -152,7 +154,7 @@ class GardenModel:
                  notify: Callable[[], None] | None = None,
                  structure: Callable[[], None] | None = None) -> None:
         self.data: dict[str, Any] = {"gardens": {}, "varieties": {}, "species": {}, "daily": {}, "rain": {}, "rain_src": {}, "humid": {}, "solar": {}, "air": {"q": {}, "h": {}, "d": {}},
-                                    "settings": dict(DEFAULT_SETTINGS), "variety_traits": {}}
+                                    "settings": dict(DEFAULT_SETTINGS), "variety_traits": {}, "crop_days": {}}
         self.presets = presets
         self._air_now: dict[str, tuple[float, float]] = {}
         self._air_touched = 0.0
@@ -871,12 +873,12 @@ class GardenModel:
 
     def set_layout_crop(self, garden: str, crop: str, spacing_in: Any = None, support: Any = None, post_ft: Any = None,
                         post_kind: Any = None, twine_levels: Any = None, pattern: Any = None, stagger: Any = None,
-                        yield_lb: Any = None) -> None:
+                        yield_lb: Any = None, height_ft: Any = None) -> None:
         g, L = self._layout_of(garden)
         if crop not in self._plant_names():
             raise GardenError(f"Unknown crop '{crop}'")
         try:
-            vals = lay.validate_crop(spacing_in, support, post_ft, post_kind, twine_levels, pattern, stagger, yield_lb)
+            vals = lay.validate_crop(spacing_in, support, post_ft, post_kind, twine_levels, pattern, stagger, yield_lb, height_ft)
         except lay.LayoutError as e:
             raise GardenError(str(e)) from None
         L.setdefault("crops", {}).setdefault(crop, {}).update(vals)
@@ -1150,18 +1152,69 @@ class GardenModel:
         g["layout"] = trial
         self._touch()
 
-    def set_variety_traits(self, crop: str, variety: str, resist: list[str] | None = None) -> None:
-        """Remember which diseases a named variety resists (the letters on the seed packet), so rotation alerts can allow for it."""
+    def set_variety_traits(self, crop: str, variety: str, resist: Any = UNSET, height_ft: Any = UNSET, habit: Any = UNSET) -> None:
+        """Remember what a named variety resists (the letters on the seed packet) and how tall it grows, so rotation alerts
+        and the shade check can allow for it. Anything left out keeps its earlier value."""
         if crop not in self._plant_names():
             raise GardenError(f"Unknown crop '{crop}'")
         name = (variety or "").strip()
         if not name:
             raise GardenError("Give the variety a name")
-        valid = {d["key"] for d in rot.diseases_for(crop)}
-        bad = [r for r in resist or [] if r not in valid]
-        if bad:
-            raise GardenError(f"{bad[0]} is not a disease listed for {self._plant_names()[crop]}")
-        self.data["variety_traits"][lay.trait_key(crop, name)] = {"crop": crop, "name": name, "resist": sorted(set(resist or []))}
+        cur = self.data["variety_traits"].get(lay.trait_key(crop, name)) or {}
+        new = {"crop": crop, "name": name, "resist": cur.get("resist") or []}
+        if resist is not UNSET:
+            valid = {d["key"] for d in rot.diseases_for(crop)}
+            bad = [r for r in resist or [] if r not in valid]
+            if bad:
+                raise GardenError(f"{bad[0]} is not a disease listed for {self._plant_names()[crop]}")
+            new["resist"] = sorted(set(resist or []))
+        for k in ("height_ft", "habit"):
+            if cur.get(k) is not None:
+                new[k] = cur[k]
+        if habit is not UNSET:
+            known = {h["key"]: h for h in sun_mod.habits_for(crop)}
+            if habit in (None, ""):
+                new.pop("habit", None)
+            elif habit not in known:
+                raise GardenError(f"{habit} is not a growth habit for {self._plant_names()[crop]}")
+            else:
+                new["habit"] = habit
+                if height_ft is UNSET:  # picking a habit gives its usual height unless a height comes with it
+                    new["height_ft"] = known[habit]["height"]
+        if height_ft is not UNSET:
+            if height_ft in (None, ""):
+                new.pop("height_ft", None)
+            else:
+                try:
+                    h = float(height_ft)
+                except (TypeError, ValueError):
+                    raise GardenError("Height must be a number") from None
+                if not 0.1 <= h <= 30:
+                    raise GardenError("Height must be between 0.1 and 30 feet")
+                new["height_ft"] = h
+        self.data["variety_traits"][lay.trait_key(crop, name)] = new
+        self._touch()
+
+    def set_crop_days(self, crop: str, days: Any, hardy: Any = None) -> None:
+        """Days from planting to harvest for a crop, and how it takes frost, as the seed packet says. Used by the frost planner."""
+        if crop not in self._plant_names():
+            raise GardenError(f"Unknown crop '{crop}'")
+        try:
+            n = int(float(days))
+        except (TypeError, ValueError):
+            raise GardenError("Days to harvest must be a number") from None
+        if not 5 <= n <= 400:
+            raise GardenError("Days to harvest must be between 5 and 400")
+        cur = self.data["crop_days"].get(crop) or {}
+        usual = season_mod.CROPS.get(crop)
+        h = hardy or cur.get("hardy") or (usual[1] if usual else "tender")
+        if h not in season_mod.HARDY_NAMES:
+            raise GardenError("Frost hardiness must be tender, half, hardy or fall")
+        self.data["crop_days"][crop] = {"days": n, "hardy": h}
+        self._touch()
+
+    def reset_crop_days(self, crop: str) -> None:
+        self.data["crop_days"].pop(crop, None)
         self._touch()
 
     def remove_variety_traits(self, crop: str, variety: str) -> None:
@@ -2110,8 +2163,9 @@ class GardenModel:
             "frost": self._frost_view(g, today),
             "paused": {k: bool(g.get("sensors_paused", {}).get(k)) for k in METRICS},
             "fertility": self._fertility_view(g, metrics, today) if soil else None,
-            "layout": lay.plan(g.get("layout"), self._plant_names(), self._history(g), today.year, self.data["variety_traits"]) if soil else None,
+            "layout": lay.plan(g.get("layout"), self._plant_names(), self._history(g), today.year, self.data["variety_traits"], self._lat()) if soil else None,
             "irrigation": self._irrigation_view(g, today) if soil else None,
+            "season": self._season_view(g, today) if soil and kind == "garden" else None,
             "layout_history": ({y: lay.plan(h, self._plant_names(), None, int(y)) for y, h in g["layout_history"].items()} if soil else {}),
             "trays": g.get("trays", 0), "water": self._water_view(g, today),
             "trays_calc": self._trays_calc(g) if kind != "garden" else None,
@@ -2127,11 +2181,22 @@ class GardenModel:
             "adjunct_log": [{**e, "type_name": names.get(e["type"], e["type"])} for e in log],
         }
 
+    def _season_view(self, g: dict, today: date) -> dict:
+        st = self.data["settings"]
+        last = (g.get("frost") or {}).get("last") or st["frost_last"]
+        first = (g.get("frost") or {}).get("first") or st["frost_first"]
+        planted = {c["key"] for c in (lay.plan(g.get("layout"), self._plant_names(), None, today.year).get("crops") or [])} if g.get("layout") else set()
+        return season_mod.analyse(self._plant_names(), last, first, today, planted, self.data.get("crop_days"))
+
+    def _lat(self) -> float | None:
+        """Where the garden is, north to south: the place you set, otherwise Home Assistant's own latitude."""
+        loc = self.data["settings"].get("location")
+        return loc["lat"] if loc else self.home_lat
+
     def _irrigation_view(self, g: dict, today: date) -> dict:
         hist = sorted(g["ph_readings"], key=lambda r: (r["date"], r["id"]))
         cur = hist[-1]["value"] if hist else None
-        loc = self.data["settings"].get("location")
-        wx = irr.weather_need(self.data["daily"], self.data["rain"], today, loc["lat"] if loc else self.home_lat)
+        wx = irr.weather_need(self.data["daily"], self.data["rain"], today, self._lat())
         w = irr.plan(lay.plan(g.get("layout"), self._plant_names(), None, today.year), g.get("irrigation"), None, cur, wx)
         log = sorted(g.get("acid_log", []), key=lambda e: (e["date"], e["id"]), reverse=True)
         year = [e for e in log if e["date"][:4] == str(today.year)]

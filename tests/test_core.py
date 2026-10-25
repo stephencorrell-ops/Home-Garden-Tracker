@@ -378,14 +378,185 @@ class Layout(unittest.TestCase):
         m.set_layout_draft(gid, "pepper")  # changing the crop drops the variety
         self.assertEqual(self.view(m, gid)["draft"]["variety"], "")
 
-    def test_the_garden_can_be_turned_in_90_degree_steps(self):
+    def test_the_rows_can_run_at_any_angle_off_north(self):
         m, gid = self.garden()
         m.set_layout(gid, 20, 40, 30, 90)
         self.assertEqual(self.view(m, gid)["rotation"], 90)
         m.set_layout(gid, None, None, None, 450)
         self.assertEqual(self.view(m, gid)["rotation"], 90)
+        m.set_layout(gid, None, None, None, 37.5)
+        self.assertEqual(self.view(m, gid)["rotation"], 37.5)
+        m.set_layout(gid, None, None, None, -20)
+        self.assertEqual(self.view(m, gid)["rotation"], 340)
         with self.assertRaises(GardenError):
-            m.set_layout(gid, None, None, None, 45)
+            m.set_layout(gid, None, None, None, "sideways")
+
+    def test_tall_crops_put_shade_on_shorter_ones_beside_them(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 20, 40, 30, 0)  # rows run north-south, stacked east to west
+        m.assign_layout_rows(gid, "tomato", [0])
+        m.assign_layout_rows(gid, "lettuce", [1])
+        sun = self.view(m, gid)["sun"]
+        names = [w["name"] for w in sun["shading"]]
+        self.assertTrue(any("ettuce" in n for n in names), sun["shading"])
+        self.assertGreaterEqual(sun["shading"][0]["pct"], 10)
+        # rows run east-west with a 9 ft crop: its shadow falls to the north, onto row 0 when it grows in row 1
+        m.set_layout_crop(gid, "tomato", height_ft=9)
+        m.set_layout(gid, None, None, None, 90)
+        m.assign_layout_rows(gid, "tomato", [1])
+        m.assign_layout_rows(gid, "lettuce", [0])
+        south_tall = self.view(m, gid)["sun"]
+        m.assign_layout_rows(gid, "tomato", [0])
+        m.assign_layout_rows(gid, "lettuce", [1])
+        north_tall = self.view(m, gid)["sun"]
+        loss = lambda v: sum(w["pct"] for w in v["shading"])
+        self.assertGreater(loss(south_tall), 0)
+        self.assertLess(loss(north_tall), loss(south_tall))
+
+    def test_variety_height_and_habit_change_the_shade(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 30, 40, 30, 90)  # rows run east-west, row 0 on the north side
+        m.assign_layout_rows(gid, "tomato", [1])
+        m.assign_layout_rows(gid, "lettuce", [0])  # lettuce is north of the tomatoes, where their shade falls
+        m.set_variety_traits("tomato", "Sungold", habit="determinate")
+        m.assign_layout_rows(gid, "tomato", [1], "Sungold")
+        low = self.view(m, gid)["sun"]
+        self.assertEqual(low["tallest"]["height"], 3.5)
+        m.set_variety_traits("tomato", "Sungold", habit="indeterminate")
+        tall = self.view(m, gid)["sun"]
+        self.assertEqual(tall["tallest"]["height"], 6.0)
+        self.assertGreaterEqual(sum(w["pct"] for w in tall["shading"]), sum(w["pct"] for w in low["shading"]))
+        m.set_variety_traits("tomato", "Sungold", height_ft=9)  # a plain height wins, and the habit stays
+        huge = self.view(m, gid)["sun"]
+        self.assertEqual(huge["tallest"]["height"], 9)
+        self.assertEqual(low["shading"], [])
+        self.assertTrue(huge["shading"] and "Sungold" in huge["shading"][0]["by"][0])
+        self.assertEqual(next(t for t in m.snapshot()["variety_traits"] if t["name"] == "Sungold")["habit"], "indeterminate")
+        with self.assertRaises(GardenError):
+            m.set_variety_traits("tomato", "Sungold", habit="climbing")
+        with self.assertRaises(GardenError):
+            m.set_variety_traits("tomato", "Sungold", height_ft=60)
+
+    def test_a_variety_keeps_its_resistance_when_only_the_height_changes(self):
+        m, gid = self.garden()
+        m.set_variety_traits("tomato", "Roma VF", ["verticillium", "fusarium"])
+        m.set_variety_traits("tomato", "Roma VF", height_ft=4)
+        t = next(t for t in m.snapshot()["variety_traits"] if t["name"] == "Roma VF")
+        self.assertEqual(t["resist"], ["fusarium", "verticillium"])
+        self.assertEqual(t["height_ft"], 4)
+
+    def test_hops_and_corn_are_on_the_list_with_their_heights(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 20, 40, 30, 0)
+        m.assign_layout_rows(gid, "hops", [0])
+        m.assign_layout_rows(gid, "corn", [1])
+        v = self.view(m, gid)
+        by = {c["key"]: c for c in v["available"]}
+        self.assertEqual([h["key"] for h in by["hops"]["habits"]], ["dwarf", "standard", "tall"])
+        self.assertEqual(by["hops"]["height_ft"], 15)
+        self.assertEqual(by["corn"]["height_ft"], 7)
+        self.assertEqual(v["sun"]["tallest"]["name"], "Hops")
+
+    def test_corn_wants_a_48_inch_block(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 30, 40, 30, 0)
+        m.assign_layout_rows(gid, "corn", [0])
+        w = self.view(m, gid)["warnings"]
+        self.assertTrue(any("48" in x["text"] for x in w), w)
+        m.set_layout(gid, None, None, 48)
+        self.assertEqual(self.view(m, gid)["row_in"], 48)
+        self.assertEqual(self.view(m, gid)["warnings"], [])
+        m.add_layout_segment(gid, 1, "corn", 3, 0)  # a stretch under 4 ft is too small a block
+        w = self.view(m, gid)["warnings"]
+        self.assertTrue(any("row 2" in x["text"] for x in w), w)
+        with self.assertRaises(GardenError):
+            m.set_layout(gid, None, None, 40)
+
+    def test_season_shows_what_has_time_before_frost(self):
+        from datetime import date as d
+        from custom_components.garden_tracker.core import season
+        names = {"radish": "Radish", "tomato": "Tomato", "garlic": "Garlic", "pumpkin": "Pumpkin", "hops": "Hops"}
+        aug = {c["key"]: c for c in season.analyse(names, "04-25", "10-15", d(2026, 8, 10))["crops"]}
+        self.assertEqual(aug["radish"]["status"], "plant")
+        self.assertGreater(aug["radish"]["rounds"], 3)  # quick crops fit many back-to-back
+        self.assertEqual(aug["tomato"]["status"], "late")  # 75 days will not finish by Oct 15
+        self.assertEqual(aug["garlic"]["status"], "wait")
+        self.assertNotIn("hops", aug)  # a perennial is not in the table
+        late = {c["key"]: c for c in season.analyse(names, "04-25", "10-15", d(2026, 10, 25))["crops"]}
+        self.assertEqual(late["garlic"]["status"], "plant")  # garlic goes in around the first frost
+        self.assertEqual(late["radish"]["status"], "late")
+        short = {c["key"]: c for c in season.analyse(names, "05-20", "08-25", d(2026, 5, 25))["crops"]}
+        self.assertEqual(short["pumpkin"]["status"], "short")  # 100 days do not fit between May 27 and Aug 25
+        m, gid = self.garden()
+        g = next(x for x in m.snapshot()["gardens"] if x["id"] == gid)
+        self.assertTrue(g["season"]["crops"])
+
+    def test_days_to_harvest_come_from_the_seed_packet(self):
+        m, gid = self.garden()
+        season = lambda: {c["key"]: c for c in next(x for x in m.snapshot()["gardens"] if x["id"] == gid)["season"]["crops"]}
+        usual = season()["tomato"]["days"]
+        m.set_crop_days("tomato", 62)
+        t = season()["tomato"]
+        self.assertEqual((t["days"], t["edited"], t["usual_days"]), (62, True, usual))
+        m.set_crop_days("tomato", 90, "half")
+        self.assertEqual(season()["tomato"]["hardy"], "half")
+        m.reset_crop_days("tomato")
+        self.assertEqual(season()["tomato"]["days"], usual)
+        with self.assertRaises(GardenError):
+            m.set_crop_days("tomato", 2)
+        with self.assertRaises(GardenError):
+            m.set_crop_days("tomato", 60, "icy")
+        with self.assertRaises(GardenError):
+            m.set_crop_days("nope", 60)
+        # a crop with no time listed (a perennial herb) can be given one
+        g = next(x for x in m.snapshot()["gardens"] if x["id"] == gid)
+        self.assertIn("mint", [x["key"] for x in g["season"]["untimed"]])
+        m.set_crop_days("mint", 30, "hardy")
+        self.assertIn("mint", season())
+
+    def test_herbs_and_more_garden_plants_are_on_the_list(self):
+        m, gid = self.garden()
+        names = m._plant_names()
+        self.assertIn("strawberry", names)
+        self.assertIn("sweet_potato", names)
+        from custom_components.garden_tracker.core import rotation
+        self.assertIsNotNone(rotation.check("strawberry", "tomato", 1))  # not after nightshades: verticillium wilt
+        for k in ("basil", "cilantro", "parsley", "dill", "chives", "mint", "oregano", "thyme", "rosemary", "sage", "broccoli", "kale",
+                  "spinach", "radish", "beet", "zucchini", "eggplant", "sunflower", "corn", "hops"):
+            self.assertIn(k, names, k)
+        m.set_layout(gid, 20, 40, 30, 0)
+        m.assign_layout_rows(gid, "basil", [0])
+        self.assertTrue(self.view(m, gid)["rows"][0]["plants"] > 0)
+
+    def test_best_row_angle_follows_the_sun_and_the_heights(self):
+        from custom_components.garden_tracker.core import sun
+        b = sun.best_heading(47.3, 4.0, 30, 24, 0)
+        self.assertEqual(b["best"], 90)  # tall crops on the north side, rows east-west
+        self.assertLess(b["best_pct"], b["current_pct"])
+        m, gid = self.garden()
+        m.set_layout(gid, 20, 40, 30, 0)
+        m.assign_layout_rows(gid, "tomato", [0, 1])
+        v = self.view(m, gid)["sun"]
+        self.assertTrue(v["even"])  # nothing stands over anything else
+        self.assertEqual(v["best"], 0)
+        self.assertEqual(v["shading"], [])
+
+    def test_sun_position_is_sane(self):
+        from custom_components.garden_tracker.core import sun
+        alt, az = sun.position(47.3, 172, 12)
+        self.assertAlmostEqual(alt, 66.1, delta=0.5)
+        self.assertAlmostEqual(az, 180, delta=1)
+        self.assertLess(sun.position(47.3, 172, 8)[1], 180)  # morning sun is in the east
+        self.assertGreater(sun.position(47.3, 172, 16)[1], 180)
+
+    def test_crop_height_can_be_changed(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 20, 40, 30, 0)
+        m.assign_layout_rows(gid, "tomato", [0])
+        m.set_layout_crop(gid, "tomato", height_ft=9)
+        self.assertEqual(self.view(m, gid)["sun"]["tallest"]["height"], 9)
+        with self.assertRaises(GardenError):
+            m.set_layout_crop(gid, "tomato", height_ft=-1)
 
     def test_bad_input_is_refused(self):
         m, gid = self.garden()

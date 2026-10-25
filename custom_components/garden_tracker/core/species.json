@@ -225,7 +225,7 @@
   "pests": []
  },
  "jalapeno": {
-  "name": "Jalapeño",
+  "name": "Jalape\u00f1o",
   "kind": "plant",
   "pests": [],
   "feeding_plan": [
@@ -319,5 +319,115 @@
   "kind": "plant",
   "pests": [],
   "single_harvest": true
+ },
+ "corn": {
+  "name": "Corn",
+  "kind": "plant",
+  "pests": []
+ },
+ "hops": {
+  "name": "Hops",
+  "kind": "plant",
+  "pests": []
+ },
+ "broccoli": {
+  "name": "Broccoli",
+  "kind": "plant",
+  "pests": []
+ },
+ "kale": {
+  "name": "Kale",
+  "kind": "plant",
+  "pests": []
+ },
+ "spinach": {
+  "name": "Spinach",
+  "kind": "plant",
+  "pests": []
+ },
+ "radish": {
+  "name": "Radish",
+  "kind": "plant",
+  "pests": []
+ },
+ "beet": {
+  "name": "Beets",
+  "kind": "plant",
+  "pests": []
+ },
+ "zucchini": {
+  "name": "Zucchini",
+  "kind": "plant",
+  "pests": []
+ },
+ "eggplant": {
+  "name": "Eggplant",
+  "kind": "plant",
+  "pests": []
+ },
+ "sunflower": {
+  "name": "Sunflower",
+  "kind": "plant",
+  "pests": []
+ },
+ "basil": {
+  "name": "Basil",
+  "kind": "plant",
+  "pests": []
+ },
+ "cilantro": {
+  "name": "Cilantro",
+  "kind": "plant",
+  "pests": []
+ },
+ "parsley": {
+  "name": "Parsley",
+  "kind": "plant",
+  "pests": []
+ },
+ "dill": {
+  "name": "Dill",
+  "kind": "plant",
+  "pests": []
+ },
+ "chives": {
+  "name": "Chives",
+  "kind": "plant",
+  "pests": []
+ },
+ "mint": {
+  "name": "Mint",
+  "kind": "plant",
+  "pests": []
+ },
+ "oregano": {
+  "name": "Oregano",
+  "kind": "plant",
+  "pests": []
+ },
+ "thyme": {
+  "name": "Thyme",
+  "kind": "plant",
+  "pests": []
+ },
+ "rosemary": {
+  "name": "Rosemary",
+  "kind": "plant",
+  "pests": []
+ },
+ "sage": {
+  "name": "Sage",
+  "kind": "plant",
+  "pests": []
+ },
+ "strawberry": {
+  "name": "Strawberries",
+  "kind": "plant",
+  "pests": []
+ },
+ "sweet_potato": {
+  "name": "Sweet potatoes",
+  "kind": "plant",
+  "pests": []
  }
 }
