@@ -188,6 +188,7 @@ class GardenModel:
         g.setdefault("kind", "garden")
         g.setdefault("trays", 0)
         g.setdefault("layout", None)
+        g.setdefault("layout_history", {})
         g.setdefault("watering", [])
         g.setdefault("water_every", None)
         g.setdefault("power_sensors", {})
@@ -776,87 +777,170 @@ class GardenModel:
             raise GardenError("Layouts are for gardens, not racks or greenhouses")
         return g
 
-    def set_layout(self, garden: str, width_ft: Any = None, length_ft: Any = None, row_in: Any = None, rotation: Any = None) -> None:
+    def _layout_of(self, ref: str) -> tuple[dict, dict]:
+        g = self._layout_garden(ref)
+        if not g["layout"]:
+            raise GardenError("Set the garden size first")
+        return g, g["layout"]
+
+    def _layout_year(self, g: dict) -> int:
+        old = [int(y) for y in g["layout_history"]]
+        return max([self.today().year] + [y + 1 for y in old])
+
+    def _row_check(self, L: dict, row: int) -> int:
+        row = int(row)
+        if not 0 <= row < lay.row_count(L):
+            raise GardenError(f"There is no row {row + 1}")
+        return row
+
+    def set_layout(self, garden: str, width_ft: Any = None, length_ft: Any = None, row_in: Any = None, rotation: Any = None,
+                   path_in: Any = None) -> None:
         g = self._layout_garden(garden)
-        new = copy.deepcopy(g["layout"]) if g["layout"] else lay.blank()
+        new = copy.deepcopy(g["layout"]) if g["layout"] else lay.blank(self._layout_year(g))
         try:
-            lay.validate_size(new, width_ft, length_ft, row_in, rotation)
+            lay.validate_size(new, width_ft, length_ft, row_in, rotation, path_in)
         except lay.LayoutError as e:
             raise GardenError(str(e)) from None
         g["layout"] = new
         self._touch()
 
     def assign_layout_rows(self, garden: str, crop: str | None, rows: list[int] | None = None) -> None:
-        g = self._layout_garden(garden)
-        if not g["layout"]:
-            raise GardenError("Set the garden size first")
+        g, L = self._layout_of(garden)
         names = self._plant_names()
         if crop and crop not in names:
             raise GardenError(f"Unknown crop '{crop}'")
-        n = lay.row_count(g["layout"])
-        cur = (list(g["layout"].get("rows") or []) + [None] * n)[:n]
-        for i in (range(n) if rows is None else rows):
-            if not 0 <= int(i) < n:
-                raise GardenError(f"There is no row {int(i) + 1}")
-            cur[int(i)] = crop or None
-        g["layout"]["rows"] = cur
-        self._touch()
-
-    def add_layout_segment(self, garden: str, row: int, crop: str, length_ft: Any) -> None:
-        """Plant `length_ft` of a row with `crop`, after whatever is already planted in that row."""
-        g = self._layout_garden(garden)
-        L = g["layout"]
-        if not L:
-            raise GardenError("Set the garden size first")
-        if crop not in self._plant_names():
-            raise GardenError(f"Unknown crop '{crop}'")
         n = lay.row_count(L)
-        if not 0 <= int(row) < n:
-            raise GardenError(f"There is no row {int(row) + 1}")
-        try:
-            ft = lay._num(length_ft, "Length", 0.5, lay.MAX_FT)
-        except lay.LayoutError as e:
-            raise GardenError(str(e)) from None
-        segs = lay.row_segments(L, int(row))
-        left = L["length_ft"] - sum(s["ft"] for s in segs)
-        if ft > left + 1e-6:
-            raise GardenError(f"Row {int(row) + 1} has only {left:g} ft left. Clear some of it first" if left > 1e-6
-                              else f"Row {int(row) + 1} is full. Clear some of it first")
         cur = (list(L.get("rows") or []) + [None] * n)[:n]
-        cur[int(row)] = segs + [{"crop": crop, "ft": ft}]
+        for i in (range(n) if rows is None else rows):
+            cur[self._row_check(L, i)] = crop or None
         L["rows"] = cur
         self._touch()
 
-    def remove_layout_segment(self, garden: str, row: int, index: int | None = None) -> None:
-        """Take one planted section out of a row (the last one when no index is given). Later sections slide up."""
-        g = self._layout_garden(garden)
-        L = g["layout"]
-        if not L:
-            raise GardenError("Set the garden size first")
+    def _put_section(self, L: dict, row: int, crop: str, ft: float, start_ft: float | None) -> None:
+        segs = lay.row_segments(L, row)
+        start = max([s["start_ft"] + s["ft"] for s in segs] + [0.0]) if start_ft is None else start_ft
+        end = start + ft
+        if start < 0 or end > L["length_ft"] + 1e-6:
+            left = L["length_ft"] - start
+            raise GardenError(f"Row {row + 1} has only {max(left, 0):g} ft from there. Clear some of it first" if left > 0.4
+                              else f"Row {row + 1} is full from there. Clear some of it first")
+        for sg in segs:
+            if start < sg["start_ft"] + sg["ft"] - 1e-6 and end > sg["start_ft"] + 1e-6:
+                raise GardenError(f"Row {row + 1} already has {self._plant_names().get(sg['crop'], sg['crop'])} there. Clear it first")
         n = lay.row_count(L)
-        if not 0 <= int(row) < n:
-            raise GardenError(f"There is no row {int(row) + 1}")
-        segs = lay.row_segments(L, int(row))
+        cur = (list(L.get("rows") or []) + [None] * n)[:n]
+        cur[row] = sorted(segs + [{"crop": crop, "ft": ft, "start_ft": round(start, 3)}], key=lambda x: x["start_ft"])
+        L["rows"] = cur
+
+    def add_layout_segment(self, garden: str, row: int, crop: str, length_ft: Any, start_ft: Any = None) -> None:
+        """Plant `length_ft` of a row with `crop`, from `start_ft` or after whatever is already planted in that row."""
+        g, L = self._layout_of(garden)
+        if crop not in self._plant_names():
+            raise GardenError(f"Unknown crop '{crop}'")
+        row = self._row_check(L, row)
+        try:
+            ft = lay._num(length_ft, "Length", 0.5, lay.MAX_FT)
+            start = None if start_ft is None else lay._num(start_ft, "Start", 0, lay.MAX_FT)
+        except lay.LayoutError as e:
+            raise GardenError(str(e)) from None
+        self._put_section(L, row, crop, ft, start)
+        self._touch()
+
+    def remove_layout_segment(self, garden: str, row: int, index: int | None = None) -> None:
+        """Take one planted section out of a row (the last one when no index is given)."""
+        g, L = self._layout_of(garden)
+        row = self._row_check(L, row)
+        segs = lay.row_segments(L, row)
         if not segs:
             return
         del segs[len(segs) - 1 if index is None else int(index)]
+        n = lay.row_count(L)
         cur = (list(L.get("rows") or []) + [None] * n)[:n]
-        cur[int(row)] = segs or None
+        cur[row] = segs or None
         L["rows"] = cur
         self._touch()
 
     def set_layout_crop(self, garden: str, crop: str, spacing_in: Any = None, support: Any = None, post_ft: Any = None,
-                        post_kind: Any = None, twine_levels: Any = None, pattern: Any = None, stagger: Any = None) -> None:
-        g = self._layout_garden(garden)
-        if not g["layout"]:
-            raise GardenError("Set the garden size first")
+                        post_kind: Any = None, twine_levels: Any = None, pattern: Any = None, stagger: Any = None,
+                        yield_lb: Any = None) -> None:
+        g, L = self._layout_of(garden)
         if crop not in self._plant_names():
             raise GardenError(f"Unknown crop '{crop}'")
         try:
-            vals = lay.validate_crop(spacing_in, support, post_ft, post_kind, twine_levels, pattern, stagger)
+            vals = lay.validate_crop(spacing_in, support, post_ft, post_kind, twine_levels, pattern, stagger, yield_lb)
         except lay.LayoutError as e:
             raise GardenError(str(e)) from None
-        g["layout"].setdefault("crops", {}).setdefault(crop, {}).update(vals)
+        L.setdefault("crops", {}).setdefault(crop, {}).update(vals)
+        self._touch()
+
+    def set_layout_draft(self, garden: str, crop: str | None = None, mode: str | None = None, value: Any = None,
+                         yield_lb: Any = None, spacing_in: Any = None) -> None:
+        """What to plant: a crop and a target (harvest weight, number of plants, or feet of row). The planner works out the rest."""
+        g, L = self._layout_of(garden)
+        d = dict(L.get("draft") or {})
+        if crop is not None:
+            if crop not in self._plant_names():
+                raise GardenError(f"Unknown crop '{crop}'")
+            d["crop"] = crop
+        if not d.get("crop"):
+            raise GardenError("Pick a crop first")
+        if mode is not None:
+            if mode not in ("weight", "plants", "length"):
+                raise GardenError("Plan by weight, plants or row length")
+            d["mode"] = mode
+        if value is not None:
+            try:
+                d["value"] = lay._num(value, "Amount", 0, 100000)
+            except lay.LayoutError as e:
+                raise GardenError(str(e)) from None
+        if yield_lb is not None or spacing_in is not None:
+            try:
+                vals = lay.validate_crop(spacing_in=spacing_in, yield_lb=yield_lb)
+            except lay.LayoutError as e:
+                raise GardenError(str(e)) from None
+            L.setdefault("crops", {}).setdefault(d["crop"], {}).update(vals)
+        L["draft"] = d
+        self._touch()
+
+    def place_layout_draft(self, garden: str, row: int, start_ft: Any = None) -> None:
+        """Put the planned crop into the garden from `start_ft` in `row`, carrying on into the next rows if it is longer."""
+        g, L = self._layout_of(garden)
+        res = lay.draft_result(L, self._plant_names(), self._history(g), int(L.get("year") or self.today().year))
+        if not res or not res["ready"]:
+            raise GardenError("Say how much to plant first")
+        try:
+            start = 0.0 if start_ft is None else lay._num(start_ft, "Start", 0, lay.MAX_FT)
+        except lay.LayoutError as e:
+            raise GardenError(str(e)) from None
+        row, left, n = self._row_check(L, row), res["length_ft"], lay.row_count(L)
+        trial = copy.deepcopy(L)
+        while left > 1e-6:
+            if row >= n:
+                raise GardenError(f"{res['length_ft']:g} ft does not fit from there. Pick an earlier row or a smaller amount")
+            ft = min(left, trial["length_ft"] - start)
+            self._put_section(trial, row, res["crop"], ft, start)
+            left -= ft
+            row, start = row + 1, 0.0
+        trial["draft"] = L.get("draft")
+        g["layout"] = trial
+        self._touch()
+
+    def _history(self, g: dict) -> dict[int, dict]:
+        return {int(y): h for y, h in g["layout_history"].items()}
+
+    def start_layout_season(self, garden: str, year: Any = None) -> None:
+        """Keep this season's layout and begin the next one with the same garden, empty rows and the same crop settings."""
+        g, L = self._layout_of(garden)
+        this = int(L.get("year") or self.today().year)
+        new = this + 1 if year is None else int(year)
+        if new <= this or str(new) in g["layout_history"]:
+            raise GardenError(f"{new} is not after the current season ({this})")
+        old = copy.deepcopy(L)
+        old["year"], old["draft"] = this, None
+        g["layout_history"][str(this)] = old
+        fresh = copy.deepcopy(L)
+        fresh.update(year=new, rows=[], draft=None)
+        g["layout"] = fresh
         self._touch()
 
     def remove_layout(self, garden: str) -> None:
@@ -1783,7 +1867,8 @@ class GardenModel:
             "frost": self._frost_view(g, today),
             "paused": {k: bool(g.get("sensors_paused", {}).get(k)) for k in METRICS},
             "fertility": self._fertility_view(g, metrics, today) if soil else None,
-            "layout": lay.plan(g.get("layout"), self._plant_names()) if soil else None,
+            "layout": lay.plan(g.get("layout"), self._plant_names(), self._history(g), today.year) if soil else None,
+            "layout_history": ({y: lay.plan(h, self._plant_names(), None, int(y)) for y, h in g["layout_history"].items()} if soil else {}),
             "trays": g.get("trays", 0), "water": self._water_view(g, today),
             "trays_calc": self._trays_calc(g) if kind != "garden" else None,
             "power": self._power_view(g, today) if kind != "garden" else None,
