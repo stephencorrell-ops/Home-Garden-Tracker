@@ -1665,7 +1665,7 @@ class GardenTrackerCard extends HTMLElement {
     const L = g.layout;
     if (!L) return "";
     const t = L.configured ? L.totals : null;
-    const sub = t ? `${num(L.width_ft, 1)} x ${num(L.length_ft, 1)} ft, ${t.rows} rows${t.plants ? `, ${t.plants} plants` : ""}` : "Plan rows, plant counts, T-posts and cages";
+    const sub = t ? `${num(L.length_ft, 1)} ft rows, ${num(L.width_ft, 1)} ft deep, ${t.rows} rows${t.plants ? `, ${t.plants} plants` : ""}` : "Plan rows, plant counts, T-posts and cages";
     return `<div class="card tile" data-act="open-layout" data-g="${g.id}"><div class="row"><div class="pic" style="background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)">${this._icon("grass")}</div><div class="grow"><div style="font-size:15px;font-weight:500">Layout planner</div><div class="sub">${esc(sub)}</div></div>${this._icon("chevron-right")}</div></div>`;
   }
   _irrTile(g) {
@@ -2027,12 +2027,12 @@ class GardenTrackerCard extends HTMLElement {
     }
     const dim = (k, label, v, span = 3, min = 1) => `<div style="grid-column:span ${span}"><label>${label}</label><input type="number" inputmode="decimal" min="${min}" max="500" step="any" value="${v}" data-lay="${k}" data-g="${gid}"></div>`;
     if (!ok) {
-      h += `<div class="card"><div class="sec">Garden size</div><div class="grid6">${dim("width_ft", "Width (ft)", 20)}${dim("length_ft", "Length (ft)", 20)}</div><div class="small mut" style="margin:8px 0">Rows run along the length and are stacked across the width, with a 24 in access path between them.</div><div class="row">${this._btn("lay-start", "plus", "Start planning", `data-g="${gid}"`, "primary")}</div></div>`;
+      h += `<div class="card"><div class="sec">Garden size</div><div class="grid6">${dim("length_ft", "Row length (ft)", 20)}${dim("width_ft", "Depth (ft)", 20)}</div><div class="small mut" style="margin:8px 0">Rows run along the row length and are stacked across the depth, with a 24 in access path between them.</div><div class="row">${this._btn("lay-start", "plus", "Start planning", `data-g="${gid}"`, "primary")}</div></div>`;
       return h;
     }
     const t = L.totals;
     if (!past) {
-      h += `<div class="card"><div class="sec">Garden size</div><div class="grid6">${dim("width_ft", "Width (ft)", num(L.width_ft, 2))}${dim("length_ft", "Length (ft)", num(L.length_ft, 2))}${dim("path_in", "Access path between rows (in)", num(L.path_in, 1), 6, 0)}</div>`;
+      h += `<div class="card"><div class="sec">Garden size</div><div class="grid6">${dim("length_ft", "Row length (ft)", num(L.length_ft, 2))}${dim("width_ft", "Depth (ft)", num(L.width_ft, 2))}${dim("path_in", "Access path between rows (in)", num(L.path_in, 1), 6, 0)}</div>`;
       h += `<label style="margin-top:10px">Row width</label><div class="seg">${L.row_widths.map((n) => `<button class="${L.row_in === n ? "on" : ""}" data-act="lay-rowin" data-g="${gid}" data-n="${n}">${n} in</button>`).join("")}</div>`;
       h += `<div class="small mut" style="margin-top:8px">Fits ${t.rows} row${t.rows === 1 ? "" : "s"} of ${L.row_in} in with ${num(L.path_in, 0)} in paths between them. Each crop has its own pattern: a single line, a double line or an offset grid.</div></div>`;
       if (L.alerts.length) {
@@ -2071,7 +2071,7 @@ class GardenTrackerCard extends HTMLElement {
     }
     h += this._layoutSvg(L, g, !!past);
     const start = ["top", "right", "bottom", "left"][(L.rotation || 0) / 90];
-    h += `<div class="small mut" style="margin-top:6px;text-align:center">${num(L.width_ft, 1)} ft wide, ${num(L.length_ft, 1)} ft long. Rows start at the ${start}.</div>`;
+    h += `<div class="small mut" style="margin-top:6px;text-align:center">${num(L.length_ft, 1)} ft row length, ${num(L.width_ft, 1)} ft deep. Rows start at the ${start}.</div>`;
     const sel = !past && this._selRow !== null && this._selRow !== undefined ? L.rows[this._selRow] : null;
     if (sel) {
       h += `<div class="card" style="margin:10px 0 0"><div class="row"><div class="sec grow" style="margin:0">Row ${sel.i + 1}: ${num(sel.used_ft, 1)} of ${num(L.length_ft, 1)} ft planted</div>${sel.segments.length ? this._btn("lay-row-clear", "", "Clear row", `data-g="${gid}" data-r="${sel.i}"`) : ""}</div>`;
