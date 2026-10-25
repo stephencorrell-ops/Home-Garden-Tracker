@@ -168,7 +168,7 @@ class Layout(unittest.TestCase):
         m.assign_layout_rows(gid, "pepper")
         m.set_layout_crop(gid, "pepper", None, "cage", None)
         v = self.view(m, gid)
-        self.assertEqual(len(v["rows"][0]["lines"]), 2)
+        self.assertEqual(len(v["rows"][0]["segments"][0]["lines"]), 2)
         self.assertEqual(v["totals"]["plants"], 4 * 2 * 6)  # 4 rows, 2 lines, 120 in / 18 in = 6
         self.assertEqual(v["totals"]["cages"], v["totals"]["plants"])
 
@@ -176,14 +176,14 @@ class Layout(unittest.TestCase):
         m, gid = self.garden()
         m.set_layout(gid, 6, 10, 36, True, True)
         m.assign_layout_rows(gid, "tomato")
-        r = self.view(m, gid)["rows"][0]
+        r = self.view(m, gid)["rows"][0]["segments"][0]
         self.assertEqual(len(r["ys2"]), len(r["ys"]))
         self.assertEqual(round(r["ys2"][0] - r["ys"][0], 2), 12)  # half of 24 in
         self.assertEqual(r["plants"], 2 * len(r["ys"]))
         self.assertLessEqual(r["ys2"][-1], 120)
         m.set_layout(gid, None, None, None, False)  # a single row never staggers
         self.assertFalse(self.view(m, gid)["stagger"])
-        self.assertEqual(self.view(m, gid)["rows"][0]["ys2"], [])
+        self.assertEqual(self.view(m, gid)["rows"][0]["segments"][0]["ys2"], [])
 
     def test_pepper_corral_counts_posts_and_twine(self):
         m, gid = self.garden()
@@ -203,14 +203,54 @@ class Layout(unittest.TestCase):
         m.assign_layout_rows(gid, "lettuce")
         m.set_layout_crop(gid, "lettuce", 6, None, None, None, None, 6, False)
         v = self.view(m, gid)
-        self.assertEqual(len(v["rows"][0]["lines"]), 5)  # 30 in / 6 in
+        self.assertEqual(len(v["rows"][0]["segments"][0]["lines"]), 5)  # 30 in / 6 in
         self.assertEqual(v["rows"][0]["plants"], 5 * 20)  # 120 in / 6 in = 20 along the row
         m.set_layout_crop(gid, "lettuce", None, None, None, None, None, 6, True)
-        r = self.view(m, gid)["rows"][0]
+        r = self.view(m, gid)["rows"][0]["segments"][0]
         self.assertEqual(r["plants"], 5 * 19)  # offset lines need half a step more room
         self.assertEqual(round(r["ys2"][0] - r["ys"][0], 2), 3)
         m.set_layout_crop(gid, "lettuce", None, None, None, None, None, 0)  # back to following the row
-        self.assertEqual(len(self.view(m, gid)["rows"][0]["lines"]), 1)
+        self.assertEqual(len(self.view(m, gid)["rows"][0]["segments"][0]["lines"]), 1)
+
+    def test_one_row_can_hold_several_crops_in_sections(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 5, 25, 30, False)  # two rows, 25 ft long
+        m.add_layout_segment(gid, 0, "onion", 5)
+        m.add_layout_segment(gid, 0, "carrot", 10)
+        m.add_layout_segment(gid, 0, "bean", 10)
+        v = self.view(m, gid)
+        segs = v["rows"][0]["segments"]
+        self.assertEqual([x["crop"] for x in segs], ["onion", "carrot", "bean"])
+        self.assertEqual([x["plants"] for x in segs], [15, 60, 30])  # 60 in / 4, 120 in / 2, 120 in / 4
+        self.assertEqual([x["start_in"] for x in segs], [0, 60, 180])
+        self.assertIsNone(v["rows"][0]["crop"])  # no single crop owns the row
+        self.assertEqual(v["rows"][0]["used_ft"], 25)
+        self.assertEqual(next(c for c in v["crops"] if c["key"] == "carrot")["feet"], 10)
+        with self.assertRaises(GardenError):
+            m.add_layout_segment(gid, 0, "lettuce", 1)  # the row is full
+        m.remove_layout_segment(gid, 0, 1)  # take out the carrots, the beans slide up
+        segs = self.view(m, gid)["rows"][0]["segments"]
+        self.assertEqual([(x["crop"], x["start_in"]) for x in segs], [("onion", 0), ("bean", 60)])
+        m.remove_layout_segment(gid, 0)  # no index takes the last one
+        m.remove_layout_segment(gid, 0)
+        self.assertEqual(self.view(m, gid)["rows"][0]["segments"], [])
+
+    def test_a_whole_row_can_be_trimmed_by_removing_its_section(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 5, 20, 30, False)
+        m.assign_layout_rows(gid, "tomato", [0])
+        self.assertEqual(self.view(m, gid)["rows"][0]["crop"], "tomato")
+        m.remove_layout_segment(gid, 0, 0)
+        self.assertIsNone(self.view(m, gid)["rows"][0]["crop"])
+
+    def test_the_garden_can_be_turned_in_90_degree_steps(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 20, 40, 30, False, None, 90)
+        self.assertEqual(self.view(m, gid)["rotation"], 90)
+        m.set_layout(gid, None, None, None, None, None, 450)
+        self.assertEqual(self.view(m, gid)["rotation"], 90)
+        with self.assertRaises(GardenError):
+            m.set_layout(gid, None, None, None, None, None, 45)
 
     def test_one_row_can_hold_a_different_crop_and_be_cleared(self):
         m, gid = self.garden()

@@ -1041,7 +1041,7 @@ class GardenTrackerCard extends HTMLElement {
       case "open-g": return this._go({ v: "garden", id: d.g });
       case "open-archive": return this._go({ v: "archive" });
       case "open-micro": return this._go({ v: "micro" });
-      case "open-layout": this._brush = null; return this._go({ v: "layout", id: d.g });
+      case "open-layout": this._brush = null; this._selRow = null; this._brushLen = ""; return this._go({ v: "layout", id: d.g });
       case "lay-start": {
         const val = (k) => Number(this.shadowRoot.querySelector(`[data-lay="${k}"]`).value);
         return this._act("set_layout", { garden: d.g, width_ft: val("width_ft"), length_ft: val("length_ft") });
@@ -1050,9 +1050,14 @@ class GardenTrackerCard extends HTMLElement {
       case "lay-stagger": return this._act("set_layout", { garden: d.g, stagger: d.p === "1" });
       case "lay-double": return this._act("set_layout", { garden: d.g, double: d.p === "1" });
       case "lay-row": {
-        const L = this._garden(d.g).layout, row = L.rows[Number(d.r)], brush = this._brushFor(L);
-        return this._act("assign_layout_rows", { garden: d.g, crop: row.crop === brush ? null : brush, rows: [Number(d.r)] });
+        const L = this._garden(d.g).layout, i = Number(d.r), row = L.rows[i], brush = this._brushFor(L), len = Number(this._brushLen) || 0;
+        this._selRow = i;
+        if (len > 0) return this._act("add_layout_segment", { garden: d.g, row: i, crop: brush, length_ft: len });
+        return this._act("assign_layout_rows", { garden: d.g, crop: row.crop === brush ? null : brush, rows: [i] });
       }
+      case "lay-seg-rm": return this._act("remove_layout_segment", { garden: d.g, row: Number(d.r), index: Number(d.i) });
+      case "lay-row-clear": return this._act("assign_layout_rows", { garden: d.g, crop: null, rows: [Number(d.r)] });
+      case "lay-rot": return this._act("set_layout", { garden: d.g, rotation: ((this._garden(d.g).layout.rotation || 0) + Number(d.n) + 360) % 360 });
       case "lay-fill": return this._act("assign_layout_rows", { garden: d.g, crop: this._brushFor(this._garden(d.g).layout) });
       case "lay-clear": return this._act("assign_layout_rows", { garden: d.g, crop: null });
       case "lay-edit": return this._open(this._fLayCrop(this._garden(d.g), d.c));
@@ -1143,6 +1148,7 @@ class GardenTrackerCard extends HTMLElement {
       if (L && L.configured) this._act("set_layout", { garden: el.dataset.g, [el.dataset.lay]: Number(el.value) });
       return;
     }
+    if (el.dataset && el.dataset.brushlen !== undefined && isChange) { this._brushLen = el.value; return this._render(); }
     if (el.dataset && el.dataset.brush !== undefined && isChange) { this._brush = el.value; return this._render(); }
     const name = el.dataset && el.dataset.f;
     if (!name || !this._form || el.tagName === "BUTTON") return;
@@ -1622,42 +1628,48 @@ class GardenTrackerCard extends HTMLElement {
   _layoutSvg(L, g) {
     const COL = ["#e5372d", "#2e7d32", "#f28c38", "#8e24aa", "#039be5", "#c0a000", "#795548", "#d81b60"];
     const color = (k) => COL[Math.max(0, L.available.findIndex((a) => a.key === k)) % COL.length];
-    const W = L.width_ft * 12, N = L.length_ft * 12, M = 24, MT = L.rows.some((r) => r.crop) ? 58 : 24;
-    const s = Math.min(300 / W, 440 / N);
-    const VW = W * s + M * 2, VH = N * s + MT + M;
-    const total = L.rows.reduce((a, r) => a + r.ys.length * r.lines.length, 0);
-    const dots = total <= 2500;
-    let o = `<rect x="${M}" y="${MT}" width="${W * s}" height="${N * s}" fill="var(--secondary-background-color)" stroke="var(--line)"/>`;
-    const sup = (k) => (L.crops.find((c) => c.key === k) || {});
+    const rot = L.rotation || 0, W = L.width_ft * 12, N = L.length_ft * 12, M = 24;
+    const LM = L.rows.some((r) => r.segments.length) ? 62 : 0; // room for the crop names, on the side the rows start at
+    const sw = rot % 180 ? N : W, sh = rot % 180 ? W : N;
+    const s = Math.min(300 / sw, 440 / sh);
+    const left = M + (rot === 270 ? LM : 0), right = M + (rot === 90 ? LM : 0), top = M + (rot === 0 ? LM : 0), bottom = M + (rot === 180 ? LM : 0);
+    const VW = sw * s + left + right, VH = sh * s + top + bottom;
+    const tf = { 0: "", 90: `translate(${N * s} 0) rotate(90)`, 180: `translate(${W * s} ${N * s}) rotate(180)`, 270: `translate(0 ${W * s}) rotate(270)` }[rot];
+    const P = (lx, ly) => [left + [lx, N * s - ly, W * s - lx, ly][rot / 90], top + [ly, lx, N * s - ly, W * s - lx][rot / 90]];
+    const total = L.rows.reduce((a, r) => a + r.segments.reduce((b, sg) => b + sg.ys.length * sg.lines.length, 0), 0);
+    const dots = total <= 2500, fix = (n) => n.toFixed(1);
+    const info = (k) => L.crops.find((c) => c.key === k) || {};
+    let o = `<g transform="translate(${left} ${top}) ${tf}"><rect width="${W * s}" height="${N * s}" fill="var(--secondary-background-color)" stroke="var(--line)"/>`;
+    let names = "";
     for (const r of L.rows) {
-      const x0 = M + (L.pad_in + r.i * L.row_in) * s, c = r.crop ? color(r.crop) : null;
-      o += `<rect data-act="lay-row" data-g="${g.id}" data-r="${r.i}" x="${x0}" y="${MT}" width="${L.row_in * s}" height="${N * s}" fill="${c || "transparent"}" fill-opacity="${c ? 0.16 : 0}" stroke="var(--line)" stroke-dasharray="3 3" style="cursor:pointer"/>`;
-      if (!r.crop) continue;
-      const cs = sup(r.crop), rad = Math.max(1.6, Math.min(cs.spacing_in * 0.32, cs.across_in ? cs.across_in * 0.32 : 99, 5) * s);
-      o += `<text class="ax" transform="translate(${(x0 + L.row_in * s / 2 + 3).toFixed(1)} ${MT - 6}) rotate(-90)" font-size="11" fill="${c}" pointer-events="none">${esc(cs.name.length > 11 ? cs.name.slice(0, 10) + "." : cs.name)}</text>`;
-      r.lines.forEach((lx, li) => {
-        const x = M + lx * s, ys = li % 2 === 1 && r.ys2.length ? r.ys2 : r.ys;
-        if (dots) for (const y of ys) {
-          o += `<circle cx="${x.toFixed(1)}" cy="${(MT + y * s).toFixed(1)}" r="${rad.toFixed(1)}" fill="${c0(r.crop)}" pointer-events="none"/>`;
-          if (cs.support === "cage") o += `<circle cx="${x.toFixed(1)}" cy="${(MT + y * s).toFixed(1)}" r="${(rad + 2).toFixed(1)}" fill="none" stroke="var(--primary-text-color)" stroke-width="1" pointer-events="none"/>`;
+      const x0 = (L.pad_in + r.i * L.row_in) * s, sel = this._selRow === r.i;
+      o += `<rect data-act="lay-row" data-g="${g.id}" data-r="${r.i}" x="${fix(x0)}" y="0" width="${fix(L.row_in * s)}" height="${N * s}" fill="transparent" stroke="${sel ? "var(--primary-color)" : "var(--line)"}" stroke-width="${sel ? 2 : 1}" stroke-dasharray="${sel ? "" : "3 3"}" style="cursor:pointer"/>`;
+      for (const sg of r.segments) {
+        const c = color(sg.crop), cs = info(sg.crop);
+        o += `<rect x="${fix(x0)}" y="${fix(sg.start_in * s)}" width="${fix(L.row_in * s)}" height="${fix(sg.len_in * s)}" fill="${c}" fill-opacity="0.16" pointer-events="none"/>`;
+        const rad = Math.max(1.6, Math.min(cs.spacing_in * 0.32, cs.across_in ? cs.across_in * 0.32 : 99, 5) * s);
+        sg.lines.forEach((lx, li) => {
+          const x = lx * s, ys = li % 2 === 1 && sg.ys2.length ? sg.ys2 : sg.ys;
+          if (dots) for (const y of ys) {
+            o += `<circle cx="${fix(x)}" cy="${fix(y * s)}" r="${fix(rad)}" fill="${c}" pointer-events="none"/>`;
+            if (cs.support === "cage") o += `<circle cx="${fix(x)}" cy="${fix(y * s)}" r="${fix(rad + 2)}" fill="none" stroke="var(--primary-text-color)" pointer-events="none"/>`;
+          } else o += `<line x1="${x}" x2="${x}" y1="${fix(sg.start_in * s)}" y2="${fix((sg.start_in + sg.len_in) * s)}" stroke="${c}" stroke-width="${fix(Math.max(1.5, rad))}" stroke-dasharray="1 ${Math.max(2, cs.spacing_in * s)}" stroke-linecap="round" pointer-events="none"/>`;
+        });
+        const stations = []; for (let k = 0; k * cs.post_ft * 12 <= sg.len_in + 1e-6; k++) stations.push(sg.start_in + k * cs.post_ft * 12);
+        if (cs.support === "tpost") for (const y of stations) o += `<rect x="${fix(r.x * s - 2.5)}" y="${fix(y * s - 2.5)}" width="5" height="5" fill="var(--primary-text-color)" pointer-events="none"/>`;
+        if (cs.support === "corral") {
+          const half = Math.min(sg.block_w_in, L.row_in - 2) / 2, xa = (r.x - half) * s, xb = (r.x + half) * s, sz = cs.post_kind === "tpost" ? 5 : 3.5;
+          o += `<rect x="${fix(xa)}" y="${fix(sg.start_in * s)}" width="${fix(xb - xa)}" height="${fix(sg.len_in * s)}" fill="none" stroke="#b8860b" stroke-width="1.6" stroke-dasharray="4 2" pointer-events="none"/>`;
+          for (const y of stations) for (const px of [xa, xb]) o += `<rect x="${fix(px - sz / 2)}" y="${fix(y * s - sz / 2)}" width="${sz}" height="${sz}" fill="var(--primary-text-color)" pointer-events="none"/>`;
         }
-        else o += `<line x1="${x}" x2="${x}" y1="${MT}" y2="${MT + N * s}" stroke="${c0(r.crop)}" stroke-width="${Math.max(1.5, rad)}" stroke-dasharray="1 ${Math.max(2, cs.spacing_in * s)}" stroke-linecap="round" pointer-events="none"/>`;
-      });
-      if (cs.support === "tpost") {
-        const px = M + (L.double ? r.x : r.lines[0]) * s;
-        for (let k = 0; k * cs.post_ft <= L.length_ft + 1e-6; k++) o += `<rect x="${(px - 2.5).toFixed(1)}" y="${(MT + k * cs.post_ft * 12 * s - 2.5).toFixed(1)}" width="5" height="5" fill="var(--primary-text-color)" pointer-events="none"/>`;
       }
-      if (cs.support === "corral") {
-        // twine box around the plant lines, with a post on each side at every station
-        const half = r.block_w_in / 2, cx = M + r.x * s, xa = cx - Math.min(half, L.row_in / 2 - 1) * s, xb = cx + Math.min(half, L.row_in / 2 - 1) * s;
-        o += `<rect x="${xa.toFixed(1)}" y="${MT}" width="${(xb - xa).toFixed(1)}" height="${(N * s).toFixed(1)}" fill="none" stroke="#b8860b" stroke-width="1.6" stroke-dasharray="4 2" pointer-events="none"/>`;
-        const sz = cs.post_kind === "tpost" ? 5 : 3.5;
-        for (let k = 0; k * cs.post_ft <= L.length_ft + 1e-6; k++) for (const px of [xa, xb]) o += `<rect x="${(px - sz / 2).toFixed(1)}" y="${(MT + k * cs.post_ft * 12 * s - sz / 2).toFixed(1)}" width="${sz}" height="${sz}" fill="var(--primary-text-color)" pointer-events="none"/>`;
+      if (r.segments.length) {
+        const nm = r.segments[0].name + (r.segments.length > 1 ? ` +${r.segments.length - 1}` : ""), t = esc(nm.length > 11 ? nm.slice(0, 10) + "." : nm), [px, py] = P(r.x * s, 0);
+        const at = { 0: `translate(${fix(px + 3)} ${fix(py - 6)}) rotate(-90)`, 90: `translate(${fix(px + 6)} ${fix(py + 4)})`, 180: `translate(${fix(px - 3)} ${fix(py + 6)}) rotate(90)`, 270: `translate(${fix(px - 6)} ${fix(py + 4)})` }[rot];
+        names += `<text class="ax" transform="${at}" font-size="11" fill="${color(r.segments[0].crop)}" text-anchor="${rot === 270 ? "end" : "start"}" pointer-events="none">${t}</text>`;
       }
     }
-    function c0(k) { return color(k); }
-    o += `<text class="ax" x="${VW / 2}" y="${VH - 8}" text-anchor="middle">${num(L.width_ft, 1)} ft</text><text class="ax" transform="translate(${M - 8} ${MT + N * s / 2}) rotate(-90)" text-anchor="middle">${num(L.length_ft, 1)} ft</text>`;
-    return `<svg viewBox="0 0 ${VW.toFixed(0)} ${VH.toFixed(0)}" width="100%" style="max-width:${Math.round(VW * 1.15)}px;display:block;margin:0 auto" role="img" aria-label="Garden layout, ${L.totals.rows} rows">${o}</svg>`;
+    return `<svg viewBox="0 0 ${fix(VW)} ${fix(VH)}" width="100%" style="max-width:${Math.round(VW * 1.15)}px;display:block;margin:0 auto" role="img" aria-label="Garden layout, ${L.totals.rows} rows">${o}</g>${names}</svg>`;
   }
   _layoutView(g) {
     const L = g.layout, gid = g.id;
@@ -1674,16 +1686,26 @@ class GardenTrackerCard extends HTMLElement {
     if (L.double) h += `<label style="margin-top:10px">Plants in the two lines</label><div class="seg"><button class="${L.stagger ? "" : "on"}" data-act="lay-stagger" data-g="${gid}" data-p="0">Side by side</button><button class="${L.stagger ? "on" : ""}" data-act="lay-stagger" data-g="${gid}" data-p="1">Staggered</button></div>`;
     h += `<div class="small mut" style="margin-top:8px">${L.double ? `Two lines of plants ${L.pair_gap_in} in apart in each ${L.row_in} in row.` : `One line of plants down the middle of each ${L.row_in} in row.`} Fits ${L.totals.rows} row${L.totals.rows === 1 ? "" : "s"}.</div></div>`;
     const brush = this._brushFor(L), cur = L.available.find((a) => a.key === brush);
-    h += `<div class="card"><div class="sec">Tap a row to plant it</div><div class="row wrap" style="margin-bottom:10px"><div class="grow" style="min-width:140px"><select data-brush>${L.available.map((a) => `<option value="${esc(a.key)}" ${a.key === brush ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select></div>${this._btn("lay-edit", "pencil", "Spacing", `data-g="${gid}" data-c="${esc(brush)}"`)}</div>`;
+    h += `<div class="card"><div class="sec">Pick a crop, then tap a row to plant it</div><div class="row wrap" style="margin-bottom:10px"><div class="grow" style="min-width:140px"><select data-brush>${L.available.map((a) => `<option value="${esc(a.key)}" ${a.key === brush ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select></div>${this._btn("lay-edit", "pencil", "Spacing", `data-g="${gid}" data-c="${esc(brush)}"`)}</div><label>Feet of the row to plant (leave empty for the whole row)</label><input type="number" inputmode="decimal" min="0.5" step="any" placeholder="Whole row" value="${esc(this._brushLen || "")}" data-brushlen style="margin-bottom:10px">`;
     if (cur) h += `<div class="small mut" style="margin:-4px 0 10px">${esc(cur.name)}: ${cur.across_in ? `grid ${num(cur.across_in, 1)} x ${num(cur.spacing_in, 1)} in${cur.stagger ? ", offset" : ""}` : `${num(cur.spacing_in, 1)} in apart`}${cur.support === "tpost" ? `, T-post every ${num(cur.post_ft, 1)} ft` : cur.support === "cage" ? ", one cage each" : cur.support === "corral" ? `, ${cur.post_kind === "tpost" ? "T-post" : "stake"} corral every ${num(cur.post_ft, 1)} ft with ${cur.twine_levels} twine line${cur.twine_levels === 1 ? "" : "s"}` : ""}</div>`;
     h += this._layoutSvg(L, g);
+    const start = ["top", "right", "bottom", "left"][(L.rotation || 0) / 90];
+    h += `<div class="small mut" style="margin-top:6px;text-align:center">${num(L.width_ft, 1)} ft wide, ${num(L.length_ft, 1)} ft long. Rows start at the ${start}.</div>`;
+    const sel = this._selRow !== null && this._selRow !== undefined ? L.rows[this._selRow] : null;
+    if (sel) {
+      h += `<div class="card" style="margin:10px 0 0"><div class="row"><div class="sec grow" style="margin:0">Row ${sel.i + 1}: ${num(sel.used_ft, 1)} of ${num(L.length_ft, 1)} ft planted</div>${sel.segments.length ? this._btn("lay-row-clear", "", "Clear row", `data-g="${gid}" data-r="${sel.i}"`) : ""}</div>`;
+      if (!sel.segments.length) h += `<div class="small mut" style="margin-top:6px">Empty. Tap the row to plant it. To split it between crops, enter feet above and tap once for each crop, in order from the start.</div>`;
+      sel.segments.forEach((sg, k) => { h += `<div class="lg"><div class="t">${esc(sg.name)}<span>${num(sg.start_in / 12, 1)} to ${num((sg.start_in + sg.len_in) / 12, 1)} ft, ${sg.plants} plants</span></div>${this._btn("lay-seg-rm", "close", "", `data-g="${gid}" data-r="${sel.i}" data-i="${k}"`, "ic")}</div>`; });
+      h += `</div>`;
+    }
+    h += `<div class="row" style="margin-top:10px">${this._btn("lay-rot", "", "Turn left", `data-g="${gid}" data-n="-90"`, "grow")}${this._btn("lay-rot", "", "Turn right", `data-g="${gid}" data-n="90"`, "grow")}</div>`;
     h += `<div class="row" style="margin-top:10px">${this._btn("lay-fill", "", "Fill every row", `data-g="${gid}"`, "grow")}${this._btn("lay-clear", "", "Clear rows", `data-g="${gid}"`)}</div></div>`;
     const t = L.totals;
     h += `<div class="card"><div class="sec">What you need</div><div class="stats"><div class="stat"><span>Plants</span><b>${t.plants}</b></div><div class="stat"><span>Per sq ft</span><b>${num(t.density, 2)}</b></div><div class="stat"><span>Rows planted</span><b>${t.planted_rows} of ${t.rows}</b></div><div class="stat"><span>T-posts</span><b>${t.posts}</b></div><div class="stat"><span>Stakes</span><b>${t.stakes}</b></div><div class="stat"><span>Twine</span><b>${num(t.twine_ft, 0)} ft</b></div><div class="stat"><span>Cages</span><b>${t.cages}</b></div><div class="stat"><span>Garden area</span><b>${num(t.area_sqft, 0)} sq ft</b></div></div>`;
     if (t.planted_rows) h += `<div class="small mut" style="margin-top:8px">Inside the planted rows it is ${num(t.bed_density, 2)} plants per sq ft.</div>`;
     if (L.crops.length) {
-      h += `<table class="tbl" style="margin-top:10px"><tr><th>Crop</th><th>Rows</th><th>Plants</th><th>Support</th></tr>`;
-      for (const c of L.crops) h += `<tr><td>${esc(c.name)}<div class="small mut">${c.across_in ? `grid ${num(c.across_in, 1)} x ${num(c.spacing_in, 1)} in` : `${num(c.spacing_in, 1)} in apart`}</div></td><td>${c.rows}</td><td>${c.plants}</td><td>${c.support === "tpost" ? `${c.posts} T-posts` : c.support === "cage" ? `${c.cages} cages` : c.support === "corral" ? `${c.posts || c.stakes} ${c.posts ? "T-posts" : "stakes"}, ${num(c.twine_ft, 0)} ft twine` : "none"}</td></tr>`;
+      h += `<table class="tbl" style="margin-top:10px"><tr><th>Crop</th><th>Planted</th><th>Plants</th><th>Support</th></tr>`;
+      for (const c of L.crops) h += `<tr><td>${esc(c.name)}<div class="small mut">${c.across_in ? `grid ${num(c.across_in, 1)} x ${num(c.spacing_in, 1)} in` : `${num(c.spacing_in, 1)} in apart`}</div></td><td>${num(c.feet, 1)} ft<div class="small mut">${c.rows} row${c.rows === 1 ? "" : "s"}</div></td><td>${c.plants}</td><td>${c.support === "tpost" ? `${c.posts} T-posts` : c.support === "cage" ? `${c.cages} cages` : c.support === "corral" ? `${c.posts || c.stakes} ${c.posts ? "T-posts" : "stakes"}, ${num(c.twine_ft, 0)} ft twine` : "none"}</td></tr>`;
       h += `</table>`;
     }
     h += `<div class="small mut" style="margin-top:8px">T-posts go at both ends of the row and then at the spacing set for the crop. A double row shares one set of posts down its middle. A corral puts a post on each side at every station, with twine run along both sides and across the ends. Plants are centred along the row, so any spare length is left at the ends.</div></div>`;
