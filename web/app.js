@@ -59,7 +59,7 @@ function checkBackupNotice(snap = engine.snapshot()) {
   let snoozed = false;
   try { snoozed = Date.now() < Number(localStorage.getItem("gt.snooze") || 0); } catch { /* ignore */ }
   if (!hasData(snap) || snoozed || (store.lastBackup() && age < BACKUP_EVERY_DAYS)) { box.hidden = true; return; }
-  box.innerHTML = `<span style="flex:1">${store.lastBackup() ? `Your last backup was ${Math.floor(age)} days ago.` : "You haven't backed up yet."} This browser can clear saved data, and a backup file is the only way to get it back.</span><button class="primary" id="nb">Back up now</button><button id="ns">Later</button>`;
+  box.innerHTML = `<span style="flex:1">${store.lastBackup() ? `Last backup ${Math.floor(age)} days ago.` : "Not backed up yet."} This browser can clear saved data.</span><button class="link" id="nb">Back up now</button><button class="link mut" id="ns" aria-label="Remind me later">Later</button>`;
   box.hidden = false;
   $("nb").onclick = downloadBackup;
   $("ns").onclick = () => { try { localStorage.setItem("gt.snooze", String(Date.now() + 3 * 864e5)); } catch { /* ignore */ } box.hidden = true; };

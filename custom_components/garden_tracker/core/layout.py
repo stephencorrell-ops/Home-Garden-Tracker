@@ -399,14 +399,18 @@ def plan(layout: dict | None, names: dict[str, str], history: dict[int, dict] | 
     for c in crops.values():
         top = ACID_ONLY.get(c["key"])
         if top is not None and (ph is None or ph > top):
-            warnings.append({"crop": c["key"], "name": c["name"], "strong": True, "text": acid_text(c["name"], top, ph, ph_source)})
+            warnings.append({"crop": c["key"], "name": c["name"], "strong": True, "text": acid_text(c["name"], top, ph, ph_source),
+                             "title": (f"Test the soil before planting {c['name'].lower()}" if ph is None else f"Don't plant {c['name'].lower()} here"),
+                             "short": (f"This garden has no pH reading, and {c['name'].lower()} need pH {top - 1.0:.1f} to {top:.1f}." if ph is None
+                                       else f"Soil pH is {ph:.1f} ({ph_source or 'tested'}). {c['name']} need {top - 1.0:.1f} to {top:.1f} and usually die within a year or two above that.")})
         need = BLOCKS.get(c["key"])
         if need and row_in < need:
-            warnings.append({"crop": c["key"], "name": c["name"], "text": block_text(c["name"], need, row_in)})
+            warnings.append({"crop": c["key"], "name": c["name"], "text": block_text(c["name"], need, row_in), "title": f"{c['name']} needs a {need // 12} ft block",
+                             "short": f"Your rows are {row_in} in wide. {c['name']} needs a block at least {need // 12} ft across.", "action": {"label": f"Use {need} in rows", "n": need}})
         for r in rows:
             for sg in r["segments"]:
                 if need and sg["crop"] == c["key"] and sg["len_in"] < need - 1e-6:
-                    warnings.append({"crop": c["key"], "name": c["name"], "text": f"{c['name']} in row {r['i'] + 1} is only {sg['len_in'] / 12:.1f} ft long. It needs a block at least {need // 12} ft by {need // 12} ft to pollinate."})
+                    warnings.append({"crop": c["key"], "name": c["name"], "title": f"{c['name']} in row {r['i'] + 1} is too short", "text": f"{c['name']} in row {r['i'] + 1} is only {sg['len_in'] / 12:.1f} ft long. It needs a block at least {need // 12} ft by {need // 12} ft to pollinate."})
     alerts.sort(key=lambda a: ({"same": 0, "family": 1}.get(a["level"], 2), a["row"]))
     return {
         "configured": True, "year": year, "width_ft": layout["width_ft"], "length_ft": layout["length_ft"], "row_in": row_in,

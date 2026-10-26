@@ -47,7 +47,7 @@ label{display:block;font-size:12px;color:var(--mut);margin-bottom:4px}
 .card{background:var(--ha-card-background,var(--card-background-color));border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
 .sec{font-size:12px;color:var(--mut);margin:0 0 6px}
 .pdays{text-align:right;flex:none;align-self:flex-start}.pdays span{display:block;font-size:11px;color:var(--mut)}.pdays b{font-size:16px;font-weight:500}
-.tile{cursor:pointer}.tile:hover{border-color:var(--primary-color)}
+.tiles2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:12px}.tiles2 .tile{margin:0;display:flex;flex-direction:column;gap:6px;min-height:112px;padding:14px}.tiles2 .pic{width:36px;height:36px;border-radius:10px}.warn{border-radius:14px;background:color-mix(in srgb,var(--spray) 16%,var(--card-background-color));border:1px solid color-mix(in srgb,var(--spray) 55%,transparent);padding:12px 14px;margin-bottom:8px}.warn.bad{background:color-mix(in srgb,var(--hold) 12%,var(--card-background-color));border-color:color-mix(in srgb,var(--hold) 55%,transparent)}.warn .wt{font-size:15px;font-weight:700}.warn .wb{font-size:14px;line-height:1.4;margin-top:4px}.warn .wa{margin-top:8px;min-height:44px;border-radius:12px;border:1px solid currentColor;background:transparent;font-weight:600;padding:0 14px;color:inherit}.warn summary{font-size:14px;font-weight:600;min-height:44px;display:flex;align-items:center;cursor:pointer}.lgds{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}.lgd{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:0 10px;border-radius:16px;background:var(--secondary-background-color);font-size:13px}.lgd i{width:10px;height:10px;border-radius:5px;flex:none}.tile{cursor:pointer}.tile:hover{border-color:var(--primary-color)}
 .pic{width:56px;height:56px;border-radius:12px;flex:none;display:flex;align-items:center;justify-content:center}
 .pill{font-size:12px;padding:2px 10px;border-radius:8px;display:inline-block;margin-top:4px;color:var(--c);background:color-mix(in srgb,var(--c) 16%,transparent)}
 .ok{--c:var(--ok)}.spray,.warn{--c:var(--spray)}.hold,.bad,.low,.high{--c:var(--hold)}.info{--c:var(--info)}.none{--c:var(--mut)}
@@ -902,7 +902,7 @@ class GardenTrackerCard extends HTMLElement {
     if (g.kind !== "garden") return this._placeView(g);
     const ph = g.ph, gid = g.id;
     let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="grow"><div class="ttl">${esc(g.name)}</div><div class="sub">${this._vars().filter((v) => v.garden === gid).length} plants</div></div>${this._btn("edit-g", "cog", "", `data-g="${gid}"`, "ic")}</div>`;
-    h += this._frostPill(g, false) + this._sensorBanner(g) + this._choreCard(g) + this._layoutTile(g) + this._irrTile(g) + this._seasonCard(g);
+    h += this._frostPill(g, false) + this._sensorBanner(g) + this._choreCard(g) + this._tiles(g) + this._seasonCard(g);
     h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">Soil pH</div>${ph.level ? `<span class="pill ${ph.level === "ok" ? "ok" : "warn"}" style="margin:0">${ph.level === "ok" ? "In range" : ph.level === "low" ? "Below target" : "Above target"}</span>` : ""}</div>`;
     if (ph.current !== null) {
       const d = ph.first && ph.first.date !== ph.date ? ph.current - ph.first.value : null;
@@ -1087,6 +1087,7 @@ class GardenTrackerCard extends HTMLElement {
       case "do-season": return this._act("start_layout_season", { garden: d.g }, () => { this._season = null; this._selRow = null; this._confirm = null; });
       case "lay-seg-rm": return this._act("remove_layout_segment", { garden: d.g, row: Number(d.r), index: Number(d.i) });
       case "lay-row-clear": return this._act("assign_layout_rows", { garden: d.g, crop: null, rows: [Number(d.r)] });
+      case "acc": { this._acc = { ...(this._acc || {}), [d.k]: !(((this._acc || {})[d.k]) ?? d.k === "crop") }; return this._render(); }
       case "lay-view": { const v = this._turnOf(d.g) === 90 ? 0 : 90; this._turns[d.g] = v; try { localStorage.setItem("gt_turn_" + d.g, String(v)); } catch (e) { /* no storage */ } return this._render(); }
       case "lay-ang": return this._act("set_layout", { garden: d.g, rotation: Number(d.n) });
       case "lay-fill": return this._act("assign_layout_rows", { garden: d.g, crop: this._brushFor(this._garden(d.g).layout) });
@@ -1663,6 +1664,18 @@ class GardenTrackerCard extends HTMLElement {
     const sp = `${num(c.spacing_in, 1)} in`;
     return c.pattern === "grid" ? `offset grid, ${sp} between plants` : c.pattern === "double" ? `double line, ${sp} apart${c.stagger ? ", staggered" : ""}` : `single line, ${sp} apart`;
   }
+  _tile2(act, g, icon, color, title, sub) {
+    return `<div class="card tile t2" data-act="${act}" data-g="${g.id}"><div class="pic" style="background:color-mix(in srgb,var(--${color}) 18%,transparent);color:var(--${color})">${this._icon(icon)}</div><div style="font-size:15px;font-weight:600">${esc(title)}</div><div class="sub">${esc(sub)}</div></div>`;
+  }
+  _tiles(g) {
+    const L = g.layout, W = g.irrigation, out = [];
+    if (L) {
+      const t = L.configured ? L.totals : null;
+      out.push(this._tile2("open-layout", g, "grass", "ok", "Layout", t ? `${t.rows} rows${t.plants ? `, ${t.plants} plants` : ""}` : "Plan rows and plant counts"));
+    }
+    if (W) out.push(this._tile2("open-water", g, "sprinkler-variant", "info", "Watering", W.configured ? `${W.method === "drip" ? "Drip" : "Sprinklers"}, ${num(W.run_min, 0)} min` : "Lay out the garden first"));
+    return out.length ? `<div class="tiles2">${out.join("")}</div>` : "";
+  }
   _layoutTile(g) {
     const L = g.layout;
     if (!L) return "";
@@ -1839,7 +1852,7 @@ class GardenTrackerCard extends HTMLElement {
     const left = S.days_to_frost;
     const frost = left >= 0 ? `First frost ${dt(S.first_frost)}, in ${left} days` : `First frost was ${dt(S.first_frost)}`;
     const sum = `${frost}. ${S.now ? `${S.now} crop${S.now === 1 ? "" : "s"} can still be planted` : "Nothing more to plant until spring"}`;
-    if (!(this._exp || {}).season) return `<div class="card tile" data-act="toggle-sec" data-s="season"><div class="row"><div class="pic" style="background:color-mix(in srgb,var(--spray) 18%,transparent);color:var(--spray)">${this._icon("snowflake-alert")}</div><div class="grow"><div style="font-size:15px;font-weight:500">Time before frost</div><div class="small mut">${esc(sum)}</div></div>${this._icon("chevron-down")}</div></div>`;
+    if (!(this._exp || {}).season) return `<div class="card tile" data-act="toggle-sec" data-s="season" style="background:color-mix(in srgb,var(--spray) ${S.now ? 14 : 6}%,var(--card-background-color))"><div class="row"><div class="pic" style="background:color-mix(in srgb,var(--spray) 18%,transparent);color:var(--spray)">${this._icon("snowflake-alert")}</div><div class="grow"><div style="font-size:15px;font-weight:500">Time before frost</div><div class="small mut">${esc(sum)}</div></div>${this._icon("chevron-down")}</div></div>`;
     const group = (title, rows, empty) => rows.length ? `<div class="sec" style="margin-top:12px">${title}</div>` + rows.map((c) => {
       const cls = c.status === "plant" ? "ok" : c.status === "tight" ? "warn" : c.status === "short" || c.status === "late" ? "bad" : "none";
       const extra = c.rounds > 1 && (c.status === "plant" || c.status === "tight" || c.status === "wait") ? `, up to ${c.rounds} plantings back to back` : "";
@@ -2048,11 +2061,21 @@ class GardenTrackerCard extends HTMLElement {
     if (this._turns[gid] === undefined) { let v = 0; try { v = Number(localStorage.getItem("gt_turn_" + gid)) || 0; } catch (e) { /* no storage */ } this._turns[gid] = v === 90 ? 90 : 0; }
     return this._turns[gid];
   }
+  _legend(L) {
+    const COL = ["#e5372d", "#2e7d32", "#f28c38", "#8e24aa", "#039be5", "#c0a000", "#795548", "#d81b60"];
+    const chips = (L.crops || []).map((c) => {
+      const rows = L.rows.filter((r) => r.segments.some((sg) => sg.crop === c.key)).map((r) => r.i + 1);
+      const span = !rows.length ? "" : rows.length > 1 && rows[rows.length - 1] - rows[0] === rows.length - 1 ? `rows ${rows[0]}–${rows[rows.length - 1]}` : `row${rows.length > 1 ? "s" : ""} ${rows.join(", ")}`;
+      const col = COL[Math.max(0, L.available.findIndex((a) => a.key === c.key)) % COL.length];
+      return `<span class="lgd"><i style="background:${col}"></i>${esc(c.name)}${span ? ` · ${span}` : ""}</span>`;
+    });
+    return chips.length ? `<div class="lgds">${chips.join("")}</div>` : "";
+  }
   _layoutSvg(L, g, ro) {
     const COL = ["#e5372d", "#2e7d32", "#f28c38", "#8e24aa", "#039be5", "#c0a000", "#795548", "#d81b60"];
     const color = (k) => COL[Math.max(0, L.available.findIndex((a) => a.key === k)) % COL.length];
     const turn = this._turnOf(g.id), north = (L.rotation || 0) - turn, rot = turn, W = L.width_ft * 12, N = L.length_ft * 12, M = 24; // the plan stays square to the screen; the arrow turns
-    const th = rot * Math.PI / 180, cs0 = Math.cos(th), sn0 = Math.sin(th), named = L.rows.some((r) => r.segments.length);
+    const th = rot * Math.PI / 180, cs0 = Math.cos(th), sn0 = Math.sin(th), named = false; // crop names are in the legend under the plan, where they cannot run into each other
     const corners = [[0, 0], [W, 0], [W, N], [0, N]].map(([x, y]) => [x * cs0 - y * sn0, x * sn0 + y * cs0]);
     const ux = corners.map((c) => c[0]), uy = corners.map((c) => c[1]);
     const s = Math.min(300 / (Math.max(...ux) - Math.min(...ux)), 440 / (Math.max(...uy) - Math.min(...uy)));
@@ -2121,16 +2144,21 @@ class GardenTrackerCard extends HTMLElement {
       return h;
     }
     const t = L.totals;
+    const M = {};
     if (!past) {
+      M.size0 = h.length;
       h += `<div class="card"><div class="sec">Garden size</div><div class="grid6">${dim("length_ft", "Row length (ft)", num(L.length_ft, 2))}${dim("width_ft", "Depth (ft)", num(L.width_ft, 2))}${dim("path_in", "Access path between rows (in)", num(L.path_in, 1), 6, 0)}</div>`;
       h += `<label style="margin-top:10px">Row width</label><div class="seg">${L.row_widths.map((n) => `<button class="${L.row_in === n ? "on" : ""}" data-act="lay-rowin" data-g="${gid}" data-n="${n}">${n} in</button>`).join("")}</div>`;
       h += `<div class="small mut" style="margin-top:8px">Fits ${t.rows} row${t.rows === 1 ? "" : "s"} of ${L.row_in} in with ${num(L.path_in, 0)} in paths between them. Each crop has its own pattern: a single line, a double line or an offset grid.</div></div>`;
-      if ((L.warnings || []).length) h += `<div class="card">` + (L.warnings || []).map((w) => `<div class="alarm" style="--hold:var(${w.strong ? "--error-color,#db4437" : "--spray"})"><div class="small"${w.strong ? ' style="font-weight:700"' : ""}>${this._icon("alert")} ${esc(w.text)}</div></div>`).join("") + `</div>`;
+      M.size1 = h.length;
+      if (false) h += `<div class="card">` + (L.warnings || []).map((w) => `<div class="alarm" style="--hold:var(${w.strong ? "--error-color,#db4437" : "--spray"})"><div class="small"${w.strong ? ' style="font-weight:700"' : ""}>${this._icon("alert")} ${esc(w.text)}</div></div>`).join("") + `</div>`;
+      M.warn1 = h.length;
       if (L.alerts.length) {
         h += `<div class="card"><div class="sec">Crop rotation</div>`;
         h += L.alerts.map((a) => `<div class="alarm" ${a.level === "family" ? 'style="--hold:var(--spray)"' : a.level === "resistant" ? 'style="--hold:var(--ok)"' : ""}><b>${this._icon(a.level === "resistant" ? "check" : "alert")} ${esc(a.name)}${a.variety ? ` (${esc(a.variety)})` : ""}, row ${a.row + 1}</b><div class="small" style="margin-top:4px">${esc(a.text)}</div></div>`).join("");
         h += `<div class="small mut">Rest times follow <a href="${L.rotation_sources[0]}" target="_blank" rel="noopener">WSU Extension</a> and <a href="${L.rotation_sources[1]}" target="_blank" rel="noopener">Cornell Vegetable MD Online</a>.</div></div>`;
       }
+      M.rot1 = h.length;
       const brush = this._brushFor(L), cur = L.available.find((a) => a.key === brush), d = L.draft && L.draft.crop === brush ? L.draft : null;
       const mode = (d && d.mode) || "weight";
       h += `<div class="card"><div class="sec">Plan a crop</div><div class="row wrap" style="margin-bottom:10px"><div class="grow" style="min-width:140px"><select data-brush data-g="${gid}">${L.available.map((a) => `<option value="${esc(a.key)}" ${a.key === brush ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select></div>${this._btn("lay-edit", "pencil", "Spacing", `data-g="${gid}" data-c="${esc(brush)}"`)}</div>`;
@@ -2156,13 +2184,15 @@ class GardenTrackerCard extends HTMLElement {
         h += `<div class="small mut" style="margin-top:10px">${{ value: "Enter an amount to see how much row it needs.", yield: "Enter the pounds each plant should give to turn weight into plants.", size: "That is more than the garden can hold." }[d.need]}</div>`;
       } else h += `<div class="small mut" style="margin-top:10px">Enter an amount to see how much row it needs.</div>`;
       h += `</div>`;
+      M.crop1 = h.length;
     }
-    h += `<div class="card"><div class="sec">${past ? `${past} layout` : "Layout"}${past ? "" : ". Tap a row to plant it with the crop above, or enter feet to plant part of a row"}</div>`;
+    M.lay0 = h.length;
+    h += `<div class="card"><div class="sec">${past ? `${past} layout` : "Plan"}</div>${past ? "" : `<div class="small mut" style="margin:-4px 0 8px">Tap a row to plant it with the crop chosen under Plan a crop, or enter feet to plant part of a row.</div>`}`;
     if (!past) {
       const brush = this._brushFor(L);
       h += `<label>Feet of the row to plant (leave empty for the whole row)</label><input type="number" inputmode="decimal" min="0.5" step="any" placeholder="Whole row" value="${esc(this._brushLen || "")}" data-brushlen style="margin-bottom:10px">`;
     }
-    h += this._layoutSvg(L, g, !!past);
+    h += this._layoutSvg(L, g, !!past) + this._legend(L);
     if (!past) h += this._shadeWarn(L.sun);
     const SU = L.sun, rotv = L.rotation || 0;
     h += `<div class="row" style="justify-content:center;margin-top:6px">${this._btn("lay-view", "restore", this._turnOf(gid) === 90 ? "Show the rows up and down" : "Show the rows sideways", `data-g="${gid}"`)}</div>`;
@@ -2174,13 +2204,28 @@ class GardenTrackerCard extends HTMLElement {
       sel.segments.forEach((sg, k) => { h += `<div class="lg"><div class="t">${esc(sg.name)}${sg.variety ? ` (${esc(sg.variety)})` : ""}<span>${num(sg.start_in / 12, 1)} to ${num((sg.start_in + sg.len_in) / 12, 1)} ft, ${sg.plants} plants</span></div>${this._btn("lay-seg-rm", "close", "", `data-g="${gid}" data-r="${sel.i}" data-i="${k}"`, "ic")}</div>`; });
       h += `</div>`;
     }
+    M.ang0 = h.length;
     if (!past) {
       const chip = (n, t) => `<button class="chip ${Math.abs(rotv - n) < 0.05 ? "on" : ""}" data-act="lay-ang" data-g="${gid}" data-n="${n}">${t}</button>`;
       h += `<div class="card" style="margin-top:10px"><div class="sec">Which way the rows run</div><div class="row" style="align-items:end;gap:10px"><div style="flex:1"><label>Degrees off north</label><input type="number" inputmode="decimal" step="any" min="0" max="360" value="${num(rotv, 1)}" data-lay="rotation" data-g="${gid}"></div></div><div class="chips" style="margin:8px 0 0">${chip(0, "North-south (0)")}${chip(90, "East-west (90)")}${chip(45, "45")}${chip(135, "135")}${chip(180, "180")}${chip(270, "270")}</div><div class="small mut" style="margin-top:6px">Any angle works. 0 runs rows north-south, 90 east-west, and an angle between runs them across the compass. The plan stays square to the screen, and the arrow in its corner points to north.</div></div>`;
       h += this._sunCard(L, gid);
     }
+    M.fill0 = h.length;
     if (!past) h += `<div class="row" style="margin-top:10px">${this._btn("lay-fill", "", "Fill every row", `data-g="${gid}"`, "grow")}${this._btn("lay-clear", "", "Clear rows", `data-g="${gid}"`)}</div>`;
     h += `</div>`;
+    M.end = h.length;
+    if (!past) {
+      const sl = (a, b) => h.slice(a, b), acc = (k, title, sum, body, open) => {
+        const on = (this._acc || {})[k] ?? open;
+        return `<div class="card tile" data-act="acc" data-k="${k}"><div class="row"><div class="grow" style="font-size:15px;font-weight:600">${title}</div><span class="small mut">${esc(sum)}</span>${this._icon(on ? "chevron-up" : "chevron-right")}</div></div>` + (on ? body : "");
+      };
+      const warn = (L.warnings || []).map((w) => `<div class="warn ${w.strong ? "bad" : ""}"><div class="wt">${esc(w.title || "Check this")}</div><div class="wb">${esc(w.short || w.text)}</div>${w.action ? `<button class="wa" data-act="lay-rowin" data-g="${gid}" data-n="${w.action.n}">${esc(w.action.label)}</button>` : ""}${w.short && w.short !== w.text ? `<details><summary>Why, and what to do instead</summary><div class="wb" style="margin-top:6px">${esc(w.text)}</div></details>` : ""}</div>`).join("");
+      const brushName = ((L.available || []).find((a) => a.key === this._brushFor(L)) || {}).name || "";
+      h = h.slice(0, M.size0) + sl(M.lay0, M.ang0) + sl(M.fill0, M.end) + warn + sl(M.warn1, M.rot1)
+        + acc("crop", "Plan a crop", brushName, sl(M.rot1, M.crop1), true)
+        + acc("rows", "Rows and angle", `${num(rotv, 0)}°, ${L.row_in} in`, sl(M.ang0, M.fill0), false)
+        + acc("size", "Garden size", `${num(L.length_ft, 0)} × ${num(L.width_ft, 0)} ft`, sl(M.size0, M.size1), false);
+    }
     h += `<div class="card"><div class="sec">What you need</div><div class="stats"><div class="stat"><span>Plants</span><b>${t.plants}</b></div><div class="stat"><span>Per sq ft</span><b>${num(t.density, 2)}</b></div><div class="stat"><span>Rows planted</span><b>${t.planted_rows} of ${t.rows}</b></div><div class="stat"><span>T-posts</span><b>${t.posts}</b></div><div class="stat"><span>Stakes</span><b>${t.stakes}</b></div><div class="stat"><span>Twine</span><b>${num(t.twine_ft, 0)} ft</b></div><div class="stat"><span>Cages</span><b>${t.cages}</b></div><div class="stat"><span>Garden area</span><b>${num(t.area_sqft, 0)} sq ft</b></div></div>`;
     if (t.planted_rows) h += `<div class="small mut" style="margin-top:8px">Inside the planted rows it is ${num(t.bed_density, 2)} plants per sq ft.</div>`;
     if (L.crops.length) {

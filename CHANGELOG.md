@@ -4,6 +4,13 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.23.0 - 2026-10-25
+
+### Changed
+- **Layout planner redesign.** The plan drawing comes first. Crop names move from above the rows to a row of colour chips under the plan, so they no longer run together. Warnings have a bold headline, one short sentence and a button where there is something to do (for example "Use 48 in rows" for corn), with the full explanation in a "Why, and what to do instead" fold-out. Plan a crop, Rows and angle (with sun and shade) and Garden size are now sections that open when tapped.
+- **Garden page.** Layout and Watering are two tiles side by side, and Time before frost has an amber tint.
+- **Web app.** The backup notice is one slim line instead of a large banner.
+
 ## 0.22.0 - 2026-10-25
 
 ### Added
