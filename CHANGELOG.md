@@ -4,6 +4,15 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.26.0 - 2026-10-25
+
+### Added
+- **Web app: outside temperature from local weather.** The outside air temperature (now, and each day's low and high) comes from your location's weather. A sensor or a manual reading replaces it.
+- **Web app: estimated soil temperature.** Estimated from local weather (soil at 6 cm). Log a reading and it replaces the estimate. The planting guide uses it.
+- **Web app: estimated soil moisture.** Worked out from your last logged watering, the weather, the soil type (sand to clay) and whether the garden is mulched, with a "plan to water in about N days" note. A moisture reading you log replaces it.
+- **Watering log for gardens.** Gardens now have a Watering card (Water now, days since, optional reminder). It can be hidden per garden when you edit the garden. New `set_watering_card` service; `log_watering` and `set_water_interval` now work on gardens.
+- **Mulch setting.** New `mulch` option on `set_irrigation`, and a soil and mulch button on the garden page.
+
 ## 0.25.0 - 2026-10-25
 
 ### Added

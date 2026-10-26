@@ -26,7 +26,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     websocket.async_register(hass)
     card = Path(__file__).parent / "www" / "garden-card.js"
     await hass.http.async_register_static_paths([StaticPathConfig(CARD_URL, str(card), False)])
-    add_extra_js_url(hass, f"{CARD_URL}?v=0.25.0")
+    add_extra_js_url(hass, f"{CARD_URL}?v=0.26.0")
     return True
 
 
