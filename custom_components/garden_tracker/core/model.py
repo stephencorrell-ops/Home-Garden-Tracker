@@ -171,7 +171,7 @@ class GardenModel:
     def __init__(self, presets: dict, today_fn: Callable[[], date],
                  notify: Callable[[], None] | None = None,
                  structure: Callable[[], None] | None = None) -> None:
-        self.data: dict[str, Any] = {"gardens": {}, "varieties": {}, "species": {}, "daily": {}, "rain": {}, "rain_src": {}, "humid": {}, "solar": {}, "air": {"q": {}, "h": {}, "d": {}},
+        self.data: dict[str, Any] = {"gardens": {}, "varieties": {}, "species": {}, "daily": {}, "rain": {}, "weather_now": None, "soil_est": {}, "rain_src": {}, "humid": {}, "solar": {}, "air": {"q": {}, "h": {}, "d": {}},
                                     "settings": dict(DEFAULT_SETTINGS), "variety_traits": {}, "crop_days": {}}
         self.presets = presets
         self._air_now: dict[str, tuple[float, float]] = {}
@@ -2225,6 +2225,7 @@ class GardenModel:
         if "out_temp" in metrics:  # with no sensor of its own it follows the main outdoor sensor
             metrics["out_temp"]["fallback"] = bool(not metrics["out_temp"]["entities"] and self.outdoor_entity)
         soil = kind == "garden"
+        self._weather_fill(metrics, today)
         return {
             "id": g["id"], "name": g["name"], "kind": kind, "kind_name": LOCATION_KINDS[kind], "metrics": metrics,
             "planting": self._planting_view(metrics["soil_temp"], g, today) if soil else None,
@@ -2415,6 +2416,55 @@ class GardenModel:
                 next(i for i in items if i["id"] == p["id"])["mix_pct"] = p["pct"]
         return {"items": live + done, "blocked": blocked, "presets": COVER_CROPS, "methods": COVER_METHODS,
                 "mix": mix}
+
+    STALE_DAYS = 3
+
+    def merge_estimates(self, now: dict | None, soil: dict) -> bool:
+        """Local-weather outside temperature right now, and soil temperature per day: {date: [low, high]}."""
+        changed = False
+        if now and now.get("temp") is not None:
+            new = {"temp": float(now["temp"]), "lo": now.get("lo"), "hi": now.get("hi"), "date": now.get("date")}
+            if self.data.get("weather_now") != new:
+                self.data["weather_now"], changed = new, True
+        est = self.data.setdefault("soil_est", {})
+        for k, v in (soil or {}).items():
+            if v and v[0] is not None and v[1] is not None and est.get(k) != [float(v[0]), float(v[1])]:
+                est[k], changed = [float(v[0]), float(v[1])], True
+        for k in sorted(est)[:-60]:
+            del est[k]
+        if changed:
+            self._touch()
+        return changed
+
+    def _weather_fill(self, metrics: dict, today: date) -> None:
+        """Where there is no recent reading, show local weather for the outside air and an estimate for
+        the soil (the web app has no sensors). A manual reading or a sensor always wins once it is newer."""
+        wn = self.data.get("weather_now")
+        if not wn:
+            return
+        limit = (today - timedelta(days=self.STALE_DAYS)).isoformat()
+        jobs = {"out_temp": ("weather", {k: v for k, v in self.data["daily"].items()}, wn),
+                "soil_temp": ("estimated", self.data.get("soil_est") or {}, wn)}
+        for key, (src, series, now) in jobs.items():
+            m = metrics.get(key)
+            if m is None or m["entities"]:
+                continue
+            real = [r for r in m["history"] if r.get("source") in ("manual", "sensor")]
+            last = real[-1]["date"] if real else ""
+            if last >= limit:
+                continue
+            rows = [{"id": f"w-{d}", "date": d, "value": round((v[0] + v[1]) / 2, 1), "min": round(v[0], 1), "max": round(v[1], 1), "source": src}
+                    for d, v in sorted(series.items()) if d > last and d < today.isoformat()]
+            if key == "out_temp" and now.get("lo") is not None:
+                rows.append({"id": "w-now", "date": today.isoformat(), "value": now["temp"], "min": now["lo"], "max": now["hi"], "source": src})
+            elif key == "soil_temp" and today.isoformat() in series:
+                v = series[today.isoformat()]
+                rows.append({"id": "w-now", "date": today.isoformat(), "value": round((v[0] + v[1]) / 2, 1), "min": round(v[0], 1), "max": round(v[1], 1), "source": src})
+            if not rows:
+                continue
+            m["history"] = (m["history"] + rows)[-180:]
+            r = rows[-1]
+            m.update(current=now["temp"] if key == "out_temp" else r["value"], date=r["date"], source=src, min=r["min"], max=r["max"])
 
     def _planting_view(self, temp: dict, g: dict, today: date) -> dict | None:
         """Is the soil warm enough? Uses the average of the last 3 daily lows (or readings). A crop is left

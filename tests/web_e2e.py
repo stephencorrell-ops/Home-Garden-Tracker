@@ -32,7 +32,11 @@ def weather_json(today: date, years=4):
             l -= 14
         days.append(d.isoformat()); lo.append(round(l, 1)); hi.append(round(h, 1)); rain.append(0.2 if d.day % 4 == 0 else 0.0)
         d += timedelta(days=1)
-    return {"daily": {"time": days, "temperature_2m_min": lo, "temperature_2m_max": hi, "precipitation_sum": rain}}
+    days.append(today.isoformat()); lo.append(40.0); hi.append(61.0); rain.append(0.0)
+    hours = [f"{(today - timedelta(days=n)).isoformat()}T{h:02d}:00" for n in range(3, -1, -1) for h in range(24)]
+    soil = [48 + 6 * math.sin((i % 24 - 9) / 24 * 6.2832) for i in range(len(hours))]
+    return {"daily": {"time": days, "temperature_2m_min": lo, "temperature_2m_max": hi, "precipitation_sum": rain},
+            "current": {"temperature_2m": 55.5}, "hourly": {"time": hours, "soil_temperature_6cm": soil}}
 
 
 def check(cond, msg):
@@ -126,9 +130,19 @@ def main():
         if SHOTS:
             card.evaluate("el => el.scrollIntoView()")
             pg.screenshot(path=str(SHOTS / "micro.png"), full_page=True)
+        mt = snap["gardens"][0]["metrics"]
+        check(mt["out_temp"]["source"] == "weather" and mt["out_temp"]["current"] == 55.5, "outside temperature comes from local weather")
+        check(mt["soil_temp"]["source"] == "estimated" and mt["soil_temp"]["current"] is not None, "soil temperature is estimated")
         # layout planner: size a garden, fill it with tomatoes and read the counts off the page
         card.locator("[data-act=back]").first.click()
         card.locator("[data-act=open-g]").first.click()
+        if SHOTS:
+            card.get_by_text("Soil and outside temperature").first.scroll_into_view_if_needed()
+            pg.screenshot(path=str(SHOTS / "temps.png"))
+            card.get_by_text("Soil and outside temperature").first.evaluate("e => e.closest('.card').scrollIntoView()")
+            pg.screenshot(path=str(SHOTS / "temps2.png"))
+        text = card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText")
+        check("Estimated from local weather" in text and "Local weather" in text, "the temperature card says where the numbers come from")
         card.locator("[data-act=open-layout]").click()
         card.locator("[data-act=lay-start]").click()
         card.locator("[data-act=lay-fill]").wait_for(timeout=5000)

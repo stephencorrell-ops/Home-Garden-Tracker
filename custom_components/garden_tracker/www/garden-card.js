@@ -1013,8 +1013,8 @@ class GardenTrackerCard extends HTMLElement {
 
   _soilAirCard(g) {
     const gid = g.id, soil = g.metrics.soil_temp, out = g.metrics.out_temp, SOIL = "var(--primary-color, #03a9f4)", AIR = "var(--spray, #ffa000)";
-    const src = (m) => (m.entities.length ? `${m.entities.length} sensor${m.entities.length === 1 ? "" : "s"}` : m.fallback ? "main outdoor sensor" : "manual");
-    const col = (m, name, color) => `<div><span class="ph" style="color:${color}">${m.current === null ? "–" : num(m.current, 0) + "°"}</span> <span class="small mut">${name}${m.min !== null && m.min !== undefined ? `, today ${num(m.min, 0)} to ${num(m.max, 0)}` : ""}</span><div class="small mut">${m.current === null ? "No readings yet" : `${m.source === "sensor" ? "Sensor" : "Manual"}, ${fmtDate(m.date)}`} (${src(m)})</div></div>`;
+    const src = (m) => (m.source === "estimated" || m.source === "weather" ? "log a reading to override" : m.entities.length ? `${m.entities.length} sensor${m.entities.length === 1 ? "" : "s"}` : m.fallback ? "main outdoor sensor" : "manual");
+    const col = (m, name, color) => `<div><span class="ph" style="color:${color}">${m.current === null ? "–" : num(m.current, 0) + "°"}</span> <span class="small mut">${name}${m.min !== null && m.min !== undefined ? `, today ${num(m.min, 0)} to ${num(m.max, 0)}` : ""}</span><div class="small mut">${m.current === null ? "No readings yet" : m.source === "estimated" ? `Estimated from local weather, ${fmtDate(m.date)}` : m.source === "weather" ? `Local weather, ${fmtDate(m.date)}` : `${m.source === "sensor" ? "Sensor" : "Manual"}, ${fmtDate(m.date)}`} (${src(m)})</div></div>`;
     let h = `<div class="card"><div class="sec">${this._icon("thermometer")} Soil and outside temperature</div>`;
     h += `<div class="row" style="align-items:flex-start;gap:22px;margin:6px 0">${col(soil, "soil", SOIL)}${col(out, "outside", AIR)}</div>`;
     const day = this._tempRange === "day", wk = Date.parse(this._snap.today) - 6 * 864e5;

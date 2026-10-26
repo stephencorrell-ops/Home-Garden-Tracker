@@ -176,4 +176,6 @@ class GardenApp:
         rain = {k: float(v) for k, v in (w.get("rain") or {}).items() if v}
         changed = bool(daily and self.model.merge_daily(daily))
         changed = bool(rain and self.model.merge_rain(self.WEATHER_SOURCE, rain)) or changed
+        if w.get("now") or w.get("soil"):
+            changed = self.model.merge_estimates(w.get("now"), w.get("soil") or {}) or changed
         return json.dumps({"changed": changed, "days": len(daily)})

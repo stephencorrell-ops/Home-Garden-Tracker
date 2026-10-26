@@ -133,6 +133,26 @@ class App(unittest.TestCase):
         self.assertEqual(snap["micro"]["rain"]["month"], 0.3)
         self.assertEqual(snap["micro"]["temps"]["month"]["low"], 30)
 
+    def test_weather_estimates_temperatures_and_manual_readings_win(self):
+        a = self.app()
+        a.call("add_garden", json.dumps({"name": "Back yard"}))
+        w = {"daily": {"2026-10-22": [38, 60], "2026-10-23": [40, 62]},
+             "now": {"temp": 57.0, "date": "2026-10-24", "lo": 41, "hi": 63},
+             "soil": {"2026-10-22": [47, 52], "2026-10-23": [46, 51], "2026-10-24": [45, 52]}}
+        self.assertTrue(json.loads(a.merge_weather(json.dumps(w)))["changed"])
+        self.assertFalse(json.loads(a.merge_weather(json.dumps(w)))["changed"])
+        m = json.loads(a.snapshot())["gardens"][0]["metrics"]
+        self.assertEqual((m["out_temp"]["source"], m["out_temp"]["current"]), ("weather", 57.0))
+        self.assertEqual(m["soil_temp"]["source"], "estimated")
+        self.assertEqual(m["soil_temp"]["history"][-1]["min"], 45)
+        gid = json.loads(a.snapshot())["gardens"][0]["id"]
+        a.call("log_garden_reading", json.dumps({"garden": gid, "metric": "soil_temp", "value": 58, "date": "2026-10-24"}))
+        m = json.loads(a.snapshot())["gardens"][0]["metrics"]
+        self.assertEqual((m["soil_temp"]["source"], m["soil_temp"]["current"]), ("manual", 58))
+        self.assertEqual(m["out_temp"]["source"], "weather")
+        b = self.app(a.data())  # the estimate survives a restore
+        self.assertEqual(json.loads(b.snapshot())["gardens"][0]["metrics"]["out_temp"]["source"], "weather")
+
     def test_bad_location_is_refused(self):
         self.assertFalse(json.loads(self.app().call("set_location", json.dumps({"lat": 99, "lon": 0})))["ok"])
 
