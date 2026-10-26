@@ -936,7 +936,7 @@ class GardenTrackerCard extends HTMLElement {
     h += `<div class="row" style="margin-top:8px">${this._btn("form-ph", "plus", "Log reading", `data-g="${gid}"`)}</div>`;
     const recent = ph.history.slice().reverse().slice(0, 5);
     for (const r of recent) h += this._logRow("ph", gid, r.id, `pH ${num(r.value, 2)}`, `${fmtDate(r.date)}, ${r.source}`);
-    h += `</div>${this._soilCards(g)}${this._waterCard(g)}${this._coverCard(g)}<div class="card"><div class="row"><div class="sec grow" style="margin:0">Soil adjuncts this season</div>${this._btn("form-adj", "plus", "Log something else", `data-g="${gid}" data-s="__new__"`)}${this._btn("form-atype", "calendar-plus", "Schedule", `data-g="${gid}"`)}</div>`;
+    h += `</div>${this._soilCards(g)}${g.show_water ? this._waterCard(g) : ""}${this._coverCard(g)}<div class="card"><div class="row"><div class="sec grow" style="margin:0">Soil adjuncts this season</div>${this._btn("form-adj", "plus", "Log something else", `data-g="${gid}" data-s="__new__"`)}${this._btn("form-atype", "calendar-plus", "Schedule", `data-g="${gid}"`)}</div>`;
     for (const a of g.adjuncts) {
       const per = a.per_year || 0;
       const pips = per && !a.as_needed ? `<div class="pips" style="--c:var(--${a.level === "ok" ? "ok" : "spray"})">${Array.from({ length: per }, (_, i) => `<i class="${i < a.count ? "f" : ""}"></i>`).join("")}</div>` : "";
@@ -1525,12 +1525,13 @@ class GardenTrackerCard extends HTMLElement {
           { name: "probe_depth", label: "Probe depth (inches)", type: "number", step: "0.5", value: g.fertility.depth },
           { name: "frost_last", label: "Expected last spring frost", type: "date", value: g.frost.last_date, span: 3 },
           { name: "frost_first", label: "Expected first fall frost", type: "date", value: g.frost.first_date, span: 3 },
+          { name: "show_water", label: "Watering log and moisture estimate", type: "seg", options: [["1", "Show"], ["0", "Hide"]], value: g.show_water ? "1" : "0" },
           { name: "frost_scope", label: "Apply frost dates to", type: "seg", options: [["garden", "This garden"], ["all", "All gardens"]], value: "garden" },
         ] : []),
       ],
       note: isGarden ? "Leave the sensor empty to log pH by hand. EC and moisture ranges set when feeding advice shows. Frost dates repeat every year, so set the average for your area." : `A ${kindName} tracks temperature${g && g.kind === "rack" ? ", light" : ""}, watering and 10x20 trays. Pick its temperature sensors from its page. Choosing power or energy sensors here adds a power use card with usage by day and month. Without them the card stays hidden.`,
       submit: async (x) => {
-        const { frost_last, frost_first, frost_scope, ...rest } = x;
+        const { frost_last, frost_first, frost_scope, show_water, ...rest } = x;
         if (!g) return this._call("add_garden", rest);
         if (!isGarden) {
           const pw = Object.fromEntries(Object.entries(rest).filter(([k]) => k.startsWith("power_")));
@@ -1543,6 +1544,7 @@ class GardenTrackerCard extends HTMLElement {
           return;
         }
         await this._call("update_garden", { garden: g.id, ...rest, ph_entity: rest.ph_entity === undefined ? " " : rest.ph_entity });
+        if (show_water !== undefined && (show_water === "1") !== g.show_water) await this._call("set_watering_card", { garden: g.id, shown: show_water === "1" });
         const changed = (frost_last && frost_last !== g.frost.last_date) || (frost_first && frost_first !== g.frost.first_date);
         if (frost_scope === "all" || changed) await this._call("set_frost_dates", { garden: g.id, last_frost: frost_last, first_frost: frost_first, all_gardens: frost_scope === "all" });
       },

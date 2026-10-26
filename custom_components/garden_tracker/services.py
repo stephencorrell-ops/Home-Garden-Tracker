@@ -113,6 +113,7 @@ SERVICES: dict[str, dict] = {
     "remove_layout": {R("garden"): cv.string},
     "set_trays": {R("garden"): cv.string, R("trays"): vol.All(vol.Coerce(int), vol.Range(min=0, max=500))},
     "log_watering": {R("garden"): cv.string, O("date"): cv.date, O("notes"): cv.string},
+    "set_watering_card": {R("garden"): cv.string, R("shown"): cv.boolean},
     "set_water_interval": {R("garden"): cv.string, O("days"): vol.All(vol.Coerce(int), vol.Range(min=0, max=60))},
     "set_greenhouse_climate": {R("garden"): cv.string, O("enabled"): cv.boolean, O("heat_set"): NUM,
         O("cool_set"): NUM, O("heaters"): vol.All(cv.ensure_list, [cv.string]),

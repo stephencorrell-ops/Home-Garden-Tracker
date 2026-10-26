@@ -179,6 +179,14 @@ class App(unittest.TestCase):
         a.call("log_garden_reading", json.dumps({"garden": gid, "metric": "moisture", "value": 33, "date": "2026-10-24"}))
         self.assertEqual((est()["source"], est()["current"]), ("manual", 33))
 
+    def test_watering_card_can_be_hidden(self):
+        a = self.app()
+        a.call("add_garden", json.dumps({"name": "Back yard"}))
+        gid = json.loads(a.snapshot())["gardens"][0]["id"]
+        self.assertTrue(json.loads(a.snapshot())["gardens"][0]["show_water"])
+        a.call("set_watering_card", json.dumps({"garden": gid, "shown": False}))
+        self.assertFalse(json.loads(self.app(a.data()).snapshot())["gardens"][0]["show_water"])
+
     def test_bad_location_is_refused(self):
         self.assertFalse(json.loads(self.app().call("set_location", json.dumps({"lat": 99, "lon": 0})))["ok"])
 

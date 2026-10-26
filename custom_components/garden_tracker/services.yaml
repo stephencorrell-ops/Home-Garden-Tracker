@@ -102,6 +102,8 @@ set_trays:
   fields: {garden: {required: true, selector: {text: {}}}, trays: {required: true, description: "10x20 trays in use", selector: {number: {min: 0, max: 500, mode: box}}}}
 log_watering:
   fields: {garden: {required: true, selector: {text: {}}}, date: {selector: {date: {}}}, notes: {selector: {text: {}}}}
+set_watering_card:
+  fields: {garden: {required: true, selector: {text: {}}}, shown: {required: true, description: "Show the watering log and soil moisture estimate on the garden page", selector: {boolean: {}}}}
 set_water_interval:
   fields: {garden: {required: true, selector: {text: {}}}, days: {description: "Remind to water every N days (0 turns it off)", selector: {number: {min: 0, max: 60, mode: box}}}}
 set_greenhouse_climate:

@@ -1277,6 +1277,13 @@ class GardenModel:
         g["watering"].append({"id": new_id(), "date": iso(when) or self.today().isoformat(), "notes": notes or ""})
         self._touch()
 
+    def set_watering_card(self, garden: str, shown: bool) -> None:
+        """Show or hide a garden's watering log and moisture estimate card."""
+        g = self.find_garden(garden)
+        self._ensure_garden(g)
+        g["hide_water"] = not shown
+        self._touch()
+
     def set_water_interval(self, garden: str, days: int | None) -> None:
         g = self.find_garden(garden)
         self._ensure_garden(g)
@@ -2242,7 +2249,7 @@ class GardenModel:
             "chores": self._chores_view(g, today) if soil and kind == "garden" else [],
             "layout_history": ({y: lay.plan(h, self._plant_names(), None, int(y)) for y, h in g["layout_history"].items()} if soil else {}),
             "trays": g.get("trays", 0), "water": self._water_view(g, today),
-            "soil_setup": self._soil_setup(g) if soil else None,
+            "soil_setup": self._soil_setup(g) if soil else None, "show_water": not g.get("hide_water"),
             "trays_calc": self._trays_calc(g) if kind != "garden" else None,
             "power": self._power_view(g, today) if kind != "garden" else None,
             "power_groups": POWER_GROUPS.get(kind, {}), "power_sensors": {k: list(v) for k, v in g.get("power_sensors", {}).items()},

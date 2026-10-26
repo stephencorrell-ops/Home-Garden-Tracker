@@ -86,6 +86,7 @@ HANDLERS: dict[str, Handler] = {
     "remove_layout": lambda m, c: m.remove_layout(c["garden"]),
     "set_trays": lambda m, c: m.set_trays(c["garden"], c["trays"]),
     "log_watering": lambda m, c: m.log_watering(c["garden"], c.get("date"), c.get("notes")),
+    "set_watering_card": lambda m, c: m.set_watering_card(c["garden"], bool(c["shown"])),
     "set_water_interval": lambda m, c: m.set_water_interval(c["garden"], c.get("days")),
     "set_greenhouse_climate": lambda m, c: m.set_climate(c["garden"], c.get("enabled"), c.get("heat_set"),
         c.get("cool_set"), c.get("heaters"), c.get("coolers"),
