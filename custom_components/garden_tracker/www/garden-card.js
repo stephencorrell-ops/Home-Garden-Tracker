@@ -1307,6 +1307,7 @@ class GardenTrackerCard extends HTMLElement {
       title: `Edit ${v.name}`,
       fields: [
         { name: "name", label: "Variety name", type: "text", value: v.name, req: true },
+        ...(v.custom_type ? [{ name: "species_name", label: "Type name (a type you added)", type: "text", value: v.species_name, req: true, span: 3 }, { name: "kind", label: "Kind", type: "seg", options: [["plant", "Plant"], ["tree", "Tree"]], value: v.kind, span: 3 }] : []),
         { name: "planted_date", label: "Planted or transplanted", type: "date", value: v.planted, span: 3 },
         { name: "in_ground_date", label: "In ground", type: "date", value: v.in_ground, span: 3 },
         ...(v.kind === "tree" ? [] : [{ name: "days_to_harvest", label: "Days to harvest", type: "number", step: "1", value: v.days_to_harvest, span: 3 }]),

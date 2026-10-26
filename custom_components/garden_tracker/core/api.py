@@ -35,7 +35,7 @@ HANDLERS: dict[str, Handler] = {
         c.get("in_ground_date"), c.get("days_to_harvest"),
         c.get("expected_harvest_date"), c.get("expected_yield"),
         c.get("notes"), c.get("add_plants"), c.get("single_harvest"), c.get("multi_year"),
-        c.get("container")),
+        c.get("container"), c.get("species_name"), c.get("kind")),
     "set_harvest": lambda m, c: m.set_harvest(c["plant"], c.get("expected_date"), c.get("expected_yield")),
     "log_stage": lambda m, c: m.log_stage(c["plant"], c["stage"], c.get("date")),
     "log_fertilizer": lambda m, c: m.log_fertilizer(c["plant"], c["product"], c.get("n"), c.get("p"), c.get("k"),

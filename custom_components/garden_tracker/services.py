@@ -42,7 +42,7 @@ SERVICES: dict[str, dict] = {
         O("planted_date"): cv.date, O("in_ground_date"): cv.date, O("days_to_harvest"): DAYS,
         O("expected_harvest_date"): cv.date, O("expected_yield"): NUM, O("notes"): cv.string,
         O("add_plants"): POS_INT, O("single_harvest"): cv.boolean, O("multi_year"): cv.boolean,
-        O("container"): cv.string},
+        O("container"): cv.string, O("species_name"): cv.string, O("kind"): vol.In(["plant", "tree"])},
     "set_harvest": {R("plant"): cv.string, O("expected_date"): cv.date, O("expected_yield"): NUM},
     "log_stage": {R("plant"): cv.string, R("stage"): vol.In(["planted", "upotted", "in_ground"]), O("date"): cv.date},
     "log_fertilizer": {R("plant"): cv.string, R("product"): cv.string, O("n"): NUM, O("p"): NUM, O("k"): NUM,

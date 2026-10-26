@@ -1771,6 +1771,11 @@ class GardenModel:
         vid = self._unique(slug(variety or species), self.data["varieties"])
         count = max(1, int(plants))
         vkind = sp["kind"] if sp else (kind or "plant")
+        if not sp and skey:
+            # a type that is not on the list is kept, so it can be picked next time and its name and kind edited
+            self.data["species"][skey] = {"name": species.strip(), "kind": vkind, "pests": [], "custom": True,
+                                          **({"single_harvest": True} if single_harvest and vkind != "tree" else {}),
+                                          **({"multi_year": True} if multi_year and vkind != "tree" else {})}
         self.data["varieties"][vid] = {
             "id": vid, "name": variety or species, "species": skey,
             "species_name": sp["name"] if sp else species, "kind": vkind, "garden": g["id"],
@@ -1793,8 +1798,26 @@ class GardenModel:
                        expected_harvest: Any = None, expected_yield: float | None = None,
                        notes: str | None = None, add_plants: int | None = None,
                        single_harvest: bool | None = None, multi_year: bool | None = None,
-                       container: str | None = None) -> None:
+                       container: str | None = None, species_name: str | None = None, kind: str | None = None) -> None:
         v = self.find_variety(ref)
+        if species_name or kind:
+            sp = self.data["species"].get(v["species"])
+            if not sp or not sp.get("custom"):
+                raise GardenError("Only a type you added yourself can be renamed or changed from plant to tree")
+            if kind is not None and kind not in ("plant", "tree"):
+                raise GardenError("Kind must be plant or tree")
+            if species_name and species_name.strip():
+                sp["name"] = species_name.strip()
+                for x in self.data["varieties"].values():
+                    if x["species"] == v["species"]:
+                        x["species_name"] = sp["name"]
+            if kind:
+                sp["kind"] = kind
+                for x in self.data["varieties"].values():
+                    if x["species"] == v["species"]:
+                        x["kind"] = kind
+                        if kind == "tree":
+                            x["multi_year"] = x["single_harvest"] = False
         if container is not None:
             v["container"] = container.strip() or None
         if multi_year is not None and v["kind"] != "tree":
@@ -2456,7 +2479,7 @@ class GardenModel:
         proj = None if v.get("archived") else calc.project(v, seasons, daily, today, len(alive) or len(allp))
         status = self._status(kind, dh, spray, pests, proj)
         return {
-            "id": v["id"], "name": v["name"], "species": v["species"], "species_name": v["species_name"],
+            "id": v["id"], "name": v["name"], "species": v["species"], "species_name": v["species_name"], "custom_type": bool((self.data["species"].get(v["species"]) or {}).get("custom")),
             "kind": kind, "garden": v["garden"],
             "garden_name": g["name"] if g else (v.get("archived") or {}).get("garden_name", v.get("garden_name", "")),
             "origin": v["origin"], "planted": v["planted"], "in_ground": v.get("in_ground"),

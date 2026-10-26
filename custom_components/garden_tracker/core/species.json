@@ -444,5 +444,73 @@
   "name": "Blackberries",
   "kind": "plant",
   "pests": []
+ },
+ "apricot": {
+  "name": "Apricot",
+  "kind": "tree",
+  "pests": []
+ },
+ "hazelnut": {
+  "name": "Hazelnut (filbert)",
+  "kind": "tree",
+  "pests": []
+ },
+ "english_walnut": {
+  "name": "English walnut",
+  "kind": "tree",
+  "pests": [
+   {
+    "key": "codling_moth",
+    "name": "Codling moth",
+    "lower_f": 50,
+    "upper_f": 88,
+    "default_biofix": null,
+    "milestones": [
+     {
+      "dd": 250,
+      "note": "Egg hatch begins: first cover spray window"
+     },
+     {
+      "dd": 1050,
+      "note": "Second generation begins: check traps, reapply per label"
+     }
+    ]
+   }
+  ]
+ },
+ "black_walnut": {
+  "name": "Black walnut",
+  "kind": "tree",
+  "pests": []
+ },
+ "plum": {
+  "name": "Plum",
+  "kind": "tree",
+  "pests": []
+ },
+ "quince": {
+  "name": "Quince",
+  "kind": "tree",
+  "pests": []
+ },
+ "fig": {
+  "name": "Fig",
+  "kind": "tree",
+  "pests": []
+ },
+ "persimmon": {
+  "name": "Persimmon",
+  "kind": "tree",
+  "pests": []
+ },
+ "mulberry": {
+  "name": "Mulberry",
+  "kind": "tree",
+  "pests": []
+ },
+ "chestnut": {
+  "name": "Chestnut",
+  "kind": "tree",
+  "pests": []
  }
 }

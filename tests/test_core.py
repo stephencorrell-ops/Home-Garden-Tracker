@@ -572,6 +572,22 @@ class Layout(unittest.TestCase):
         m._touch()
         self.assertEqual(next(x for x in m.snapshot()["gardens"] if x["id"] == gid)["cover"]["items"][0]["methods"], ["tarped"])
 
+    def test_more_trees_and_custom_types(self):
+        m, gid = self.garden()
+        for k in ("pear", "asian_pear", "apricot", "hazelnut", "english_walnut", "black_walnut", "plum", "quince", "fig", "persimmon", "mulberry", "chestnut"):
+            self.assertEqual(m.get_species(k)["kind"], "tree", k)
+        # a type that is not on the list is kept for next time and can be renamed or changed
+        vid = m.add_variety(gid, "Loquat", "Champagne", 1, kind="tree")
+        self.assertIn("loquat", m.snapshot()["species"] if isinstance(m.snapshot()["species"], dict) else {s["key"]: s for s in m.snapshot()["species"]})
+        tree = next(v for v in m.snapshot()["varieties"] if v["id"] == vid)
+        self.assertTrue(tree["custom_type"] and tree["kind"] == "tree")
+        m.update_variety(vid, species_name="Japanese loquat")
+        self.assertEqual(next(v for v in m.snapshot()["varieties"] if v["id"] == vid)["species_name"], "Japanese loquat")
+        m.update_variety(vid, kind="plant")
+        self.assertEqual(next(v for v in m.snapshot()["varieties"] if v["id"] == vid)["kind"], "plant")
+        with self.assertRaises(Exception):
+            m.update_variety(m.add_variety(gid, "apple", "Gala", 1), species_name="Crab")  # a built-in type stays as it is
+
     def test_bramble_cut_back_in_fall(self):
         from datetime import date
         from custom_components.garden_tracker.core import chores
