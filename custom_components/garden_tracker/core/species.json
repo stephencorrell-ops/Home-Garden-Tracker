@@ -460,28 +460,34 @@
   "kind": "tree",
   "pests": [
    {
-    "key": "codling_moth",
-    "name": "Codling moth",
-    "lower_f": 50,
-    "upper_f": 88,
-    "default_biofix": null,
-    "milestones": [
-     {
-      "dd": 250,
-      "note": "Egg hatch begins: first cover spray window"
-     },
-     {
-      "dd": 1050,
-      "note": "Second generation begins: check traps, reapply per label"
-     }
-    ]
+    "key": "walnut_husk_fly",
+    "name": "Walnut husk fly",
+    "trap": {
+     "monitor_from": "05-25",
+     "spray_within_days": 10,
+     "usual": "early to mid-August",
+     "bait_every_days": 7,
+     "products": "Malathion (7 days before harvest) or spinosad bait such as GF-120 (no wait, repeat every 7 days). Always check the label."
+    }
    }
   ]
  },
  "black_walnut": {
   "name": "Black walnut",
   "kind": "tree",
-  "pests": []
+  "pests": [
+   {
+    "key": "walnut_husk_fly",
+    "name": "Walnut husk fly",
+    "trap": {
+     "monitor_from": "05-25",
+     "spray_within_days": 10,
+     "usual": "early to mid-August",
+     "bait_every_days": 7,
+     "products": "Malathion (7 days before harvest) or spinosad bait such as GF-120 (no wait, repeat every 7 days). Always check the label."
+    }
+   }
+  ]
  },
  "plum": {
   "name": "Plum",

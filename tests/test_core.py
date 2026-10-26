@@ -588,6 +588,23 @@ class Layout(unittest.TestCase):
         with self.assertRaises(Exception):
             m.update_variety(m.add_variety(gid, "apple", "Gala", 1), species_name="Crab")  # a built-in type stays as it is
 
+    def test_walnut_husk_fly_is_timed_from_trap_catches(self):
+        from datetime import date
+        from custom_components.garden_tracker.core.model import GardenModel
+        m, gid = self.garden()
+        for k in ("english_walnut", "black_walnut"):
+            self.assertEqual([p["key"] for p in m.get_species(k)["pests"]], ["walnut_husk_fly"], k)  # not codling moth
+        pest = m.get_species("english_walnut")["pests"][0]
+        v = {"biofix": {}, "sprays": []}
+        tv = lambda today: GardenModel._trap_view(v, pest, today)  # noqa: E731
+        self.assertEqual(tv(date(2026, 5, 1))["state"], "early")
+        self.assertEqual(tv(date(2026, 7, 1))["state"], "watch")
+        v["biofix"]["walnut_husk_fly"] = "2026-08-05"
+        self.assertEqual((tv(date(2026, 8, 8))["state"], tv(date(2026, 8, 8))["days_left"], tv(date(2026, 8, 8))["spray_by"]), ("spray", 7, "2026-08-15"))
+        self.assertEqual(tv(date(2026, 8, 20))["state"], "late")
+        v["sprays"].append({"date": "2026-08-10", "product": "Malathion"})
+        self.assertEqual(tv(date(2026, 8, 20))["state"], "sprayed")
+
     def test_bramble_cut_back_in_fall(self):
         from datetime import date
         from custom_components.garden_tracker.core import chores

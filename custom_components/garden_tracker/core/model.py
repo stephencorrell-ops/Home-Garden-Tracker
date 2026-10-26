@@ -2460,6 +2460,10 @@ class GardenModel:
                  "cutoff_in": calc.days_until(cut, today), "cutoff_date": cut and cut.isoformat()}
         pests = []
         for pest in sp.get("pests", []):
+            if pest.get("trap"):  # no degree-day model: spraying is timed from trap catches
+                pests.append({"key": pest["key"], "name": pest["name"], "status": None, "est_days": None, "needs_biofix": False,
+                              "trap": self._trap_view(v, pest, today)})
+                continue
             st = calc.pest_status(v, pest, daily, today)
             rate = calc.recent_dd_rate(daily, today, 7, pest["lower_f"], pest["upper_f"])
             est = None
@@ -2502,6 +2506,29 @@ class GardenModel:
             "projection": proj, "seasons": seasons, "status": status, "archived": v.get("archived"),
         }
 
+    @staticmethod
+    def _trap_view(v: dict, pest: dict, today: date) -> dict:
+        """A pest sprayed from trap catches (walnut husk fly): spray within a set number of days of the first sharp rise in catches."""
+        t = pest["trap"]
+        m, dd = t["monitor_from"].split("-")
+        start = date(today.year, int(m), int(dd))
+        stored = v.get("biofix", {}).get(pest["key"])
+        catch = date.fromisoformat(stored) if stored and date.fromisoformat(stored).year == today.year else None
+        out = {"monitor_from": start.isoformat(), "usual": t["usual"], "spray_within_days": t["spray_within_days"],
+               "bait_every_days": t["bait_every_days"], "products": t["products"], "catch": catch and catch.isoformat(),
+               "spray_by": None, "days_left": None, "sprayed": None}
+        if catch is None:
+            out["state"] = "early" if today < start else "watch"
+            return out
+        by = catch + timedelta(days=t["spray_within_days"])
+        after = [s for s in v.get("sprays", []) if s["date"] >= catch.isoformat()]
+        out.update(spray_by=by.isoformat(), days_left=(by - today).days)
+        if after:
+            out.update(state="sprayed", sprayed=max(s["date"] for s in after))
+        else:
+            out["state"] = "spray" if today <= by else "late"
+        return out
+
     def _countdown(self, v: dict, today: date, short: bool) -> str | None:
         exp = calc.d(v.get("expected_harvest"))
         if not exp or not self._multi(v) or exp <= today:
@@ -2513,6 +2540,11 @@ class GardenModel:
         if kind == "tree":
             if spray["safe_in"] and dh is not None and dh <= 21:
                 return {"level": "hold", "text": f"Hold: safe to pick in {spray['safe_in']} days"}
+            for p in pests:
+                tr = p.get("trap")
+                if tr and tr["state"] in ("spray", "late"):
+                    return {"level": "spray", "text": f"Spray {p['name'].lower()} by {date.fromisoformat(tr['spray_by']).strftime('%b %-d')}" if tr["state"] == "spray"
+                            else f"Spray {p['name'].lower()}: past the {tr['spray_within_days']} days"}
             near = [(p["status"]["dd_to_next"], p) for p in pests
                     if p["status"] and p["status"]["dd_to_next"] is not None and p["status"]["dd_to_next"] <= 40]
             if near:

@@ -111,7 +111,7 @@ class PestSensor(VarietySensor):
     _attr_icon = "mdi:bug"
 
     def __init__(self, mgr, known, vid: str, v: dict, pest: dict) -> None:
-        d = Desc(key=f"dd_{pest['key']}", name=f"{pest['name']} degree days", value_fn=lambda _v: None)
+        d = Desc(key=f"dd_{pest['key']}", name=f"{pest['name']} trap" if pest.get("trap") else f"{pest['name']} degree days", value_fn=lambda _v: None)
         super().__init__(mgr, known, vid, v, d)
         self._pest = pest["key"]
 
@@ -122,6 +122,8 @@ class PestSensor(VarietySensor):
     @property
     def native_value(self):
         p = self._p()
+        if p and p.get("trap"):
+            return p["trap"]["state"]
         return p["status"]["dd"] if p and p["status"] else None
 
     @property
@@ -129,6 +131,8 @@ class PestSensor(VarietySensor):
         p = self._p()
         if not p:
             return None
+        if p.get("trap"):
+            return p["trap"]
         return p["status"] or {"note": "Biofix not set; call garden_tracker.set_biofix"}
 
 

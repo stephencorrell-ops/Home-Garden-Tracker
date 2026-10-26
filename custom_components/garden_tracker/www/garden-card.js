@@ -864,6 +864,10 @@ class GardenTrackerCard extends HTMLElement {
       if (p.status) {
         const st = p.status;
         h += `<div style="margin-top:10px;font-size:12px" class="row"><span class="grow">${esc(p.name)} degree days</span><b>${st.dd}${st.next_dd ? ` / ${st.next_dd}` : ""}</b></div><div class="bar"><i style="width:${st.next_dd ? Math.min(100, (st.dd / st.next_dd) * 100) : 100}%"></i></div>${st.next_action ? `<div class="small mut" style="margin-top:4px">${esc(st.next_action)}${p.est_days ? `, in about ${p.est_days} days` : ""}</div>` : ""}`;
+      } else if (p.trap) {
+        const t = p.trap, id2 = v.id;
+        const line = { early: `Hang traps high in the canopy by ${fmtDate(t.monitor_from, true)}.`, watch: `Check your traps. Spray within ${t.spray_within_days} days of a sharp rise in catches, usually ${t.usual}.`, spray: `Spray by ${fmtDate(t.spray_by, true)} (${t.days_left === 0 ? "today" : `${t.days_left} day${t.days_left === 1 ? "" : "s"} left`}).`, late: `Past the ${t.spray_within_days} days since the catches rose (${fmtDate(t.spray_by, true)}). Spray now.`, sprayed: `Sprayed ${fmtDate(t.sprayed)}. Bait is repeated every ${t.bait_every_days} days while flies are caught.` }[t.state];
+        h += `<div style="margin-top:10px"><div class="row"><b class="grow" style="font-weight:500">${esc(p.name)}</b><span class="pill ${t.state === "spray" || t.state === "late" ? "spray" : "info"}" style="margin:0">${{ early: "Not yet", watch: "Watching", spray: "Spray due", late: "Overdue", sprayed: "Sprayed" }[t.state]}</span></div><div class="small" style="margin-top:4px">${esc(line)}</div><div class="small mut" style="margin-top:4px">No degree-day model. Timing comes from trap catches. ${esc(t.products)}</div>${arch ? "" : `<div class="row" style="margin-top:6px">${this._btn("form-biofix", "calendar", t.catch ? `Catches rose ${fmtDate(t.catch, true)}` : "Log the rise in catches", `data-v="${id2}" data-s="${p.key}"`)}</div>`}</div>`;
       } else if (p.needs_biofix && !arch) {
         h += `<div style="margin-top:10px" class="row"><span class="small grow">${esc(p.name)}: set the biofix date to start counting</span>${this._btn("form-biofix", "calendar", "Set biofix", `data-v="${id}" data-s="${p.key}"`)}</div>`;
       }
@@ -1454,8 +1458,8 @@ class GardenTrackerCard extends HTMLElement {
   _fBiofix(v, pest) {
     const p = v.pests.find((x) => x.key === pest);
     return {
-      title: `Biofix: ${p ? p.name : pest}`,
-      fields: [{ name: "date", label: "Date of first sustained catch", type: "date", value: this._snap.today }],
+      title: `${p && p.trap ? "Trap catches" : "Biofix"}: ${p ? p.name : pest}`,
+      fields: [{ name: "date", label: p && p.trap ? "Date catches rose sharply" : "Date of first sustained catch", type: "date", value: this._snap.today }],
       submit: (x) => this._call("set_biofix", { plant: v.id, pest, ...x }),
     };
   }
