@@ -860,7 +860,7 @@ class GardenTrackerCard extends HTMLElement {
     const p = v.pruning, id = v.id;
     if (!p) return "";
     const done = p.last ? `${p.state === "skipped" ? "No pruning needed" : "Pruned"} ${fmtDate(p.last.date)}` : "";
-    const msg = { due: `Time to prune. Fruit trees are pruned while dormant, before new growth starts. This reminder stays until you mark the tree pruned or not needing it.`, waiting: `The reminder starts ${fmtDate(p.start, true)}. Fruit trees are pruned in winter while dormant, before new growth starts.`, pruned: `${done}. No more reminders this year.`, skipped: `${done}. No more reminders this year.` }[p.state];
+    const msg = { due: `Time to prune. ${p.note} This reminder stays until you mark the tree pruned or not needing it.`, waiting: `The reminder starts ${fmtDate(p.start, true)}. ${p.note}`, pruned: `${done}. No more reminders this year.`, skipped: `${done}. No more reminders this year.` }[p.state];
     let h = `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("scissors-cutting")} Pruning</div><span class="pill ${p.state === "due" ? "spray" : p.state === "waiting" ? "info" : "ok"}" style="margin:0">${{ due: "Due now", waiting: "Not yet", pruned: "Done", skipped: "Not needed" }[p.state]}</span></div>`;
     h += `<div class="small" style="margin-top:8px">${esc(msg)}</div>`;
     if (!arch) h += `<div class="row" style="margin-top:10px;flex-wrap:wrap;gap:6px">${this._btn("form-prune", "scissors-cutting", "Pruned", `data-v="${id}"`, p.state === "due" ? "primary" : "")}${this._btn("prune-skip", "check", "No pruning needed this year", `data-v="${id}"`)}${this._btn("form-prune-month", "calendar", `Remind me in ${p.month_name}`, `data-v="${id}"`)}</div>`;
@@ -1385,7 +1385,7 @@ class GardenTrackerCard extends HTMLElement {
     const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
     return {
       title: `Pruning reminder: ${v.name}`, submitLabel: "Save",
-      note: "The reminder starts on the first of this month each year and stays until you mark the tree pruned or not needing it. Winter, while the tree is dormant, is the usual time (January to March).",
+      note: `The reminder starts on the first of this month each year and stays until you mark the tree pruned or not needing it. ${v.pruning.note}`,
       fields: [{ name: "month", label: "Start the reminder in", type: "select", options: names.map((n, i) => [String(i + 1), n]), value: String(v.pruning.month) }],
       submit: (x) => this._call("set_prune_month", { plant: v.id, month: Number(x.month) }),
     };

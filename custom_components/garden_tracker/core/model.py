@@ -2509,7 +2509,7 @@ class GardenModel:
             feeding = {"phases": plan, "current": cur}
         seasons = calc.seasons_for(v, self.data["varieties"], daily, today)
         proj = None if v.get("archived") else calc.project(v, seasons, daily, today, len(alive) or len(allp))
-        pruning = self._pruning_view(v, today) if kind == "tree" else None
+        pruning = self._pruning_view(v, today, sp) if kind == "tree" else None
         status = self._status(kind, dh, spray, pests, proj, pruning)
         return {
             "id": v["id"], "name": v["name"], "species": v["species"], "species_name": v["species_name"], "custom_type": bool((self.data["species"].get(v["species"]) or {}).get("custom")),
@@ -2560,14 +2560,15 @@ class GardenModel:
         return out
 
     @staticmethod
-    def _pruning_view(v: dict, today: date) -> dict:
+    def _pruning_view(v: dict, today: date, sp: dict | None = None) -> dict:
         """Where this year's pruning stands: waiting for its month, due until it is marked, or done or not needed."""
-        month = v.get("prune_month") or PRUNE_MONTH
+        usual = (sp or {}).get("prune_month") or PRUNE_MONTH
+        month = v.get("prune_month") or usual
         start = date(today.year, month, 1)
         done = sorted((e for e in v.get("prunings", []) if e["date"][:4] == str(today.year)), key=lambda e: (e["date"], e["id"]))
         last = done[-1] if done else None
         state = ("skipped" if last["outcome"] == "skipped" else "pruned") if last else ("due" if today >= start else "waiting")
-        return {"month": month, "month_name": start.strftime("%B"), "default_month": PRUNE_MONTH, "custom": bool(v.get("prune_month")),
+        return {"month": month, "month_name": start.strftime("%B"), "default_month": usual, "note": (sp or {}).get("prune_text") or "Fruit trees are pruned in winter while dormant, before new growth starts.", "custom": bool(v.get("prune_month")),
                 "start": start.isoformat(), "state": state, "last": last, "year": today.year,
                 "log": sorted(v.get("prunings", []), key=lambda e: (e["date"], e["id"]), reverse=True)}
 

@@ -632,6 +632,18 @@ class Layout(unittest.TestCase):
         m.set_prune_month(vid, 3)
         self.assertEqual(next(v for v in m.snapshot()["varieties"] if v["id"] == vid)["pruning"]["month"], 3)
 
+    def test_walnut_pruning_starts_in_march(self):
+        from datetime import date
+        from custom_components.garden_tracker.core.model import GardenModel
+        m, gid = self.garden()
+        sp = m.get_species("english_walnut")
+        v = {"prunings": [], "prune_month": None}
+        self.assertEqual(GardenModel._pruning_view(v, date(2026, 2, 20), sp)["state"], "waiting")
+        self.assertEqual(GardenModel._pruning_view(v, date(2026, 3, 1), sp)["state"], "due")
+        self.assertEqual(GardenModel._pruning_view(v, date(2026, 3, 1), m.get_species("apple"))["state"], "due")
+        self.assertEqual(GardenModel._pruning_view(v, date(2026, 2, 20), m.get_species("apple"))["state"], "due")  # apples start in February
+        self.assertIn("March to April", GardenModel._pruning_view(v, date(2026, 3, 1), sp)["note"])
+
     def test_bramble_cut_back_in_fall(self):
         from datetime import date
         from custom_components.garden_tracker.core import chores

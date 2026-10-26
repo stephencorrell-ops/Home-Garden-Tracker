@@ -470,7 +470,9 @@
      "products": "Malathion (7 days before harvest) or spinosad bait such as GF-120 (no wait, repeat every 7 days). Always check the label."
     }
    }
-  ]
+  ],
+  "prune_month": 3,
+  "prune_text": "Walnuts are pruned before they bud out in spring, March to April."
  },
  "black_walnut": {
   "name": "Black walnut",
@@ -487,7 +489,9 @@
      "products": "Malathion (7 days before harvest) or spinosad bait such as GF-120 (no wait, repeat every 7 days). Always check the label."
     }
    }
-  ]
+  ],
+  "prune_month": 3,
+  "prune_text": "Walnuts are pruned before they bud out in spring, March to April."
  },
  "plum": {
   "name": "Plum",
