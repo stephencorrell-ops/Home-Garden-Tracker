@@ -173,6 +173,27 @@ def main():
         check("Drip line to order" in text and "GPM" in text and "Fertigation" in text, "watering page shows the order and fertigation")
         if SHOTS:
             pg.screenshot(path=str(SHOTS / "water.png"), full_page=True)
+        # a venturi injector: add one through the form, then run the tank through it
+        card.locator("[data-act=irr-pump]:not([data-k])").first.click()
+        card.get_by_text("Venturi").first.click()
+        card.get_by_label("Name").fill("Mazzei 484") if card.get_by_label("Name").count() else card.locator("input[type=text]").first.fill("Mazzei 484")
+        if SHOTS:
+            pg.screenshot(path=str(SHOTS / "venturi_form.png"), full_page=True)
+        card.locator("[data-act=form-submit]").click()
+        pg.wait_for_timeout(400)
+        fp = pg.evaluate("window.__garden.engine.snapshot()")["gardens"][0]["irrigation"]["fert"]
+        vp = next((p for p in fp["pumps"] if p["type"] == "venturi"), None)
+        check(vp is not None and vp["name"] == "Mazzei 484" and vp["suction_gph"] > 0, "a venturi injector can be added")
+        pg.evaluate("(k) => { const e = window.__garden.engine, g = e.snapshot().gardens[0].id; for (const t of ['A', 'B']) e.call('set_tank_pump', { garden: g, tank: t, pump: k }); }", vp["key"] if vp else "")
+        card.locator("[data-act=irr-pump][data-k=pump1]").click()  # turn the first injector into a venturi so the tanks run through it
+        card.get_by_text("Venturi").first.click()
+        card.locator("[data-act=form-submit]").click()
+        pg.wait_for_timeout(400)
+        text = card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText")
+        check("venturi, draws" in text and "Venturi: suction" in text.replace("\n", " "), "the water page shows the venturi and how to run it")
+        if SHOTS:
+            card.get_by_text("Venturi: ").first.evaluate("e => e.closest('.card').scrollIntoView()")
+            pg.screenshot(path=str(SHOTS / "venturi_tank.png"))
         check(not errors, f"no page errors {errors[:2]}")
         b.close()
     server.shutdown()

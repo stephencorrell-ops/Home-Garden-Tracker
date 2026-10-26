@@ -4,6 +4,14 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.27.0 - 2026-10-26
+
+### Added
+- **Venturi fertilizer injectors.** An injector is now a dosing pump (with a dilution dial) or a venturi. A venturi has no dial: it draws a fixed number of gallons an hour at the pressures going in and coming out, so you enter its suction (from the maker's chart, or measured), the pressures, the water through it and whether it is in the main line or on a bypass. The app works out the stock tank strength from what it draws, tells you when to throttle the suction valve, and warns if the pressure drop is under about 20 to 25 percent or an in-line venturi does not match the zone's flow. Acid and base tanks work with a venturi too. New `kind`, `suction_gph`, `motive_gpm`, `inlet_psi`, `outlet_psi` and `install` fields on `set_pump`.
+
+### Changed
+- The "Pump" button on the watering page is now "Injector".
+
 ## 0.26.0 - 2026-10-25
 
 ### Added
