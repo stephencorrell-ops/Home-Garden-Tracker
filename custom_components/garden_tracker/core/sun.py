@@ -40,8 +40,16 @@ HABITS: dict[str, list[tuple[str, str, float]]] = {
 }
 
 
+# Recommended feet between posts or stakes for a climbing habit. Tomatoes: 8 ft for determinate (bush) and 4 ft for indeterminate (vining),
+# the spacing Stephen set. Climbing beans, peas and cucumbers: University of Minnesota Extension, "try five or six feet between stakes".
+HABIT_POSTS: dict[tuple[str, str], float] = {
+    ("tomato", "determinate"): 8.0, ("tomato", "indeterminate"): 4.0,
+    ("bean", "pole"): 6.0, ("pea", "climbing"): 6.0, ("cucumber", "vining"): 6.0,
+}
+
+
 def habits_for(key: str) -> list[dict]:
-    return [{"key": k, "name": n, "height": h} for k, n, h in HABITS.get(key, [])]
+    return [{"key": k, "name": n, "height": h, "post_ft": HABIT_POSTS.get((key, k))} for k, n, h in HABITS.get(key, [])]
 
 
 def height_for(key: str) -> float:
