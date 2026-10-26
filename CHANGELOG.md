@@ -4,6 +4,15 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.28.0 - 2026-10-26
+
+### Added
+- **Remove a garden, greenhouse or seedling rack and keep its history.** Remove hides it from your list (its plants must be archived first). Its readings, waterings and plant records stay, and History has a Removed places section with a Bring back button. Sensors, heating and alarms on a removed place are switched off. New `restore_garden` service; `remove_garden` now keeps the history instead of deleting it.
+- **History page.** Replaces Past plants, with a History chip on the home page. Sort by year, garden or name, and search.
+- **Trees without a garden.** Pick "No garden (trees only)" when adding, moving or replanting a tree. They show under "Trees, no garden".
+- **Search and sort.** A search box on the home page, in History and in a garden's plant list. Sort plants by garden, name or soonest harvest.
+- **Choose what to show.** The View button hides or shows Watering, the to-do list, Cover crops, Frost dates and Weather. Saved on the device, not in your data.
+
 ## 0.27.0 - 2026-10-26
 
 ### Added
