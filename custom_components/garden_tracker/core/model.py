@@ -1683,12 +1683,20 @@ class GardenModel:
         v["container"] = container
         self._touch()
 
+    def _place(self, ref: str | None, tree: bool) -> dict:
+        """A garden, rack or greenhouse. A tree may instead have no garden at all."""
+        if not ref:
+            if not tree:
+                raise GardenError("Pick a garden, rack or greenhouse")
+            return {"id": "", "name": "No garden"}
+        return self.find_garden(ref)
+
     def move_plants(self, ref: str, to: str, count: int | None = None, when: Any = None) -> str:
         """Move a planting, or some of its living plants, to another garden, rack or greenhouse.
 
         Moving only some plants splits them into a new planting with the same history."""
         v = self.find_variety(ref)
-        dest = self.find_garden(to)
+        dest = self._place(to, v["kind"] == "tree")
         if dest["id"] == v["garden"]:
             raise GardenError("Those plants are already there")
         src = self.data["gardens"].get(v["garden"]) or {}
@@ -1701,7 +1709,7 @@ class GardenModel:
             raise GardenError("Move at least one plant")
         if n > len(alive):
             raise GardenError(f"Only {len(alive)} living plants to move")
-        move = {"id": new_id(), "date": day, "from": src.get("name", v["garden"]), "to": dest["name"], "count": n}
+        move = {"id": new_id(), "date": day, "from": src.get("name") or "No garden", "to": dest["name"], "count": n}
         target = v
         if n < len(alive):
             moving = alive[-n:]
@@ -1792,9 +1800,9 @@ class GardenModel:
                     expected_yield: float | None = None, notes: str = "",
                     kind: str | None = None, single_harvest: bool | None = None,
                     multi_year: bool | None = None, container: str | None = None) -> str:
-        g = self.find_garden(garden)
         skey = slug(species)
         sp = self.get_species(skey)
+        g = self._place(garden, bool(sp["kind"] == "tree" if sp else kind == "tree"))
         planted_d = iso(planted) or self.today().isoformat()
         harvest = iso(expected_harvest)
         rule = sp.get("harvest_rule") if sp else None
@@ -1803,7 +1811,7 @@ class GardenModel:
             days_to_harvest = int(sp["default_days"])
         auto = False
         if use_rule:
-            harvest = calc.rule_harvest_date(rule, date.fromisoformat(planted_d), self._first_frost(g)).isoformat()
+            harvest = calc.rule_harvest_date(rule, date.fromisoformat(planted_d), self._first_frost(g if g.get("kind") else None)).isoformat()
             auto = True
         elif not harvest and days_to_harvest:
             harvest = (date.fromisoformat(planted_d) + timedelta(days=days_to_harvest)).isoformat()
@@ -1866,8 +1874,8 @@ class GardenModel:
             v["single_harvest"] = bool(single_harvest)
         if name:
             v["name"] = name
-        if garden:
-            v["garden"] = self.find_garden(garden)["id"]
+        if garden is not None and (garden or v["kind"] == "tree"):
+            v["garden"] = self._place(garden, v["kind"] == "tree")["id"]
         if iso(planted):
             v["planted"] = iso(planted)
         if iso(in_ground):
@@ -2196,8 +2204,8 @@ class GardenModel:
     def plant_again(self, ref: str, planted: Any = None, plants: int | None = None,
                     garden: str | None = None) -> str:
         old = self.find_variety(ref, True)
-        gref = garden or old["garden"]
-        if gref not in self.data["gardens"]:
+        gref = old["garden"] if garden is None else garden
+        if gref not in self.data["gardens"] and not (gref == "" and old["kind"] == "tree"):
             raise GardenError("Pick a garden for the new plants")
         ypp = None
         seasons = calc.seasons_for(
@@ -2639,7 +2647,7 @@ class GardenModel:
         return {
             "id": v["id"], "name": v["name"], "species": v["species"], "species_name": v["species_name"], "custom_type": bool((self.data["species"].get(v["species"]) or {}).get("custom")),
             "kind": kind, "garden": v["garden"],
-            "garden_name": g["name"] if g else (v.get("archived") or {}).get("garden_name", v.get("garden_name", "")),
+            "garden_name": g["name"] if g else ((v.get("archived") or {}).get("garden_name", v.get("garden_name", "")) or ("" if v["garden"] else "")),
             "origin": v["origin"], "planted": v["planted"], "in_ground": v.get("in_ground"),
             "upotted": sorted(v["upotted"], key=lambda u: u["date"], reverse=True),
             "container": v.get("container"), "moves": sorted(v.get("moves", []), key=lambda m: (m["date"], m["id"]), reverse=True),

@@ -207,6 +207,21 @@ class App(unittest.TestCase):
         self.assertEqual(len(json.loads(a.snapshot())["gardens"]), 3)
         self.assertEqual(json.loads(a.snapshot())["past_gardens"], [])
 
+    def test_trees_can_grow_without_a_garden(self):
+        a = self.app()
+        self.assertTrue(json.loads(a.call("add_variety", json.dumps({"garden": "", "species": "Apple", "variety": "Gala"})))["ok"])
+        self.assertFalse(json.loads(a.call("add_variety", json.dumps({"garden": "", "species": "Tomato", "variety": "Roma"})))["ok"])
+        v = json.loads(a.snapshot())["varieties"][0]
+        self.assertEqual((v["garden"], v["kind"]), ("", "tree"))
+        a.call("add_garden", json.dumps({"name": "Yard"}))
+        self.assertTrue(json.loads(a.call("move_plants", json.dumps({"plant": v["id"], "to": "Yard"})))["ok"])
+        self.assertEqual(json.loads(a.snapshot())["varieties"][0]["garden_name"], "Yard")
+        self.assertTrue(json.loads(a.call("move_plants", json.dumps({"plant": v["id"], "to": ""})))["ok"])  # and back out again
+        self.assertEqual(json.loads(a.snapshot())["varieties"][0]["garden"], "")
+        again = json.loads(a.call("plant_again", json.dumps({"plant": v["id"], "garden": ""})))
+        self.assertTrue(again["ok"])
+        self.assertEqual(len(json.loads(a.snapshot())["varieties"]), 2)
+
     def test_bad_location_is_refused(self):
         self.assertFalse(json.loads(self.app().call("set_location", json.dumps({"lat": 99, "lon": 0})))["ok"])
 

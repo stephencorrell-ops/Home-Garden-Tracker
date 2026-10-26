@@ -314,6 +314,12 @@ class GardenTrackerCard extends HTMLElement {
     this._form = null;
     this._confirm = null;
     this._filter = "all";
+    this._q = {};
+    this._pref = (k, d) => { try { const v = localStorage.getItem("gt_" + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } };
+    this._setPref = (k, v) => { try { localStorage.setItem("gt_" + k, JSON.stringify(v)); } catch (e) { /* no storage */ } };
+    this._sort = this._pref("sort", "garden");
+    this._psort = this._pref("psort", "year");
+    this._show = { water: true, micro: true, cover: true, chores: true, frost: true, ...this._pref("show", {}) };
     if (!this.shadowRoot) {
       this.attachShadow({ mode: "open" });
       this.shadowRoot.addEventListener("click", (e) => this._onClick(e));
@@ -351,6 +357,21 @@ class GardenTrackerCard extends HTMLElement {
     const ids = new Set(this._gardens().map((g) => g.id));
     const all = !this._config.garden;
     return this._snap.varieties.filter((v) => !!v.archived === archived && (all || ids.has(v.garden)));
+  }
+  _searchBox(key, label) {
+    return `<div class="row" style="margin:6px 0"><input type="search" class="grow" data-q="${key}" placeholder="${label}" value="${esc(this._q[key] || "")}" style="min-height:44px;padding:0 12px;border-radius:12px;border:1px solid var(--divider-color,#c9cfc8);background:var(--card-background-color,#fff);color:var(--primary-text-color,inherit);font:inherit" autocomplete="off"></div>`;
+  }
+  _matches(v, key) {
+    const q = String(this._q[key] || "").trim().toLowerCase();
+    if (!q) return true;
+    const hay = [v.name, v.species_name, v.garden_name, v.container, v.notes].filter(Boolean).join(" ").toLowerCase();
+    return q.split(/\s+/).every((w) => hay.includes(w));
+  }
+  _sortVars(list, mode) {
+    const name = (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+    if (mode === "name") return [...list].sort(name);
+    if (mode === "harvest") return [...list].sort((a, b) => (a.days_to_expected === null || a.days_to_expected === undefined ? 1e9 : a.days_to_expected) - (b.days_to_expected === null || b.days_to_expected === undefined ? 1e9 : b.days_to_expected) || name(a, b));
+    return list;
   }
   _variety(id) { return this._snap.varieties.find((v) => v.id === id); }
   _garden(id) { return this._snap.gardens.find((g) => g.id === id); }
@@ -392,6 +413,11 @@ class GardenTrackerCard extends HTMLElement {
       (this._undo && this._snap && this._snap.can_undo && !this._form
         ? `<div class="undo"><span>Entry removed</span><button data-act="undo">Undo</button></div>` : "");
     this.shadowRoot.innerHTML = `<style>${CSS}${this._web ? WEB_PHONE_CSS : ""}</style><ha-card${this._web ? ' class="web"' : ""}>${banner}${body}</ha-card>`;
+    if (this._focusQ) {  // keep the cursor in a search box while its list is redrawn
+      const el = this.shadowRoot.querySelector(`input[data-q="${this._focusQ}"]`);
+      this._focusQ = null;
+      if (el) { el.focus(); try { el.setSelectionRange(el.value.length, el.value.length); } catch (e) { /* not a text box */ } }
+    }
   }
 
   _icon(name) { return `<ha-icon icon="mdi:${name}"></ha-icon>`; }
@@ -427,6 +453,7 @@ class GardenTrackerCard extends HTMLElement {
 
   // ---- home ---------------------------------------------------------------------
   _frostPill(g, named) {
+    if (!this._show.frost) return "";
     const n = g.frost && g.frost.next;
     if (!n) {
       const r = g.frost && g.frost.recorded;
@@ -442,6 +469,7 @@ class GardenTrackerCard extends HTMLElement {
     return `<div class="pill ${soon ? "warn" : "info"}" style="margin:4px 6px 4px 0">${this._icon("snowflake-alert")} ${named ? esc(g.name) + ": " : ""}${nm} ${n.days === 0 ? "expected today" : `in ${n.days} day${n.days === 1 ? "" : "s"}`} (${fmtDate(n.date)})${rec.length ? `<div class="small" style="font-weight:400">Recorded by your sensors this year: ${rec.join(", ")}</div>` : ""}</div>`;
   }
   _microTile() {
+    if (!this._show.micro) return "";
     const m = this._snap.micro;
     if (!m) return "";
     const z = m.zone, t = m.temps.year;
@@ -554,36 +582,43 @@ class GardenTrackerCard extends HTMLElement {
   }
   _homeView() {
     const gs = this._gardens(), vs = this._vars();
-    let h = `<div class="hd"><div class="ttl grow">Garden</div>${gs.length ? this._btn("form-variety", "plus", "Add plant", "", "primary") : ""}</div>`;
-    if (!gs.length) {
-      const pgN = (this._snap.past_gardens || []).length + this._vars(true).length;
-      return h + `<div class="msg">${pgN ? "Add a garden to start adding plants." : "Create your first garden to start adding plants."}<br><br>${this._btn("form-garden", "plus", "Add garden", "", "primary")}</div>` + (pgN ? `<button style="width:100%" data-act="open-archive">${this._icon("archive")} Past plants and places (${pgN})</button>` : "");
+    const pastN = this._vars(true).length + (this._snap.past_gardens || []).length;
+    let h = `<div class="hd"><div class="ttl grow">Garden</div>${this._btn("form-view", "tune", "View")}${this._btn("form-variety", "plus", "Add plant", "", "primary")}</div>`;
+    if (!gs.length && !vs.length) {
+      return h + `<div class="msg">${pastN ? "Add a garden to start adding plants." : "Create your first garden to start adding plants."} Trees can be added without a garden.<br><br>${this._btn("form-garden", "plus", "Add garden", "", "primary")}</div>` + (pastN ? `<button style="width:100%" data-act="open-archive">${this._icon("history")} History (${pastN})</button>` : "");
     }
-    h += `<div class="chips">${gs.map((g) => `<button class="chip" data-act="open-g" data-g="${g.id}">${g.kind === "garden" ? "" : this._icon(KIND_ICON[g.kind]) + " "}${esc(g.name)}</button>`).join("")}${this._config.garden ? "" : `<button class="chip" data-act="form-garden">+ Location</button>`}</div>`;
+    h += `<div class="chips">${gs.map((g) => `<button class="chip" data-act="open-g" data-g="${g.id}">${g.kind === "garden" ? "" : this._icon(KIND_ICON[g.kind]) + " "}${esc(g.name)}</button>`).join("")}${pastN ? `<button class="chip" data-act="open-archive">${this._icon("history")} History</button>` : ""}${this._config.garden ? "" : `<button class="chip" data-act="form-garden">${this._icon("plus")} Add</button>`}</div>`;
     if (!this._web) h += gs.map((g) => this._sensorBanner(g)).join("");
     const frost = gs.filter((g) => g.kind === "garden").map((g) => this._frostPill(g, gs.length > 1)).join("");
     if (frost) h += `<div>${frost}</div>`;
     const cnt = (l) => vs.filter((v) => v.status.level === l).length;
     const filters = [["all", `All ${vs.length}`], ["spray", `Spray due ${cnt("spray")}`], ["hold", `Harvest hold ${cnt("hold")}`], ["ok", `On track ${cnt("ok")}`]];
-    if (vs.length) h += `<div class="chips">${filters.map(([k, t]) => `<button class="chip ${this._filter === k ? "on" : ""}" data-act="filter" data-s="${k}">${t}</button>`).join("")}</div>`;
-    const shown = vs.filter((v) => this._filter === "all" || v.status.level === this._filter);
-    const covers = (g) => (this._filter === "all" && g.kind === "garden" ? g.cover.items.filter((i) => i.state !== "done") : []);
+    if (vs.length) {
+      h += this._searchBox("home", "Search plants");
+      h += `<div class="chips">${filters.map(([k, t]) => `<button class="chip ${this._filter === k ? "on" : ""}" data-act="filter" data-s="${k}">${t}</button>`).join("")}</div>`;
+      h += `<div class="chips"><span class="small mut" style="align-self:center">Sort</span>${[["garden", "Garden"], ["name", "Name"], ["harvest", "Harvest"]].map(([k, t]) => `<button class="chip ${this._sort === k ? "on" : ""}" data-act="sort" data-s="${k}">${t}</button>`).join("")}</div>`;
+    }
+    const searching = !!String(this._q.home || "").trim();
+    const shown = vs.filter((v) => (this._filter === "all" || v.status.level === this._filter) && this._matches(v, "home"));
+    const covers = (g) => (this._filter === "all" && !searching && this._show.cover && g.kind === "garden" ? g.cover.items.filter((i) => i.state !== "done") : []);
     const anyCover = gs.some((g) => covers(g).length);
-    if (!vs.length && !gs.some((g) => g.cover.items.some((i) => i.state !== "done"))) h += `<div class="msg">No plants yet. Tap Add plant.</div>`;
-    else if (!shown.length && !anyCover) h += `<div class="msg">Nothing matches this filter.</div>`;
+    if (!vs.length && !anyCover) h += `<div class="msg">No plants yet. Tap Add plant.</div>`;
+    else if (!shown.length && !anyCover) h += `<div class="msg">${searching ? "No plants match your search." : "Nothing matches this filter."}</div>`;
     const ordered = [...gs].sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind]);
+    const flat = this._sort !== "garden";
+    if (flat) h += this._sortVars(shown, this._sort).map((v) => this._tile(v, true)).join("");
     for (const g of ordered) {
-      const mine = shown.filter((v) => v.garden === g.id), cov = g.kind === "garden" ? covers(g) : [];
-      const place = g.kind !== "garden" && this._filter === "all" && (vs.some((v) => v.garden === g.id) || (g.alarm && g.alarm.enabled && g.alarm.alerts.length > 0));  // empty racks and greenhouses stay off the landing page (still in the chips)
+      const mine = flat ? [] : shown.filter((v) => v.garden === g.id), cov = g.kind === "garden" ? covers(g) : [];
+      const place = !flat && g.kind !== "garden" && this._filter === "all" && !searching && (vs.some((v) => v.garden === g.id) || (g.alarm && g.alarm.enabled && g.alarm.alerts.length > 0));  // empty racks and greenhouses stay off the landing page (still in the chips)
       if (!mine.length && !cov.length && !place) continue;
-      if (gs.length > 1 && !place) h += `<div class="sec">${esc(g.name)}</div>`;
+      if ((gs.length > 1 || shown.some((v) => !v.garden)) && !place) h += `<div class="sec">${esc(g.name)}</div>`;
       if (place) h += this._placeSummary(g);
       h += mine.map((v) => this._tile(v)).join("");
       if (cov.length) h += this._coverTile(g, cov);
     }
+    const loose = flat ? [] : shown.filter((v) => !v.garden);
+    if (loose.length) h += `<div class="sec">Trees, no garden</div>` + loose.map((v) => this._tile(v)).join("");
     h += this._microTile();
-    const past = this._vars(true).length, pastG = (this._snap.past_gardens || []).length;
-    if (past || pastG) h += `<button style="width:100%" data-act="open-archive">${this._icon("archive")} Past plants${pastG ? " and places" : ""} (${past + pastG})</button>`;
     return h;
   }
   _mixText(g) {
@@ -614,6 +649,7 @@ class GardenTrackerCard extends HTMLElement {
     return `<div class="row" style="align-items:center"><span class="grow">${this._icon("tray-full")} 10x20 trays in use</span>${this._btn("trays", "minus", "", `data-g="${g.id}" data-d="-1"`, "ic")}<b style="min-width:28px;text-align:center;font-size:18px">${g.trays}</b>${this._btn("trays", "plus", "", `data-g="${g.id}" data-d="1"`, "ic")}</div>`;
   }
   _waterPill(g) {
+    if (!this._show.water) return "";
     const w = g.water;
     if (w.level === "due") return `<span class="pill warn" style="margin:0">Water now</span>`;
     if (w.level === "soon") return `<span class="pill info" style="margin:0">Water tomorrow</span>`;
@@ -681,7 +717,7 @@ class GardenTrackerCard extends HTMLElement {
     return h;
   }
   _placeView(g) {
-    const gid = g.id, mine = this._vars().filter((v) => v.garden === gid);
+    const gid = g.id, all = this._vars().filter((v) => v.garden === gid), mine = this._sortVars(all.filter((v) => this._matches(v, "g" + gid)), this._sort);
     let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="grow"><div class="ttl">${esc(g.name)}</div><div class="sub">${esc(g.kind_name)}, ${mine.length} planting${mine.length === 1 ? "" : "s"}</div></div>${this._btn("edit-g", "cog", "", `data-g="${gid}"`, "ic")}</div>`;
     h += this._alarmBanner(g) + this._sensorBanner(g);
     if (g.climate && !this._web) h += this._climateCard(g);
@@ -690,11 +726,11 @@ class GardenTrackerCard extends HTMLElement {
     h += this._waterCard(g);
     if (g.power && !this._web) h += this._powerCard(g);
     h += `<div class="card">${this._trayRow(g)}${this._traysCalc(g)}</div>`;
-    h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">Plants here</div>${this._btn("form-variety", "plus", "Add plant", `data-g="${gid}"`)}</div>${mine.length ? "" : `<div class="small mut" style="margin:6px 0">None yet.</div>`}</div>`;
+    h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">Plants here</div>${this._btn("form-variety", "plus", "Add plant", `data-g="${gid}"`)}</div>${all.length > 3 ? this._searchBox("g" + gid, "Search plants here") : ""}${all.length && !mine.length ? `<div class="small mut" style="margin:6px 0">No plants match your search.</div>` : ""}${all.length ? "" : `<div class="small mut" style="margin:6px 0">None yet.</div>`}</div>`;
     h += mine.map((v) => this._tile(v)).join("");
     if (!this._web) h += this._sensorAlarmCard(g);
-    if (mine.length) h += `<div class="small mut" style="margin:8px 4px">To remove this place, archive its plants first. Its history is kept.</div>`;
-    if (!mine.length) h += `<div class="card">${this._confirm === "rmg" ? `<div class="conf">Remove ${esc(g.name)}? It leaves your list. Its history is kept under Past plants and you can bring it back.<div class="row"><button data-act="cancel-del">Keep</button><button class="danger" data-act="do-rmg" data-g="${gid}">Remove</button></div></div>` : `<button class="danger" data-act="ask-rmg">Remove ${esc(g.kind_name.toLowerCase())}</button>`}</div>`;
+    if (all.length) h += `<div class="small mut" style="margin:8px 4px">To remove this place, archive its plants first. Its history is kept.</div>`;
+    if (!all.length) h += `<div class="card">${this._confirm === "rmg" ? `<div class="conf">Remove ${esc(g.name)}? It leaves your list. Its history is kept under Past plants and you can bring it back.<div class="row"><button data-act="cancel-del">Keep</button><button class="danger" data-act="do-rmg" data-g="${gid}">Remove</button></div></div>` : `<button class="danger" data-act="ask-rmg">Remove ${esc(g.kind_name.toLowerCase())}</button>`}</div>`;
     return h;
   }
   _powerCard(g) {
@@ -716,6 +752,7 @@ class GardenTrackerCard extends HTMLElement {
     return `<div class="small mut" style="margin-top:6px">Your plants fill about ${t.total} tray${t.total === 1 ? "" : "s"}: ${parts}.${t.unknown ? ` ${t.unknown} more are in other pots.` : ""}${t.total !== g.trays ? ` ${this._btn("trays-set", "", `Use ${t.total}`, `data-g="${g.id}" data-n="${t.total}"`)}` : ""}</div>`;
   }
   _waterCard(g) {
+    if (!this._show.water) return "";
     const w = g.water, gid = g.id;
     let h = `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("watering-can")} Watering</div>${this._btn("log-water", "plus", "Water now", `data-g="${gid}"`, "primary")}</div>`;
     h += `<div class="row" style="align-items:baseline;margin:6px 0"><span class="ph">${w.days_since === null ? "–" : w.days_since === 0 ? "Today" : `${w.days_since} d`}</span><span class="small mut">${w.last ? `since ${fmtDate(w.last)}` : "no watering logged yet"}</span></div>`;
@@ -767,10 +804,10 @@ class GardenTrackerCard extends HTMLElement {
     for (const m of v.moves) h += `<div class="small mut" style="margin-top:4px">${fmtDate(m.date)}: ${esc(m.from)} to ${esc(m.to)}, ${m.count} plant${m.count === 1 ? "" : "s"}</div>`;
     return h + `</div>`;
   }
-  _tile(v) {
+  _tile(v, withGarden) {
     const tree = v.kind === "tree";
     const inPlace = v.location_kind !== "garden";
-    const sub = [v.species_name, tree ? null : `${v.alive} of ${v.count} plants`, inPlace ? v.container : null].filter(Boolean).join(", ");
+    const sub = [v.species_name, tree ? null : `${v.alive} of ${v.count} plants`, inPlace ? v.container : null, withGarden ? (v.garden_name || "No garden") : null].filter(Boolean).join(", ");
     const pest = tree ? v.pests.find((p) => p.status && p.status.next_dd) : null;
     const stats = this._stats(v).slice(0, 3), planted = this._web ? stats.find((x) => x[0] === "Planted") : null;
     let h = `<div class="card tile" data-act="open-v" data-v="${v.id}"><div class="row">${this._picBox(v)}<div class="grow"><div style="font-size:15px;font-weight:500">${esc(v.name)}</div><div class="sub">${esc(sub)}</div><span class="pill ${v.status.level}">${esc(v.status.text)}</span></div>${planted ? `<div class="pdays"><span>Planted</span><b>${esc(planted[1])}</b></div>` : ""}</div>`;
@@ -950,14 +987,15 @@ class GardenTrackerCard extends HTMLElement {
     if (this._showLog) for (const e of log) h += this._logRow("adjunct", gid, e.id, esc(e.type_name) + (e.product ? `, ${esc(e.product)}` : ""), fmtDate(e.date) + (e.amount ? ` · ${esc(e.amount)}` : ""));
     h += `</div>`;
     h += this._sensorAlarmCard(g);
-    const mine = this._vars().filter((v) => v.garden === gid);
-    h += `<div class="card"><div class="sec">Plants in this garden</div>${mine.map((v) => `<div class="lg" style="cursor:pointer" data-act="open-v" data-v="${v.id}"><div class="t">${esc(v.name)}<span>${esc(v.species_name)}${v.kind === "tree" ? "" : `, ${v.alive} of ${v.count} plants`}</span></div>${this._icon("chevron-right")}</div>`).join("") || `<div class="small mut">None yet.</div>`}<div class="row" style="margin-top:8px">${this._btn("form-variety", "plus", "Add plant", `data-g="${gid}"`)}${mine.some((v) => !v.archived && v.kind !== "tree") ? this._btn("form-endseason", "archive", "End season", `data-g="${gid}"`, "danger") : ""}</div></div>`;
+    const all = this._vars().filter((v) => v.garden === gid), mine = this._sortVars(all.filter((v) => this._matches(v, "g" + gid)), this._sort);
+    h += `<div class="card"><div class="sec">Plants in this garden</div>${all.length > 3 ? this._searchBox("g" + gid, "Search plants here") : ""}${all.length && !mine.length ? `<div class="small mut" style="margin:6px 0">No plants match your search.</div>` : ""}${mine.map((v) => `<div class="lg" style="cursor:pointer" data-act="open-v" data-v="${v.id}"><div class="t">${esc(v.name)}<span>${esc(v.species_name)}${v.kind === "tree" ? "" : `, ${v.alive} of ${v.count} plants`}</span></div>${this._icon("chevron-right")}</div>`).join("") || `<div class="small mut">None yet.</div>`}<div class="row" style="margin-top:8px">${this._btn("form-variety", "plus", "Add plant", `data-g="${gid}"`)}${mine.some((v) => !v.archived && v.kind !== "tree") ? this._btn("form-endseason", "archive", "End season", `data-g="${gid}"`, "danger") : ""}</div></div>`;
     if (mine.length) h += `<div class="small mut" style="margin:8px 4px">To remove this place, archive its plants first. Its history is kept.</div>`;
     if (!mine.length) h += `<div class="card">${this._confirm === "rmg" ? `<div class="conf">Remove ${esc(g.name)}? It leaves your list. Its history is kept under Past plants and you can bring it back.<div class="row"><button data-act="cancel-del">Keep</button><button class="danger" data-act="do-rmg" data-g="${gid}">Remove garden</button></div></div>` : `<button class="danger" data-act="ask-rmg">Remove garden</button>`}</div>`;
     return h;
   }
 
   _coverCard(g) {
+    if (!this._show.cover) return "";
     const c = g.cover, gid = g.id;
     let h = `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("grass")} Winter cover crop</div>${this._btn("form-cover", "plus", "Add cover crop", `data-g="${gid}"`)}</div>`;
     if (c.blocked) {
@@ -1043,22 +1081,31 @@ class GardenTrackerCard extends HTMLElement {
   }
 
   // ---- past plants -----------------------------------------------------------------------------
+  _pastCard(v, withGarden) {
+    return `<div class="card"><div class="row"><div class="grow" style="cursor:pointer" data-act="open-v" data-v="${v.id}"><div style="font-weight:500">${esc(v.name)}</div><div class="sub">${esc(v.species_name)}, ${v.count} plant${v.count === 1 ? "" : "s"}, ${num(v.total_lbs, 1)} lb, ${esc(ARCH_TEXT[v.archived.reason])}${withGarden ? `, ${esc(v.garden_name || "no garden")}, ${v.archived.year}` : ""}</div></div>${this._btn("form-again", "sprout", "Plant again", `data-v="${v.id}"`)}</div></div>`;
+  }
   _archiveView() {
-    const vs = this._vars(true);
-    const years = [...new Set(vs.map((v) => v.archived.year))].sort((a, b) => b - a);
-    let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="ttl grow">Past plants</div></div>`;
-    for (const y of years) {
-      h += `<div class="sec">${y}</div>`;
-      for (const v of vs.filter((x) => x.archived.year === y)) {
-        h += `<div class="card"><div class="row"><div class="grow" style="cursor:pointer" data-act="open-v" data-v="${v.id}"><div style="font-weight:500">${esc(v.name)}</div><div class="sub">${esc(v.species_name)}, ${v.count} plant${v.count === 1 ? "" : "s"}, ${num(v.total_lbs, 1)} lb, ${esc(ARCH_TEXT[v.archived.reason])}</div></div>${this._btn("form-again", "sprout", "Plant again", `data-v="${v.id}"`)}</div></div>`;
-      }
+    const all = this._vars(true), vs = all.filter((v) => this._matches(v, "past"));
+    const pg = (this._snap.past_gardens || []).filter((g) => !String(this._q.past || "").trim() || g.name.toLowerCase().includes(String(this._q.past).trim().toLowerCase()));
+    let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="ttl grow">History</div></div>`;
+    h += this._searchBox("past", "Search past plants and places");
+    h += `<div class="chips"><span class="small mut" style="align-self:center">Sort</span>${[["year", "Year"], ["garden", "Garden"], ["name", "Name"]].map(([k, t]) => `<button class="chip ${this._psort === k ? "on" : ""}" data-act="psort" data-s="${k}">${t}</button>`).join("")}</div>`;
+    const byName = (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+    if (this._psort === "garden") {
+      const names = [...new Set(vs.map((v) => v.garden_name || "No garden"))].sort((a, b) => a.localeCompare(b));
+      for (const n of names) h += `<div class="sec">${esc(n)}</div>` + vs.filter((v) => (v.garden_name || "No garden") === n).sort((a, b) => b.archived.year - a.archived.year || byName(a, b)).map((v) => this._pastCard(v, false)).join("");
+    } else if (this._psort === "name") {
+      h += [...vs].sort(byName).map((v) => this._pastCard(v, true)).join("");
+    } else {
+      const years = [...new Set(vs.map((v) => v.archived.year))].sort((a, b) => b - a);
+      for (const y of years) h += `<div class="sec">${y}</div>` + vs.filter((x) => x.archived.year === y).map((v) => this._pastCard(v, false)).join("");
     }
-    const pg = this._snap.past_gardens || [];
     if (pg.length) {
       h += `<div class="sec">Removed places</div>`;
       for (const g of pg) h += `<div class="card"><div class="row"><div class="grow"><div style="font-weight:500">${esc(g.name)}</div><div class="sub">${esc(g.kind_name)}, removed ${fmtDate(g.removed)}, ${g.plants} plant${g.plants === 1 ? "" : "s"} in its history</div></div>${this._btn("restore-g", "restore", "Bring back", `data-g="${g.id}"`)}</div></div>`;
     }
-    return h || `<div class="msg">Nothing archived yet.</div>`;
+    if (!vs.length && !pg.length) h += `<div class="msg">${all.length ? "Nothing matches your search." : "Nothing archived yet."}</div>`;
+    return h;
   }
 
   // ---- events ------------------------------------------------------------------------------------
@@ -1130,6 +1177,9 @@ class GardenTrackerCard extends HTMLElement {
       case "form-micro": return this._open(this._fMicro());
       case "web-location": return this.dispatchEvent(new CustomEvent("garden-location", { bubbles: true, composed: true }));
       case "filter": this._filter = d.s; return this._render();
+      case "sort": this._sort = d.s; this._setPref("sort", d.s); return this._render();
+      case "psort": this._psort = d.s; this._setPref("psort", d.s); return this._render();
+      case "form-view": return this._open(this._fView());
       case "air-range": this._airRange = d.s; return this._render();
       case "temp-range": this._tempRange = d.s; return this._render();
       case "toggle-log": this._showLog = !this._showLog; return this._render();
@@ -1211,6 +1261,7 @@ class GardenTrackerCard extends HTMLElement {
   }
   _onInput(e, isChange) {
     const el = e.target;
+    if (el.dataset && el.dataset.q !== undefined && !isChange) { this._q[el.dataset.q] = el.value; this._focusQ = el.dataset.q; return this._render(); }
     if (el.dataset && el.dataset.lay && isChange && el.tagName === "INPUT") {
       const L = this._garden(el.dataset.g).layout;
       if (L && L.configured) this._act("set_layout", { garden: el.dataset.g, [el.dataset.lay]: Number(el.value) });
@@ -1292,6 +1343,26 @@ class GardenTrackerCard extends HTMLElement {
     const p = (x) => String(x).padStart(2, "0");
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
   }
+  _fView() {
+    const on = (k) => (this._show[k] ? "1" : "0"), seg = [["1", "Show"], ["0", "Hide"]];
+    return {
+      title: "What to show", submitLabel: "Save",
+      fields: [
+        { name: "sort", label: "Sort plants by", type: "seg", options: [["garden", "Garden"], ["name", "Name"], ["harvest", "Harvest"]], value: this._sort },
+        { name: "water", label: "Watering", type: "seg", options: seg, value: on("water") },
+        { name: "chores", label: "To do list", type: "seg", options: seg, value: on("chores") },
+        { name: "cover", label: "Cover crops", type: "seg", options: seg, value: on("cover") },
+        { name: "frost", label: "Frost dates", type: "seg", options: seg, value: on("frost") },
+        { name: "micro", label: "Weather and microclimate", type: "seg", options: seg, value: on("micro") },
+      ],
+      note: "Saved on this device only. Hiding something only hides it from view; nothing is deleted.",
+      submit: (x) => {
+        for (const k of ["water", "chores", "cover", "frost", "micro"]) if (x[k] !== undefined) this._show[k] = x[k] === "1";
+        if (x.sort) { this._sort = x.sort; this._setPref("sort", x.sort); }
+        this._setPref("show", this._show);
+      },
+    };
+  }
   _fVariety(gid) {
     const gs = this._gardens(), today = this._snap.today;
     const sp = Object.values(this._snap.species).sort((a, b) => a.name.localeCompare(b.name));
@@ -1301,7 +1372,7 @@ class GardenTrackerCard extends HTMLElement {
     return {
       title: "Add plant", submitLabel: "Add plant",
       fields: [
-        { name: "garden", label: "Where", type: "select", options: gs.map((g) => [g.id, g.kind === "garden" ? g.name : `${g.name} (${g.kind_name.toLowerCase()})`]), value: gid || gs[0].id, span: 3 },
+        { name: "garden", label: "Where", type: "select", options: [...gs.map((g) => [g.id, g.kind === "garden" ? g.name : `${g.name} (${g.kind_name.toLowerCase()})`]), ["", "No garden (trees only)"]], value: gid || (gs[0] ? gs[0].id : ""), span: 3 },
         { name: "species", label: "Type", type: "select", options: [...sp.map((s) => [s.key, s.name]), ["other", "Other..."]], value: this._snap.species.tomato ? "tomato" : sp[0] ? sp[0].key : "other", span: 3 },
         { name: "species_other", label: "Type name", type: "text", req: true, show: (v) => v.species === "other", span: 3 },
         { name: "kind", label: "Kind", type: "seg", options: [["plant", "Plant"], ["tree", "Tree"]], value: "plant", show: (v) => v.species === "other", span: 3 },
@@ -1335,7 +1406,7 @@ class GardenTrackerCard extends HTMLElement {
         if (last && kind(v) !== "tree") h += `<div class="small" style="margin-top:8px">From your past seasons: ${esc(v.variety)} took ${last.days_to_first} days. <button data-act="use-days" data-n="${last.days_to_first}">Use ${last.days_to_first}</button></div>`;
         return h;
       },
-      submit: (v) => this._call("add_variety", { garden: v.garden, species: v.species === "other" ? v.species_other : v.species, variety: v.variety, plants: v.plants, origin: v.origin, planted_date: v.planted_date, days_to_harvest: v.days_to_harvest, expected_harvest_date: v.expected_harvest_date, expected_yield: v.expected_yield, notes: v.notes, container: v.container === undefined ? undefined : this._containerOf(v), kind: v.species === "other" ? v.kind : undefined, single_harvest: v.species === "other" && v.kind !== "tree" ? v.single_harvest === "true" : undefined }),
+      submit: (v) => this._call("add_variety", { garden: v.garden || "", species: v.species === "other" ? v.species_other : v.species, variety: v.variety, plants: v.plants, origin: v.origin, planted_date: v.planted_date, days_to_harvest: v.days_to_harvest, expected_harvest_date: v.expected_harvest_date, expected_yield: v.expected_yield, notes: v.notes, container: v.container === undefined ? undefined : this._containerOf(v), kind: v.species === "other" ? v.kind : undefined, single_harvest: v.species === "other" && v.kind !== "tree" ? v.single_harvest === "true" : undefined }),
     };
   }
   _fEditVariety(v) {
@@ -1484,12 +1555,12 @@ class GardenTrackerCard extends HTMLElement {
     return {
       title: `Plant ${v.name} again`, submitLabel: "Add plants",
       fields: [
-        { name: "garden", label: "Garden", type: "select", options: gs.map((g) => [g.id, g.name]), value: gs.some((g) => g.id === v.garden) ? v.garden : gs[0].id },
+        { name: "garden", label: "Garden", type: "select", options: [...gs.map((g) => [g.id, g.name]), ...(v.kind === "tree" ? [["", "No garden"]] : [])], value: gs.some((g) => g.id === v.garden) || (v.kind === "tree" && !v.garden) ? v.garden : (gs[0] ? gs[0].id : "") },
         { name: "plants", label: "Number of plants", type: "number", step: "1", value: v.count, span: 3 },
         { name: "planted_date", label: "Planting date", type: "date", value: this._snap.today, span: 3 },
       ],
       note: "Copies the variety and days to harvest. Past seasons feed the projection automatically.",
-      submit: (x) => this._call("plant_again", { plant: v.id, ...x }),
+      submit: (x) => this._call("plant_again", { plant: v.id, ...x, garden: x.garden || "" }),
       after: () => { this._view = { v: "home" }; this._nav = []; },
     };
   }
@@ -1586,7 +1657,7 @@ class GardenTrackerCard extends HTMLElement {
     return {
       title: `Move ${v.name}`, submitLabel: "Move",
       fields: [
-        { name: "to", label: "Move to", type: "select", options: order.map((g) => [g.id, `${g.name} (${g.kind_name.toLowerCase()})`]), value: next ? next.id : "", req: true },
+        { name: "to", label: "Move to", type: "select", options: [...order.map((g) => [g.id, `${g.name} (${g.kind_name.toLowerCase()})`]), ...(v.kind === "tree" && v.garden ? [["", "No garden"]] : [])], value: next ? next.id : (v.kind === "tree" ? "" : ""), req: false },
         { name: "count", label: `How many (of ${v.alive} living plants)`, type: "number", step: "1", value: v.alive, span: 3 },
         { name: "date", label: "Date", type: "date", value: this._snap.today, span: 3 },
       ],
@@ -1600,7 +1671,7 @@ class GardenTrackerCard extends HTMLElement {
         if (cb && dest.kind === "garden") h += `<div class="pill warn">${cb.reason === "growing" ? "A cover crop is still growing there." : `Cover crop wait there: ${cb.days_left} more day${cb.days_left === 1 ? "" : "s"} (ready ${fmtDate(cb.date, true)}).`}</div>`;
         return h;
       },
-      submit: (x) => this._call("move_plants", { plant: v.id, to: x.to, ...(x.count && x.count < v.alive ? { count: x.count } : {}), date: x.date }),
+      submit: (x) => this._call("move_plants", { plant: v.id, to: x.to || "", ...(x.count && x.count < v.alive ? { count: x.count } : {}), date: x.date }),
     };
   }
   _deviceCandidates(selected, lights = false) {
@@ -1896,6 +1967,7 @@ class GardenTrackerCard extends HTMLElement {
     };
   }
   _choreCard(g) {
+    if (!this._show.chores) return "";
     const cs = g.chores || [];
     return cs.map((c) => `<div class="card"><div class="alarm" style="--hold:var(--spray)"><div class="small"><b>${this._icon("alert")} ${esc(c.title)}.</b> ${esc(c.text)}</div></div></div>`).join("");
   }
