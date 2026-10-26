@@ -97,7 +97,21 @@ CLIMATE_MIN_GAP = 3.0  # degrees F between the heat and cool set points
 
 COVER_CROPS = ["Winter rye", "Cereal rye", "Hairy vetch", "Winter wheat", "Austrian winter peas",
                "Crimson clover", "Snow peas"]
-COVER_METHODS = ["mowed", "roll_crimped", "tarped", "tilled", "winterkill", "other"]
+COVER_METHODS = ["mowed", "wilted", "plowed", "tilled", "roll_crimped", "tarped", "winterkill", "other"]
+
+
+def cover_methods(val: Any) -> list[str]:
+    """Termination methods in the order they were done: a list, a comma separated string or a single name."""
+    if val in (None, "", []):
+        return []
+    items = val.split(",") if isinstance(val, str) else list(val)
+    out: list[str] = []
+    for m in (str(x).strip() for x in items):
+        if m not in COVER_METHODS:
+            raise GardenError("Method must be one of: " + ", ".join(COVER_METHODS))
+        if m and m not in out:
+            out.append(m)
+    return out
 COVER_WAIT_DAYS = 21
 # Soil EC and moisture guidance. The probe only reads the top few inches, and EC reads high in dry soil
 # and low in wet soil, so a reading is only trusted when moisture is inside the band.
@@ -723,16 +737,16 @@ class GardenModel:
         self._touch()
         return cid
 
-    def terminate_cover_crop(self, garden: str, cover: str, when: Any = None, method: str | None = None,
+    def terminate_cover_crop(self, garden: str, cover: str, when: Any = None, method: Any = None,
                              notes: str | None = None) -> None:
         g = self.find_garden(garden)
         _, e = self._entry(g["cover_crops"], cover)
-        if method is not None and method not in COVER_METHODS:
-            raise GardenError("Method must be one of: " + ", ".join(COVER_METHODS))
+        methods = cover_methods(method)
         stamp = iso(when) or self.today().isoformat()
         if stamp < e["sown"]:
             raise GardenError("Termination can't be before it was sown")
-        e["terminated"], e["method"] = stamp, method
+        e["terminated"], e["methods"] = stamp, methods
+        e.pop("method", None)
         if notes:
             e["notes"] = (e["notes"] + " " + notes).strip()
         self._touch()
@@ -740,7 +754,8 @@ class GardenModel:
     def reopen_cover_crop(self, garden: str, cover: str) -> None:
         g = self.find_garden(garden)
         _, e = self._entry(g["cover_crops"], cover)
-        e["terminated"], e["method"] = None, None
+        e["terminated"], e["methods"] = None, []
+        e.pop("method", None)
         self._touch()
 
     # ---- soil moisture, EC and temperature --------------------------------------
@@ -2030,6 +2045,9 @@ class GardenModel:
                 e["lbs"], e["shares"] = round(val, 3), calc.split_even(val, ids)
             elif kind == "cover" and key in ("sown", "terminated"):
                 e[key] = iso(val)
+            elif kind == "cover" and key == "method":
+                e["methods"] = cover_methods(val)
+                e.pop("method", None)
             elif kind == "cover" and key == "wait_days":
                 e[key] = int(val)
             elif kind == "cover" and key == "amount_lbs":
@@ -2316,7 +2334,8 @@ class GardenModel:
             ready = end + timedelta(days=wait) if end else None
             left = (ready - today).days if ready else None
             state = "growing" if not end else ("waiting" if left > 0 else "done")
-            items.append({**e, "wait_days": wait, "days_in_ground": ((end or today) - sown).days,
+            methods = e.get("methods") if e.get("methods") is not None else ([e["method"]] if e.get("method") else [])
+            items.append({**e, "methods": methods, "method": methods[-1] if methods else None, "wait_days": wait, "days_in_ground": ((end or today) - sown).days,
                           "state": state, "ready_date": ready and ready.isoformat(),
                           "days_left": left if left is None else max(0, left),
                           "days_since_term": (today - end).days if end else None})

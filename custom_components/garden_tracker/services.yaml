@@ -134,7 +134,7 @@ log_garden_reading:
 add_cover_crop:
   fields: {garden: {required: true, selector: {text: {}}}, crop: {required: true, example: Hairy vetch, selector: {text: {}}}, sown_date: {selector: {date: {}}}, wait_days: {example: 21, selector: {number: {min: 0, max: 120, mode: box}}}, amount_lbs: {description: "Pounds of seed, used for the mix ratio when sowing several together", selector: {number: {min: 0, step: 0.1, mode: box}}}, notes: {selector: {text: {}}}}
 terminate_cover_crop:
-  fields: {garden: {required: true, selector: {text: {}}}, cover: {required: true, selector: {text: {}}}, date: {selector: {date: {}}}, method: {selector: {select: {options: [mowed, roll_crimped, tarped, tilled, winterkill, other]}}}, notes: {selector: {text: {}}}}
+  fields: {garden: {required: true, selector: {text: {}}}, cover: {required: true, selector: {text: {}}}, date: {selector: {date: {}}}, method: {description: "Everything you did, in order, for example mowed then wilted then plowed then tilled", selector: {select: {multiple: true, options: [mowed, wilted, plowed, tilled, roll_crimped, tarped, winterkill, other]}}}, notes: {selector: {text: {}}}}
 reopen_cover_crop:
   fields: {garden: {required: true, selector: {text: {}}}, cover: {required: true, selector: {text: {}}}}
 end_season:

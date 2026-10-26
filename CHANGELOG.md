@@ -4,6 +4,14 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.24.0 - 2026-10-25
+
+### Added
+- **Cover crops can be terminated in several steps.** Tap each step in the order you do it, for example mowed, wilted, plowed, tilled. Plowed and wilted are new options. The cover crop shows the steps in order, and the Edit form has the same chips.
+
+### Changed
+- The `terminate_cover_crop` service and the cover crop edit accept a list of methods as well as a single one. Cover crops terminated before this keep their one method.
+
 ## 0.23.0 - 2026-10-25
 
 ### Changed

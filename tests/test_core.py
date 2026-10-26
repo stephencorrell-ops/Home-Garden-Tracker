@@ -553,6 +553,25 @@ class Layout(unittest.TestCase):
         self.assertIsNone(m._layout_of(gid)[1]["crops"]["tomato"]["post_ft"])
         self.assertEqual(L2.recommended_post("bean", "pole"), 6.0)
 
+    def test_cover_crop_terminated_in_several_steps(self):
+        m, gid = self.garden()
+        cid = m.add_cover_crop(gid, "Winter rye")
+        m.terminate_cover_crop(gid, cid, None, ["mowed", "wilted", "plowed", "tilled"])
+        item = next(g for g in m.snapshot()["gardens"] if g["id"] == gid)["cover"]["items"][0]
+        self.assertEqual(item["methods"], ["mowed", "wilted", "plowed", "tilled"])
+        with self.assertRaises(Exception):
+            m.terminate_cover_crop(gid, cid, None, ["mowed", "burned"])
+        m.edit_entry("cover", gid, cid, {"method": "plowed,tilled"})
+        self.assertEqual(next(g for g in m.snapshot()["gardens"] if g["id"] == gid)["cover"]["items"][0]["methods"], ["plowed", "tilled"])
+        m.reopen_cover_crop(gid, cid)
+        self.assertEqual(next(g for g in m.snapshot()["gardens"] if g["id"] == gid)["cover"]["items"][0]["methods"], [])
+        # a record saved before this had one method as text
+        g = m.find_garden(gid)
+        g["cover_crops"][0].update(terminated=m.today().isoformat(), method="tarped")
+        g["cover_crops"][0].pop("methods", None)
+        m._touch()
+        self.assertEqual(next(x for x in m.snapshot()["gardens"] if x["id"] == gid)["cover"]["items"][0]["methods"], ["tarped"])
+
     def test_bramble_cut_back_in_fall(self):
         from datetime import date
         from custom_components.garden_tracker.core import chores
