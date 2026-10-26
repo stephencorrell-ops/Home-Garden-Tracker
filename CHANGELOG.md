@@ -4,6 +4,14 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.25.0 - 2026-10-25
+
+### Added
+- **Tree pruning reminders.** Every tree has a Pruning section. The reminder starts on the first of the month and stays until you mark the tree pruned or "No pruning needed this year", then starts over each January. Fruit trees start in February (the Chelan-Douglas Master Gardeners give January to March), walnuts start in March (pruned before bud break, March to April), and you can set any month per tree. Each tree keeps a pruning log, and a Pruning sensor (waiting, due, pruned, skipped) is available in Home Assistant. New services `log_pruning` and `set_prune_month`.
+- **More trees.** Apricot, hazelnut (filbert), English walnut, black walnut, plum, quince, fig, persimmon, mulberry and chestnut.
+- **Your own tree types are kept.** A type added with "Other..." is saved for next time, and its name and plant or tree kind can be edited. New `species_name` and `kind` fields on `update_variety`.
+- **Walnut husk fly.** Walnuts track the husk fly instead of codling moth. There is no degree-day model for it, so log the date trap catches rise sharply and the app counts 10 days to spray, with malathion or spinosad bait (GF-120) from the PNW Pest Management Handbook.
+
 ## 0.24.0 - 2026-10-25
 
 ### Added

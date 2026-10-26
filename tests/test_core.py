@@ -572,6 +572,78 @@ class Layout(unittest.TestCase):
         m._touch()
         self.assertEqual(next(x for x in m.snapshot()["gardens"] if x["id"] == gid)["cover"]["items"][0]["methods"], ["tarped"])
 
+    def test_more_trees_and_custom_types(self):
+        m, gid = self.garden()
+        for k in ("pear", "asian_pear", "apricot", "hazelnut", "english_walnut", "black_walnut", "plum", "quince", "fig", "persimmon", "mulberry", "chestnut"):
+            self.assertEqual(m.get_species(k)["kind"], "tree", k)
+        # a type that is not on the list is kept for next time and can be renamed or changed
+        vid = m.add_variety(gid, "Loquat", "Champagne", 1, kind="tree")
+        self.assertIn("loquat", m.snapshot()["species"] if isinstance(m.snapshot()["species"], dict) else {s["key"]: s for s in m.snapshot()["species"]})
+        tree = next(v for v in m.snapshot()["varieties"] if v["id"] == vid)
+        self.assertTrue(tree["custom_type"] and tree["kind"] == "tree")
+        m.update_variety(vid, species_name="Japanese loquat")
+        self.assertEqual(next(v for v in m.snapshot()["varieties"] if v["id"] == vid)["species_name"], "Japanese loquat")
+        m.update_variety(vid, kind="plant")
+        self.assertEqual(next(v for v in m.snapshot()["varieties"] if v["id"] == vid)["kind"], "plant")
+        with self.assertRaises(Exception):
+            m.update_variety(m.add_variety(gid, "apple", "Gala", 1), species_name="Crab")  # a built-in type stays as it is
+
+    def test_walnut_husk_fly_is_timed_from_trap_catches(self):
+        from datetime import date
+        from custom_components.garden_tracker.core.model import GardenModel
+        m, gid = self.garden()
+        for k in ("english_walnut", "black_walnut"):
+            self.assertEqual([p["key"] for p in m.get_species(k)["pests"]], ["walnut_husk_fly"], k)  # not codling moth
+        pest = m.get_species("english_walnut")["pests"][0]
+        v = {"biofix": {}, "sprays": []}
+        tv = lambda today: GardenModel._trap_view(v, pest, today)  # noqa: E731
+        self.assertEqual(tv(date(2026, 5, 1))["state"], "early")
+        self.assertEqual(tv(date(2026, 7, 1))["state"], "watch")
+        v["biofix"]["walnut_husk_fly"] = "2026-08-05"
+        self.assertEqual((tv(date(2026, 8, 8))["state"], tv(date(2026, 8, 8))["days_left"], tv(date(2026, 8, 8))["spray_by"]), ("spray", 7, "2026-08-15"))
+        self.assertEqual(tv(date(2026, 8, 20))["state"], "late")
+        v["sprays"].append({"date": "2026-08-10", "product": "Malathion"})
+        self.assertEqual(tv(date(2026, 8, 20))["state"], "sprayed")
+
+    def test_tree_pruning_reminder(self):
+        from datetime import date
+        from custom_components.garden_tracker.core.model import GardenModel
+        view = GardenModel._pruning_view
+        v = {"prunings": [], "prune_month": None}
+        self.assertEqual(view(v, date(2026, 1, 20))["state"], "waiting")
+        self.assertEqual(view(v, date(2026, 2, 1))["state"], "due")  # starts on the first of the month
+        self.assertEqual(view(v, date(2026, 10, 25))["state"], "due")  # and stays until it is marked
+        v["prune_month"] = 8
+        self.assertEqual(view(v, date(2026, 7, 31))["state"], "waiting")
+        self.assertEqual(view(v, date(2026, 8, 1))["state"], "due")
+        v["prunings"] = [{"id": "a", "date": "2026-03-05", "outcome": "pruned", "notes": ""}]
+        self.assertEqual(view(v, date(2026, 10, 25))["state"], "pruned")
+        v["prunings"] = [{"id": "a", "date": "2026-03-05", "outcome": "skipped", "notes": ""}]
+        self.assertEqual(view(v, date(2026, 10, 25))["state"], "skipped")
+        v["prune_month"] = None
+        self.assertEqual(view(v, date(2027, 2, 1))["state"], "due")  # a new year starts over
+
+    def test_pruning_log_and_status(self):
+        m, gid = self.garden()
+        vid = m.add_variety(gid, "apple", "Honeycrisp", 1)
+        m.log_pruning(vid, "pruned")
+        tree = next(v for v in m.snapshot()["varieties"] if v["id"] == vid)
+        self.assertEqual(tree["pruning"]["state"], "pruned")
+        m.set_prune_month(vid, 3)
+        self.assertEqual(next(v for v in m.snapshot()["varieties"] if v["id"] == vid)["pruning"]["month"], 3)
+
+    def test_walnut_pruning_starts_in_march(self):
+        from datetime import date
+        from custom_components.garden_tracker.core.model import GardenModel
+        m, gid = self.garden()
+        sp = m.get_species("english_walnut")
+        v = {"prunings": [], "prune_month": None}
+        self.assertEqual(GardenModel._pruning_view(v, date(2026, 2, 20), sp)["state"], "waiting")
+        self.assertEqual(GardenModel._pruning_view(v, date(2026, 3, 1), sp)["state"], "due")
+        self.assertEqual(GardenModel._pruning_view(v, date(2026, 3, 1), m.get_species("apple"))["state"], "due")
+        self.assertEqual(GardenModel._pruning_view(v, date(2026, 2, 20), m.get_species("apple"))["state"], "due")  # apples start in February
+        self.assertIn("March to April", GardenModel._pruning_view(v, date(2026, 3, 1), sp)["note"])
+
     def test_bramble_cut_back_in_fall(self):
         from datetime import date
         from custom_components.garden_tracker.core import chores

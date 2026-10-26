@@ -444,5 +444,83 @@
   "name": "Blackberries",
   "kind": "plant",
   "pests": []
+ },
+ "apricot": {
+  "name": "Apricot",
+  "kind": "tree",
+  "pests": []
+ },
+ "hazelnut": {
+  "name": "Hazelnut (filbert)",
+  "kind": "tree",
+  "pests": []
+ },
+ "english_walnut": {
+  "name": "English walnut",
+  "kind": "tree",
+  "pests": [
+   {
+    "key": "walnut_husk_fly",
+    "name": "Walnut husk fly",
+    "trap": {
+     "monitor_from": "05-25",
+     "spray_within_days": 10,
+     "usual": "early to mid-August",
+     "bait_every_days": 7,
+     "products": "Malathion (7 days before harvest) or spinosad bait such as GF-120 (no wait, repeat every 7 days). Always check the label."
+    }
+   }
+  ],
+  "prune_month": 3,
+  "prune_text": "Walnuts are pruned before they bud out in spring, March to April."
+ },
+ "black_walnut": {
+  "name": "Black walnut",
+  "kind": "tree",
+  "pests": [
+   {
+    "key": "walnut_husk_fly",
+    "name": "Walnut husk fly",
+    "trap": {
+     "monitor_from": "05-25",
+     "spray_within_days": 10,
+     "usual": "early to mid-August",
+     "bait_every_days": 7,
+     "products": "Malathion (7 days before harvest) or spinosad bait such as GF-120 (no wait, repeat every 7 days). Always check the label."
+    }
+   }
+  ],
+  "prune_month": 3,
+  "prune_text": "Walnuts are pruned before they bud out in spring, March to April."
+ },
+ "plum": {
+  "name": "Plum",
+  "kind": "tree",
+  "pests": []
+ },
+ "quince": {
+  "name": "Quince",
+  "kind": "tree",
+  "pests": []
+ },
+ "fig": {
+  "name": "Fig",
+  "kind": "tree",
+  "pests": []
+ },
+ "persimmon": {
+  "name": "Persimmon",
+  "kind": "tree",
+  "pests": []
+ },
+ "mulberry": {
+  "name": "Mulberry",
+  "kind": "tree",
+  "pests": []
+ },
+ "chestnut": {
+  "name": "Chestnut",
+  "kind": "tree",
+  "pests": []
  }
 }
