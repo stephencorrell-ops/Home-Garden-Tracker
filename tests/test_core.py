@@ -572,6 +572,33 @@ class Layout(unittest.TestCase):
         m._touch()
         self.assertEqual(next(x for x in m.snapshot()["gardens"] if x["id"] == gid)["cover"]["items"][0]["methods"], ["tarped"])
 
+    def test_tree_pruning_reminder(self):
+        from datetime import date
+        from custom_components.garden_tracker.core.model import GardenModel
+        view = GardenModel._pruning_view
+        v = {"prunings": [], "prune_month": None}
+        self.assertEqual(view(v, date(2026, 1, 20))["state"], "waiting")
+        self.assertEqual(view(v, date(2026, 2, 1))["state"], "due")  # starts on the first of the month
+        self.assertEqual(view(v, date(2026, 10, 25))["state"], "due")  # and stays until it is marked
+        v["prune_month"] = 8
+        self.assertEqual(view(v, date(2026, 7, 31))["state"], "waiting")
+        self.assertEqual(view(v, date(2026, 8, 1))["state"], "due")
+        v["prunings"] = [{"id": "a", "date": "2026-03-05", "outcome": "pruned", "notes": ""}]
+        self.assertEqual(view(v, date(2026, 10, 25))["state"], "pruned")
+        v["prunings"] = [{"id": "a", "date": "2026-03-05", "outcome": "skipped", "notes": ""}]
+        self.assertEqual(view(v, date(2026, 10, 25))["state"], "skipped")
+        v["prune_month"] = None
+        self.assertEqual(view(v, date(2027, 2, 1))["state"], "due")  # a new year starts over
+
+    def test_pruning_log_and_status(self):
+        m, gid = self.garden()
+        vid = m.add_variety(gid, "apple", "Honeycrisp", 1)
+        m.log_pruning(vid, "pruned")
+        tree = next(v for v in m.snapshot()["varieties"] if v["id"] == vid)
+        self.assertEqual(tree["pruning"]["state"], "pruned")
+        m.set_prune_month(vid, 3)
+        self.assertEqual(next(v for v in m.snapshot()["varieties"] if v["id"] == vid)["pruning"]["month"], 3)
+
     def test_bramble_cut_back_in_fall(self):
         from datetime import date
         from custom_components.garden_tracker.core import chores

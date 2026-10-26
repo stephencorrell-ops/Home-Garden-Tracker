@@ -40,6 +40,8 @@ HANDLERS: dict[str, Handler] = {
     "log_stage": lambda m, c: m.log_stage(c["plant"], c["stage"], c.get("date")),
     "log_fertilizer": lambda m, c: m.log_fertilizer(c["plant"], c["product"], c.get("n"), c.get("p"), c.get("k"),
         c.get("date"), c.get("notes")),
+    "log_pruning": lambda m, c: m.log_pruning(c["plant"], c.get("outcome", "pruned"), c.get("date"), c.get("notes")),
+    "set_prune_month": lambda m, c: m.set_prune_month(c["plant"], c.get("month")),
     "log_spray": lambda m, c: m.log_spray(c["plant"], c["product"], c.get("date"), c.get("target"),
         c.get("phi_days"), c.get("reapply_days")),
     "set_biofix": lambda m, c: m.set_biofix(c["plant"], c["pest"], c.get("date")),

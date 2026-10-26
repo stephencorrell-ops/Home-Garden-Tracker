@@ -47,6 +47,8 @@ SERVICES: dict[str, dict] = {
     "log_stage": {R("plant"): cv.string, R("stage"): vol.In(["planted", "upotted", "in_ground"]), O("date"): cv.date},
     "log_fertilizer": {R("plant"): cv.string, R("product"): cv.string, O("n"): NUM, O("p"): NUM, O("k"): NUM,
         O("date"): cv.date, O("notes"): cv.string},
+    "log_pruning": {R("plant"): cv.string, O("outcome"): vol.In(["pruned", "skipped"]), O("date"): cv.date, O("notes"): cv.string},
+    "set_prune_month": {R("plant"): cv.string, O("month"): vol.All(vol.Coerce(int), vol.Range(min=0, max=12))},
     "log_spray": {R("plant"): cv.string, R("product"): cv.string, O("date"): cv.date, O("target"): cv.string,
         O("phi_days"): DAYS, O("reapply_days"): DAYS},
     "set_biofix": {R("plant"): cv.string, R("pest"): cv.string, O("date"): cv.date},
