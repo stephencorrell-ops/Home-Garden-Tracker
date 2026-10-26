@@ -68,7 +68,7 @@ HANDLERS: dict[str, Handler] = {
     "set_crop_days": lambda m, c: m.set_crop_days(c["crop"], c["days"], c.get("hardy")),
     "reset_crop_days": lambda m, c: m.reset_crop_days(c["crop"]),
     "remove_variety_traits": lambda m, c: m.remove_variety_traits(c["crop"], c["variety"]),
-    "set_irrigation": lambda m, c: m.set_irrigation(c["garden"], c.get("method"), c.get("soil"), c.get("per_week"), c.get("run_min", "keep"), c.get("max_line_gph"), c.get("weather")),
+    "set_irrigation": lambda m, c: m.set_irrigation(c["garden"], c.get("method"), c.get("soil"), c.get("per_week"), c.get("run_min", "keep"), c.get("max_line_gph"), c.get("weather"), c.get("mulch")),
     "set_sprinkler": lambda m, c: m.set_sprinkler(c["garden"], c.get("mode"), c.get("pr_mode"), c.get("gpm"), c.get("radius_ft"), c.get("arc"), c.get("pr_in_hr", "keep"), c.get("heads", "keep"), c.get("per_week", "keep")),
     "set_irrigation_crop": lambda m, c: m.set_irrigation_crop(c["garden"], c["crop"], c.get("water_in_week"), c.get("lines"), c.get("flow_gph", "keep"), c.get("emit_in", "keep"), c.get("ppm_n")),
     "reset_irrigation_crop": lambda m, c: m.reset_irrigation_crop(c["garden"], c["crop"]),
@@ -86,6 +86,7 @@ HANDLERS: dict[str, Handler] = {
     "remove_layout": lambda m, c: m.remove_layout(c["garden"]),
     "set_trays": lambda m, c: m.set_trays(c["garden"], c["trays"]),
     "log_watering": lambda m, c: m.log_watering(c["garden"], c.get("date"), c.get("notes")),
+    "set_watering_card": lambda m, c: m.set_watering_card(c["garden"], bool(c["shown"])),
     "set_water_interval": lambda m, c: m.set_water_interval(c["garden"], c.get("days")),
     "set_greenhouse_climate": lambda m, c: m.set_climate(c["garden"], c.get("enabled"), c.get("heat_set"),
         c.get("cool_set"), c.get("heaters"), c.get("coolers"),
@@ -176,4 +177,6 @@ class GardenApp:
         rain = {k: float(v) for k, v in (w.get("rain") or {}).items() if v}
         changed = bool(daily and self.model.merge_daily(daily))
         changed = bool(rain and self.model.merge_rain(self.WEATHER_SOURCE, rain)) or changed
+        if w.get("now") or w.get("soil"):
+            changed = self.model.merge_estimates(w.get("now"), w.get("soil") or {}) or changed
         return json.dumps({"changed": changed, "days": len(daily)})

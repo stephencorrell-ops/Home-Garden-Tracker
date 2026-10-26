@@ -95,7 +95,7 @@ PUDDLE_IN = 0.1   # water a surface holds before it runs off
 
 
 def blank() -> dict:
-    return {"method": "drip", "soil": DEFAULT_SOIL, "per_week": 3, "run_min": None, "sprinkler": default_sprinkler(), "max_line_gph": DEFAULT_MAX_LINE_GPH, "weather": True, "crops": {},
+    return {"method": "drip", "soil": DEFAULT_SOIL, "mulch": False, "per_week": 3, "run_min": None, "sprinkler": default_sprinkler(), "max_line_gph": DEFAULT_MAX_LINE_GPH, "weather": True, "crops": {},
             "fert": default_fert(), "acid": default_acid(), "lime": default_lime()}
 
 
@@ -163,8 +163,10 @@ def weather_need(daily: dict, rain: dict, today: date, lat: float | None = None,
 
 
 def validate_settings(method: Any = None, soil: Any = None, per_week: Any = None, run_min: Any = "keep", max_line_gph: Any = None,
-                      weather: Any = None) -> dict:
+                      weather: Any = None, mulch: Any = None) -> dict:
     out: dict[str, Any] = {}
+    if mulch is not None:
+        out["mulch"] = bool(mulch)
     if weather is not None:
         out["weather"] = bool(weather)
     if method is not None:
