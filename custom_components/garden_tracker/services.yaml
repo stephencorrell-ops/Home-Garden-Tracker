@@ -22,6 +22,10 @@ log_stage:
   fields: {plant: {required: true, selector: {text: {}}}, stage: {required: true, selector: {select: {options: [planted, upotted, in_ground]}}}, date: {selector: {date: {}}}}
 log_fertilizer:
   fields: {plant: {required: true, selector: {text: {}}}, product: {required: true, selector: {text: {}}}, n: {selector: {number: {min: 0, max: 100, step: 0.1, mode: box}}}, p: {selector: {number: {min: 0, max: 100, step: 0.1, mode: box}}}, k: {selector: {number: {min: 0, max: 100, step: 0.1, mode: box}}}, date: {selector: {date: {}}}, notes: {selector: {text: {}}}}
+log_pruning:
+  fields: {plant: {required: true, selector: {text: {}}}, outcome: {description: "pruned, or skipped when no pruning is needed this year", selector: {select: {options: [pruned, skipped]}}}, date: {selector: {date: {}}}, notes: {selector: {text: {}}}}
+set_prune_month:
+  fields: {plant: {required: true, selector: {text: {}}}, month: {description: "Month the pruning reminder starts (1 to 12). Leave empty or 0 for the usual month, February.", selector: {number: {min: 0, max: 12, mode: box}}}}
 log_spray:
   fields: {plant: {required: true, selector: {text: {}}}, product: {required: true, selector: {text: {}}}, date: {selector: {date: {}}}, target: {selector: {text: {}}}, phi_days: {description: Pre-harvest interval from the label, selector: {number: {min: 0, max: 365, mode: box}}}, reapply_days: {description: Reapply interval from the label, selector: {number: {min: 0, max: 365, mode: box}}}}
 set_biofix:

@@ -51,6 +51,8 @@ ANNUAL = [
 TREE = [
     Desc(key="age", name="Age", icon="mdi:tree", native_unit_of_measurement="yr",
          value_fn=lambda v: v["age_years"]),
+    Desc(key="pruning", name="Pruning", icon="mdi:content-cut", value_fn=lambda v: v["pruning"]["state"] if v.get("pruning") else None,
+         attr_fn=lambda v: {"reminder_starts": v["pruning"]["start"], "month": v["pruning"]["month_name"], "last": v["pruning"]["last"]} if v.get("pruning") else None),
     Desc(key="since_spray", name="Days since last spray", **_days(), value_fn=lambda v: v["spray"]["days_since"],
          attr_fn=lambda v: {"history": v["sprays"][:10]}),
     Desc(key="to_next_spray", name="Days until next spray", **_days(), value_fn=lambda v: v["spray"]["next_in"],

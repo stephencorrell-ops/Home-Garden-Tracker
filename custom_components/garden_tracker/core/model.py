@@ -113,6 +113,10 @@ def cover_methods(val: Any) -> list[str]:
             out.append(m)
     return out
 COVER_WAIT_DAYS = 21
+# Fruit trees are pruned while dormant, before new growth starts. Chelan-Douglas Master Gardeners ("Tips for pruning your
+# backyard fruit trees"): January through March, and not when it is near zero. The reminder starts on the first of the month.
+PRUNE_MONTH = 2
+PRUNE_OUTCOMES = ("pruned", "skipped")
 # Soil EC and moisture guidance. The probe only reads the top few inches, and EC reads high in dry soil
 # and low in wet soil, so a reading is only trusted when moisture is inside the band.
 DEFAULT_EC_TARGET = [0.8, 1.8]
@@ -125,7 +129,7 @@ PLANTING_TEMPS = [  # (crops, minimum soil °F, days from planting to harvest)
 ]
 KINDS = {  # entry kind -> (parent type, list key)
     "harvest": ("v", "harvests"), "fertilizer": ("v", "fertilizations"), "spray": ("v", "sprays"),
-    "review": ("v", "reviews"), "upotted": ("v", "upotted"),
+    "review": ("v", "reviews"), "upotted": ("v", "upotted"), "prune": ("v", "prunings"),
     "adjunct": ("g", "adjuncts"), "ph": ("g", "ph_readings"),
     "moisture": ("g", "moisture"), "ec": ("g", "ec"), "soil_temp": ("g", "soil_temp"),
     "cover": ("g", "cover_crops"), "water": ("g", "watering"), "acid": ("g", "acid_log"),
@@ -135,7 +139,7 @@ EDITABLE = {
     "harvest": ("lbs", "date", "notes"),
     "fertilizer": ("product", "n", "p", "k", "date", "notes"),
     "spray": ("product", "target", "phi_days", "reapply_days", "date"),
-    "review": ("notes", "year"), "upotted": ("date",),
+    "review": ("notes", "year"), "upotted": ("date",), "prune": ("date", "outcome", "notes"),
     "adjunct": ("type", "product", "amount", "date", "notes"), "ph": ("value", "date"),
     "moisture": ("value", "date"), "ec": ("value", "date"), "soil_temp": ("value", "date"),
     "air_temp": ("value", "date"), "par": ("value", "date"), "out_temp": ("value", "date"), "water": ("date", "notes"),
@@ -1668,7 +1672,7 @@ class GardenModel:
             ids = {p["id"] for p in moving}
             nid = self._unique(slug(v["name"]), self.data["varieties"])
             clone = copy.deepcopy(v)
-            clone.update(id=nid, plants=moving, harvests=[], fertilizations=[], sprays=[], reviews=[],
+            clone.update(id=nid, plants=moving, harvests=[], fertilizations=[], sprays=[], reviews=[], prunings=[],
                          upotted=copy.deepcopy(v["upotted"]), moves=copy.deepcopy(v.get("moves", [])))
             v["plants"] = [p for p in v["plants"] if p["id"] not in ids]
             self.data["varieties"][nid] = clone
@@ -1788,7 +1792,7 @@ class GardenModel:
             "plants": [{"id": new_id(), "label": f"Plant {i + 1}" if count > 1 or vkind != "tree" else variety or species,
                         "status": "alive", "reason": "", "note": "", "status_date": None}
                        for i in range(count)],
-            "harvests": [], "fertilizations": [], "sprays": [], "biofix": {}, "reviews": [],
+            "harvests": [], "fertilizations": [], "sprays": [], "biofix": {}, "reviews": [], "prunings": [], "prune_month": None,
             "archived": None}
         self._touch(True)
         return vid
@@ -1877,6 +1881,30 @@ class GardenModel:
         v = self.find_variety(ref)
         v["fertilizations"].append({"id": new_id(), "date": iso(when) or self.today().isoformat(),
                                     "product": product, "n": n, "p": p, "k": k, "notes": notes})
+        self._touch()
+
+    def log_pruning(self, ref: str, outcome: str = "pruned", when: Any = None, notes: str | None = None) -> None:
+        """Mark a tree pruned, or that it needs no pruning this year. Either one ends the reminder for the year."""
+        v = self.find_variety(ref)
+        if outcome not in PRUNE_OUTCOMES:
+            raise GardenError("Outcome must be pruned or skipped")
+        v.setdefault("prunings", []).append({"id": new_id(), "date": iso(when) or self.today().isoformat(),
+                                             "outcome": outcome, "notes": notes or ""})
+        self._touch()
+
+    def set_prune_month(self, ref: str, month: Any = None) -> None:
+        """The month the reminder starts for this tree. Empty goes back to the usual month."""
+        v = self.find_variety(ref)
+        if month in (None, "", 0):
+            v["prune_month"] = None
+        else:
+            try:
+                m = int(month)
+            except (TypeError, ValueError):
+                raise GardenError("Month must be 1 to 12") from None
+            if not 1 <= m <= 12:
+                raise GardenError("Month must be 1 to 12")
+            v["prune_month"] = m
         self._touch()
 
     def log_spray(self, ref: str, product: str, when: Any = None, target: str | None = None,
@@ -2481,7 +2509,8 @@ class GardenModel:
             feeding = {"phases": plan, "current": cur}
         seasons = calc.seasons_for(v, self.data["varieties"], daily, today)
         proj = None if v.get("archived") else calc.project(v, seasons, daily, today, len(alive) or len(allp))
-        status = self._status(kind, dh, spray, pests, proj)
+        pruning = self._pruning_view(v, today) if kind == "tree" else None
+        status = self._status(kind, dh, spray, pests, proj, pruning)
         return {
             "id": v["id"], "name": v["name"], "species": v["species"], "species_name": v["species_name"], "custom_type": bool((self.data["species"].get(v["species"]) or {}).get("custom")),
             "kind": kind, "garden": v["garden"],
@@ -2502,6 +2531,7 @@ class GardenModel:
             "last_fert": last_f, "feeding": feeding, "feeding_off": feeding_off,
             "sprays": sorted(v["sprays"], key=lambda e: (e["date"], e["id"]), reverse=True),
             "spray": spray, "pests": pests,
+            "pruning": pruning,
             "reviews": sorted(v["reviews"], key=lambda e: (e["year"], e["id"]), reverse=True),
             "projection": proj, "seasons": seasons, "status": status, "archived": v.get("archived"),
         }
@@ -2529,6 +2559,18 @@ class GardenModel:
             out["state"] = "spray" if today <= by else "late"
         return out
 
+    @staticmethod
+    def _pruning_view(v: dict, today: date) -> dict:
+        """Where this year's pruning stands: waiting for its month, due until it is marked, or done or not needed."""
+        month = v.get("prune_month") or PRUNE_MONTH
+        start = date(today.year, month, 1)
+        done = sorted((e for e in v.get("prunings", []) if e["date"][:4] == str(today.year)), key=lambda e: (e["date"], e["id"]))
+        last = done[-1] if done else None
+        state = ("skipped" if last["outcome"] == "skipped" else "pruned") if last else ("due" if today >= start else "waiting")
+        return {"month": month, "month_name": start.strftime("%B"), "default_month": PRUNE_MONTH, "custom": bool(v.get("prune_month")),
+                "start": start.isoformat(), "state": state, "last": last, "year": today.year,
+                "log": sorted(v.get("prunings", []), key=lambda e: (e["date"], e["id"]), reverse=True)}
+
     def _countdown(self, v: dict, today: date, short: bool) -> str | None:
         exp = calc.d(v.get("expected_harvest"))
         if not exp or not self._multi(v) or exp <= today:
@@ -2536,7 +2578,7 @@ class GardenModel:
         return calc.ymd_text(today, exp, short)
 
     @staticmethod
-    def _status(kind: str, dh: int | None, spray: dict, pests: list, proj: dict | None) -> dict:
+    def _status(kind: str, dh: int | None, spray: dict, pests: list, proj: dict | None, pruning: dict | None = None) -> dict:
         if kind == "tree":
             if spray["safe_in"] and dh is not None and dh <= 21:
                 return {"level": "hold", "text": f"Hold: safe to pick in {spray['safe_in']} days"}
@@ -2554,6 +2596,8 @@ class GardenModel:
             if spray["next_in"] is not None and spray["next_in"] <= 3:
                 n = spray["next_in"]
                 return {"level": "spray", "text": "Reapply spray due" if n <= 0 else f"Reapply spray in {n} days"}
+            if pruning and pruning["state"] == "due":
+                return {"level": "info", "text": f"Prune this tree ({pruning['month_name']})"}
             return {"level": "ok", "text": "On track"}
         if dh is not None and dh <= 0:
             return {"level": "info", "text": "Harvest time"}

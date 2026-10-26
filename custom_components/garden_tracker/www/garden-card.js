@@ -807,7 +807,7 @@ class GardenTrackerCard extends HTMLElement {
     h += this._whereCard(v);
     h += this._projection(v);
     h += this._harvestCard(v, arch);
-    if (tree) h += this._sprayCard(v, arch);
+    if (tree) h += this._pruneCard(v, arch) + this._sprayCard(v, arch);
     h += this._feedCard(v, arch, tree);
     h += this._adjunctChips(v);
     h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">Notes for next year</div>${arch ? "" : this._btn("form-review", "plus", "Add", `data-v="${id}"`)}</div>${v.notes ? `<p class="small" style="margin:6px 0">${esc(v.notes)}</p>` : ""}${v.reviews.map((r) => this._logRow("review", id, r.id, esc(r.notes), String(r.year))).join("") || `<div class="small mut" style="margin-top:6px">No notes yet.</div>`}</div>`;
@@ -854,6 +854,18 @@ class GardenTrackerCard extends HTMLElement {
       h += this._logRow("harvest", id, x.id, `${fmtDate(x.date)}, ${num(x.lbs)} lb`,
         `${x.ended ? `${x.ended} plant${x.ended === 1 ? "" : "s"} pulled, ` : ""}${num(x.each)} lb each to ${esc(x.to_text)}${x.notes ? ` · ${esc(x.notes)}` : ""}`, x.ended ? `The ${x.ended} plant${x.ended === 1 ? "" : "s"} it harvested go back to growing, and the planting returns from Past plants if this was the last of it.` : `This takes ${num(x.each)} lb off each plant that received it.`);
     }
+    return h + `</div>`;
+  }
+  _pruneCard(v, arch) {
+    const p = v.pruning, id = v.id;
+    if (!p) return "";
+    const done = p.last ? `${p.state === "skipped" ? "No pruning needed" : "Pruned"} ${fmtDate(p.last.date)}` : "";
+    const msg = { due: `Time to prune. Fruit trees are pruned while dormant, before new growth starts. This reminder stays until you mark the tree pruned or not needing it.`, waiting: `The reminder starts ${fmtDate(p.start, true)}. Fruit trees are pruned in winter while dormant, before new growth starts.`, pruned: `${done}. No more reminders this year.`, skipped: `${done}. No more reminders this year.` }[p.state];
+    let h = `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("scissors-cutting")} Pruning</div><span class="pill ${p.state === "due" ? "spray" : p.state === "waiting" ? "info" : "ok"}" style="margin:0">${{ due: "Due now", waiting: "Not yet", pruned: "Done", skipped: "Not needed" }[p.state]}</span></div>`;
+    h += `<div class="small" style="margin-top:8px">${esc(msg)}</div>`;
+    if (!arch) h += `<div class="row" style="margin-top:10px;flex-wrap:wrap;gap:6px">${this._btn("form-prune", "scissors-cutting", "Pruned", `data-v="${id}"`, p.state === "due" ? "primary" : "")}${this._btn("prune-skip", "check", "No pruning needed this year", `data-v="${id}"`)}${this._btn("form-prune-month", "calendar", `Remind me in ${p.month_name}`, `data-v="${id}"`)}</div>`;
+    if (p.log.length) h += `<div class="sec" style="margin:12px 0 0">Pruning log</div>`;
+    for (const x of p.log) h += this._logRow("prune", id, x.id, x.outcome === "skipped" ? "No pruning needed" : "Pruned", fmtDate(x.date) + (x.notes ? " · " + esc(x.notes) : ""));
     return h + `</div>`;
   }
   _sprayCard(v, arch) {
@@ -1125,6 +1137,9 @@ class GardenTrackerCard extends HTMLElement {
       case "edit-g": return this._open(this._fGarden(this._garden(d.g)));
       case "edit-v": return this._open(this._fEditVariety(this._variety(d.v)));
       case "form-harvest": return this._open(this._fHarvest(this._variety(d.v)));
+      case "form-prune": return this._open(this._fPrune(this._variety(d.v)));
+      case "form-prune-month": return this._open(this._fPruneMonth(this._variety(d.v)));
+      case "prune-skip": return this._call("log_pruning", { plant: d.v, outcome: "skipped" });
       case "form-fert": return this._open(this._fFert(this._variety(d.v)));
       case "form-spray": return this._open(this._fSpray(this._variety(d.v)));
       case "form-lost": return this._open(this._fLost(this._variety(d.v)));
@@ -1357,6 +1372,22 @@ class GardenTrackerCard extends HTMLElement {
         return `<div class="small mut">${num(l)} lb split across ${v.alive} living plant${v.alive === 1 ? "" : "s"}: ${num(l / v.alive)} lb each</div>`;
       },
       submit: (x) => this._call("log_harvest", { plant: v.id, ...x }),
+    };
+  }
+  _fPrune(v) {
+    return {
+      title: `Pruned: ${v.name}`, submitLabel: "Log pruning",
+      fields: [{ name: "date", label: "Date", type: "date", value: this._snap.today }, { name: "notes", label: "Notes", type: "text" }],
+      submit: (x) => this._call("log_pruning", { plant: v.id, outcome: "pruned", ...x }),
+    };
+  }
+  _fPruneMonth(v) {
+    const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    return {
+      title: `Pruning reminder: ${v.name}`, submitLabel: "Save",
+      note: "The reminder starts on the first of this month each year and stays until you mark the tree pruned or not needing it. Winter, while the tree is dormant, is the usual time (January to March).",
+      fields: [{ name: "month", label: "Start the reminder in", type: "select", options: names.map((n, i) => [String(i + 1), n]), value: String(v.pruning.month) }],
+      submit: (x) => this._call("set_prune_month", { plant: v.id, month: Number(x.month) }),
     };
   }
   _fFert(v) {
@@ -2398,6 +2429,7 @@ class GardenTrackerCard extends HTMLElement {
     const F = {
       harvest: [{ name: "lbs", label: "Pounds", type: "number", step: "0.1", value: e.lbs, req: true, span: 3 }, { name: "date", label: "Date", type: "date", value: e.date, span: 3 }, { name: "notes", label: "Notes", type: "text", value: e.notes }],
       fertilizer: [{ name: "product", label: "Product", type: "text", value: e.product, req: true }, { name: "n", label: "N", type: "number", step: "0.1", value: e.n, span: 2 }, { name: "p", label: "P", type: "number", step: "0.1", value: e.p, span: 2 }, { name: "k", label: "K", type: "number", step: "0.1", value: e.k, span: 2 }, { name: "date", label: "Date", type: "date", value: e.date }, { name: "notes", label: "Notes", type: "text", value: e.notes }],
+      prune: [{ name: "outcome", label: "What happened", type: "chips", options: [["pruned", "Pruned"], ["skipped", "No pruning needed"]], value: e.outcome }, { name: "date", label: "Date", type: "date", value: e.date }, { name: "notes", label: "Notes", type: "text", value: e.notes }],
       spray: [{ name: "product", label: "Product", type: "text", value: e.product, req: true }, { name: "target", label: "Target pest", type: "text", value: e.target }, { name: "date", label: "Date", type: "date", value: e.date }, { name: "phi_days", label: "Days before harvest", type: "number", step: "1", value: e.phi_days, span: 3 }, { name: "reapply_days", label: "Reapply after days", type: "number", step: "1", value: e.reapply_days, span: 3 }],
       review: [{ name: "notes", label: "Note", type: "textarea", value: e.notes, req: true }, { name: "year", label: "Season", type: "number", step: "1", value: e.year }],
       upotted: [{ name: "date", label: "Date", type: "date", value: e.date }],
