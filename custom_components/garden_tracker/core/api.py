@@ -21,6 +21,7 @@ HANDLERS: dict[str, Handler] = {
         c.get("moisture_min"), c.get("moisture_max"),
         c.get("probe_depth")),
     "remove_garden": lambda m, c: m.remove_garden(c["garden"]),
+    "restore_garden": lambda m, c: m.restore_garden(c["garden"]),
     "add_adjunct_type": lambda m, c: m.add_adjunct_type(c["garden"], c["name"], c.get("per_year"), c.get("interval_days")),
     "remove_adjunct_type": lambda m, c: m.remove_adjunct_type(c["garden"], c["adjunct"]),
     "log_adjunct": lambda m, c: m.log_adjunct(c["garden"], c["adjunct"], c.get("date"), c.get("product"),
