@@ -556,7 +556,8 @@ class GardenTrackerCard extends HTMLElement {
     const gs = this._gardens(), vs = this._vars();
     let h = `<div class="hd"><div class="ttl grow">Garden</div>${gs.length ? this._btn("form-variety", "plus", "Add plant", "", "primary") : ""}</div>`;
     if (!gs.length) {
-      return h + `<div class="msg">Create your first garden to start adding plants.<br><br>${this._btn("form-garden", "plus", "Add garden", "", "primary")}</div>`;
+      const pgN = (this._snap.past_gardens || []).length + this._vars(true).length;
+      return h + `<div class="msg">${pgN ? "Add a garden to start adding plants." : "Create your first garden to start adding plants."}<br><br>${this._btn("form-garden", "plus", "Add garden", "", "primary")}</div>` + (pgN ? `<button style="width:100%" data-act="open-archive">${this._icon("archive")} Past plants and places (${pgN})</button>` : "");
     }
     h += `<div class="chips">${gs.map((g) => `<button class="chip" data-act="open-g" data-g="${g.id}">${g.kind === "garden" ? "" : this._icon(KIND_ICON[g.kind]) + " "}${esc(g.name)}</button>`).join("")}${this._config.garden ? "" : `<button class="chip" data-act="form-garden">+ Location</button>`}</div>`;
     if (!this._web) h += gs.map((g) => this._sensorBanner(g)).join("");
@@ -581,8 +582,8 @@ class GardenTrackerCard extends HTMLElement {
       if (cov.length) h += this._coverTile(g, cov);
     }
     h += this._microTile();
-    const past = this._vars(true).length;
-    if (past) h += `<button style="width:100%" data-act="open-archive">${this._icon("archive")} Past plants (${past})</button>`;
+    const past = this._vars(true).length, pastG = (this._snap.past_gardens || []).length;
+    if (past || pastG) h += `<button style="width:100%" data-act="open-archive">${this._icon("archive")} Past plants${pastG ? " and places" : ""} (${past + pastG})</button>`;
     return h;
   }
   _mixText(g) {
@@ -692,7 +693,8 @@ class GardenTrackerCard extends HTMLElement {
     h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">Plants here</div>${this._btn("form-variety", "plus", "Add plant", `data-g="${gid}"`)}</div>${mine.length ? "" : `<div class="small mut" style="margin:6px 0">None yet.</div>`}</div>`;
     h += mine.map((v) => this._tile(v)).join("");
     if (!this._web) h += this._sensorAlarmCard(g);
-    if (!mine.length) h += `<div class="card">${this._confirm === "rmg" ? `<div class="conf">Remove ${esc(g.name)}? Its watering and temperature history will be lost.<div class="row"><button data-act="cancel-del">Keep</button><button class="danger" data-act="do-rmg" data-g="${gid}">Remove</button></div></div>` : `<button class="danger" data-act="ask-rmg">Remove ${esc(g.kind_name.toLowerCase())}</button>`}</div>`;
+    if (mine.length) h += `<div class="small mut" style="margin:8px 4px">To remove this place, archive its plants first. Its history is kept.</div>`;
+    if (!mine.length) h += `<div class="card">${this._confirm === "rmg" ? `<div class="conf">Remove ${esc(g.name)}? It leaves your list. Its history is kept under Past plants and you can bring it back.<div class="row"><button data-act="cancel-del">Keep</button><button class="danger" data-act="do-rmg" data-g="${gid}">Remove</button></div></div>` : `<button class="danger" data-act="ask-rmg">Remove ${esc(g.kind_name.toLowerCase())}</button>`}</div>`;
     return h;
   }
   _powerCard(g) {
@@ -950,7 +952,8 @@ class GardenTrackerCard extends HTMLElement {
     h += this._sensorAlarmCard(g);
     const mine = this._vars().filter((v) => v.garden === gid);
     h += `<div class="card"><div class="sec">Plants in this garden</div>${mine.map((v) => `<div class="lg" style="cursor:pointer" data-act="open-v" data-v="${v.id}"><div class="t">${esc(v.name)}<span>${esc(v.species_name)}${v.kind === "tree" ? "" : `, ${v.alive} of ${v.count} plants`}</span></div>${this._icon("chevron-right")}</div>`).join("") || `<div class="small mut">None yet.</div>`}<div class="row" style="margin-top:8px">${this._btn("form-variety", "plus", "Add plant", `data-g="${gid}"`)}${mine.some((v) => !v.archived && v.kind !== "tree") ? this._btn("form-endseason", "archive", "End season", `data-g="${gid}"`, "danger") : ""}</div></div>`;
-    if (!mine.length) h += `<div class="card">${this._confirm === "rmg" ? `<div class="conf">Remove ${esc(g.name)}? Its adjunct and pH history will be lost.<div class="row"><button data-act="cancel-del">Keep</button><button class="danger" data-act="do-rmg" data-g="${gid}">Remove garden</button></div></div>` : `<button class="danger" data-act="ask-rmg">Remove garden</button>`}</div>`;
+    if (mine.length) h += `<div class="small mut" style="margin:8px 4px">To remove this place, archive its plants first. Its history is kept.</div>`;
+    if (!mine.length) h += `<div class="card">${this._confirm === "rmg" ? `<div class="conf">Remove ${esc(g.name)}? It leaves your list. Its history is kept under Past plants and you can bring it back.<div class="row"><button data-act="cancel-del">Keep</button><button class="danger" data-act="do-rmg" data-g="${gid}">Remove garden</button></div></div>` : `<button class="danger" data-act="ask-rmg">Remove garden</button>`}</div>`;
     return h;
   }
 
@@ -1050,6 +1053,11 @@ class GardenTrackerCard extends HTMLElement {
         h += `<div class="card"><div class="row"><div class="grow" style="cursor:pointer" data-act="open-v" data-v="${v.id}"><div style="font-weight:500">${esc(v.name)}</div><div class="sub">${esc(v.species_name)}, ${v.count} plant${v.count === 1 ? "" : "s"}, ${num(v.total_lbs, 1)} lb, ${esc(ARCH_TEXT[v.archived.reason])}</div></div>${this._btn("form-again", "sprout", "Plant again", `data-v="${v.id}"`)}</div></div>`;
       }
     }
+    const pg = this._snap.past_gardens || [];
+    if (pg.length) {
+      h += `<div class="sec">Removed places</div>`;
+      for (const g of pg) h += `<div class="card"><div class="row"><div class="grow"><div style="font-weight:500">${esc(g.name)}</div><div class="sub">${esc(g.kind_name)}, removed ${fmtDate(g.removed)}, ${g.plants} plant${g.plants === 1 ? "" : "s"} in its history</div></div>${this._btn("restore-g", "restore", "Bring back", `data-g="${g.id}"`)}</div></div>`;
+    }
     return h || `<div class="msg">Nothing archived yet.</div>`;
   }
 
@@ -1137,6 +1145,7 @@ class GardenTrackerCard extends HTMLElement {
           this._undoTimer = setTimeout(() => { this._undo = false; if (!this._form) this._render(); }, 10000);
         });
       case "do-rm": return this._act("remove_plant", { plant: d.v }, home);
+      case "restore-g": return this._act("restore_garden", { garden: d.g });
       case "do-rmg": return this._act("remove_garden", { garden: d.g }, home);
       case "restore": return this._act("restore_plant", { plant: d.v }, () => this._back());
       case "plant-alive": return this._act("set_plant_status", { plant: d.v, individual: d.p, status: "alive" });

@@ -194,6 +194,19 @@ def main():
         if SHOTS:
             card.get_by_text("Venturi: ").first.evaluate("e => e.closest('.card').scrollIntoView()")
             pg.screenshot(path=str(SHOTS / "venturi_tank.png"))
+        # removing a garden keeps its history under Past plants, and it can be brought back
+        card.locator("[data-act=back]").first.click()
+        card.locator("[data-act=ask-rmg]").click()
+        card.locator("[data-act=do-rmg]").click()
+        card.get_by_text("Past plants and places").wait_for(timeout=5000)
+        sn = pg.evaluate("window.__garden.engine.snapshot()")
+        check(not sn["gardens"] and [g["name"] for g in sn["past_gardens"]] == ["Back yard"], "a removed garden leaves the list but is kept")
+        card.get_by_text("Past plants and places").click()
+        if SHOTS:
+            pg.screenshot(path=str(SHOTS / "removed.png"))
+        card.locator("[data-act=restore-g]").click()
+        pg.wait_for_timeout(400)
+        check(len(pg.evaluate("window.__garden.engine.snapshot()")["gardens"]) == 1, "a removed garden can be brought back")
         check(not errors, f"no page errors {errors[:2]}")
         b.close()
     server.shutdown()

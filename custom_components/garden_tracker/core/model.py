@@ -459,7 +459,7 @@ class GardenModel:
         if ref in gs:
             return gs[ref]
         for g in gs.values():
-            if g["name"].lower() == str(ref).lower():
+            if g["name"].lower() == str(ref).lower() and not g.get("archived"):
                 return g
         raise GardenError(f"No garden found matching '{ref}'")
 
@@ -541,14 +541,33 @@ class GardenModel:
         self._touch(True)
 
     def remove_garden(self, ref: str) -> None:
+        """Take a garden, greenhouse or seedling rack out of view. Its history stays, under Past plants, and it can be
+        brought back. Sensors, heating and alarms are switched off for good measure."""
         g = self.find_garden(ref)
         if any(v["garden"] == g["id"] and not v.get("archived") for v in self.data["varieties"].values()):
             raise GardenError("Archive or remove this garden's plants first")
         for v in self.data["varieties"].values():
             if v["garden"] == g["id"]:
                 v["garden_name"] = g["name"]
-        del self.data["gardens"][g["id"]]
+        g["archived"] = {"date": self.today().isoformat()}
+        g["ph_entity"] = None
+        g["sensors"] = {}
+        g["power_sensors"] = {}
+        if isinstance(g.get("climate"), dict):
+            g["climate"]["enabled"] = False
+        if isinstance(g.get("sensor_alarm"), dict):
+            g["sensor_alarm"]["enabled"] = False
         self._touch(True)
+
+    def restore_garden(self, ref: str) -> None:
+        g = self.data["gardens"].get(ref) or next((x for x in self.data["gardens"].values() if x.get("archived") and x["name"].lower() == str(ref).lower()), None)
+        if not g or not g.get("archived"):
+            raise GardenError(f"No removed location found matching '{ref}'")
+        g.pop("archived", None)
+        self._touch(True)
+
+    def _live(self) -> list[dict]:
+        return [g for g in self.data["gardens"].values() if not g.get("archived")]
 
     def add_adjunct_type(self, garden: str, name: str, per_year: int | None = None,
                          interval_days: int | None = None) -> None:
@@ -681,7 +700,7 @@ class GardenModel:
         st, daily, rain = self.data["settings"], self.data["daily"], self.data["rain"]
         thr = st.get("frost_f", mc.FROST_F)
         per = mc.periods(today)
-        gardens = [g for g in self.data["gardens"].values() if g.get("kind", "garden") == "garden"]
+        gardens = [g for g in self._live() if g.get("kind", "garden") == "garden"]
         actual, last_year = [], []
         for g in gardens:
             hist = sorted(g.get("soil_temp", []), key=lambda r: (r["date"], r["id"]))
@@ -2217,13 +2236,24 @@ class GardenModel:
                           "feeding_plan": sp.get("feeding_plan", []),
                           "single_harvest": bool(sp.get("single_harvest")),
                           "multi_year": bool(sp.get("multi_year")), "default_days": sp.get("default_days"), "harvest_rule": sp.get("harvest_rule")}
-        gardens = [self._garden_view(g, today) for g in self.data["gardens"].values()]
+        gardens = [self._garden_view(g, today) for g in self._live()]
         varieties = [self._variety_view(v, today, daily) for v in self.data["varieties"].values()]
         varieties.sort(key=lambda x: (x["archived"] is not None, x["garden"], x["kind"], x["name"].lower()))
         return {"today": today.isoformat(), "micro": self._micro_view(today), "species": species, "gardens": gardens,
-                "varieties": varieties, "variety_traits": list(self.data["variety_traits"].values()), "can_undo": self._trash is not None,
+                "varieties": varieties, "past_gardens": self._past_gardens(), "variety_traits": list(self.data["variety_traits"].values()), "can_undo": self._trash is not None,
                 "containers": list(DEFAULT_CONTAINERS), "container_per_tray": dict(CONTAINER_PER_TRAY),
                 "reasons": REASONS}
+
+    def _past_gardens(self) -> list[dict]:
+        out = []
+        for g in self.data["gardens"].values():
+            if not g.get("archived"):
+                continue
+            plants = [v for v in self.data["varieties"].values() if v["garden"] == g["id"]]
+            out.append({"id": g["id"], "name": g["name"], "kind": g.get("kind", "garden"), "kind_name": LOCATION_KINDS[g.get("kind", "garden")],
+                        "removed": g["archived"]["date"], "plants": len(plants)})
+        out.sort(key=lambda x: x["removed"], reverse=True)
+        return out
 
     def _garden_view(self, g: dict, today: date) -> dict:
         hist = sorted(g["ph_readings"], key=lambda r: (r["date"], r["id"]))

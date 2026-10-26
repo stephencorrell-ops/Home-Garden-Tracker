@@ -26,6 +26,7 @@ SERVICES: dict[str, dict] = {
         O("ec_min"): NUM, O("ec_max"): NUM, O("moisture_min"): NUM, O("moisture_max"): NUM,
         O("probe_depth"): NUM},
     "remove_garden": {R("garden"): cv.string},
+    "restore_garden": {R("garden"): cv.string},
     "add_adjunct_type": {R("garden"): cv.string, R("name"): cv.string, O("per_year"): POS_INT,
         O("interval_days"): POS_INT},
     "remove_adjunct_type": {R("garden"): cv.string, R("adjunct"): cv.string},
