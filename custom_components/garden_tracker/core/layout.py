@@ -43,7 +43,7 @@ DEFAULTS: dict[str, tuple[float, str, bool, str, float]] = {
     "dill": (8, "grid", True, "none", 4), "chives": (6, "grid", True, "none", 4), "mint": (18, "single", False, "none", 4),
     "oregano": (12, "single", False, "none", 4), "thyme": (12, "single", False, "none", 4), "rosemary": (24, "single", False, "none", 4),
     "sage": (18, "single", False, "none", 4), "strawberry": (12, "double", True, "none", 4),
-    "blueberry": (48, "single", False, "none", 4), "raspberry": (24, "single", False, "tpost", 10), "blackberry": (36, "single", False, "tpost", 10),
+    "blueberry": (48, "single", False, "none", 4), "raspberry": (24, "single", False, "tpost", 20), "blackberry": (36, "single", False, "tpost", 20),
     "sweet_potato": (12, "single", False, "none", 4),  # slips set 12 in apart along a ridge
     "corn": (12, "grid", True, "none", 4), "hops": (36, "single", False, "tpost", 10),  # hops climb a string or pole 10 to 20 ft up
 }
@@ -113,7 +113,12 @@ def row_x0(layout: dict, i: int) -> float:
 
 
 def settings_for(layout: dict, key: str) -> dict:
-    return {**defaults_for(key), **(layout.get("crops", {}).get(key) or {})}
+    mine = {k: v for k, v in (layout.get("crops", {}).get(key) or {}).items() if v is not None or k != "post_ft"}
+    return {**defaults_for(key), **mine}
+
+
+def recommended_post(key: str, habit: str | None) -> float | None:
+    return sun.HABIT_POSTS.get((key, habit or ""))
 
 
 def validate_crop(spacing_in: Any = None, support: Any = None, post_ft: Any = None, post_kind: Any = None,
@@ -126,7 +131,8 @@ def validate_crop(spacing_in: Any = None, support: Any = None, post_ft: Any = No
             raise LayoutError("Support must be none, tpost, cage or corral")
         out["support"] = support
     if post_ft is not None:
-        out["post_ft"] = _num(post_ft, "Post spacing", 1, 50)
+        # 0 puts the recommended spacing back; the crop then follows its variety's habit (8 ft determinate tomatoes, 4 ft indeterminate)
+        out["post_ft"] = None if post_ft == 0 else _num(post_ft, "Post spacing", 1, 50)
     if post_kind is not None:
         if post_kind not in POST_KINDS:
             raise LayoutError("Corral posts must be stakes or T-posts")
@@ -211,7 +217,7 @@ def _per_line(s: dict, seg_in: float, stagger: bool) -> int:
     return max(0, int((seg_in - (sp / 2 if stagger else 0) + 1e-6) // sp))
 
 
-def _segment(layout: dict, cx: float, start_in: float, seg_in: float, key: str, name: str) -> dict:
+def _segment(layout: dict, cx: float, start_in: float, seg_in: float, key: str, name: str, habit: str | None = None) -> dict:
     s = settings_for(layout, key)
     offs, stagger = _lines(layout, s)
     xs = [cx + o for o in offs]
@@ -225,7 +231,11 @@ def _segment(layout: dict, cx: float, start_in: float, seg_in: float, key: str, 
            "posts": 0, "stakes": 0, "twine_ft": 0, "cages": 0, "grid": s["pattern"] == "grid",
            "block_w_in": (xs[-1] - xs[0]) + 12}
     seg_ft = seg_in / 12
-    stations = int(seg_ft // s["post_ft"]) + 1
+    post_ft = s["post_ft"]
+    if not (layout.get("crops", {}).get(key) or {}).get("post_ft"):  # the user's own spacing wins; otherwise follow the variety's habit
+        post_ft = recommended_post(key, habit) or post_ft
+    seg["post_ft"] = post_ft
+    stations = int(seg_ft // post_ft) + 1
     if s["support"] == "tpost":
         seg["posts"] = stations
     elif s["support"] == "cage":
@@ -339,7 +349,8 @@ def plan(layout: dict | None, names: dict[str, str], history: dict[int, dict] | 
          traits: dict | None = None, lat: float | None = None, ph: float | None = None, ph_source: str = "") -> dict:
     """Work out every row and the totals. `names` maps crop key to display name (only plants, not trees)."""
     history = history or {}
-    available = [{"key": k, "name": n, **defaults_for(k), **((layout or {}).get("crops", {}).get(k) or {}),
+    available = [{"key": k, "name": n, **settings_for(layout or {}, k), "post_set": bool(((layout or {}).get("crops", {}).get(k) or {}).get("post_ft")),
+                  "post_rec": [{"habit": h["name"], "post_ft": h["post_ft"]} for h in sun.habits_for(k) if h["post_ft"]],
                   "diseases": rot.diseases_for(k), "habits": sun.habits_for(k)} for k, n in sorted(names.items(), key=lambda kv: kv[1].lower())]
     if not layout:
         return {"configured": False, "available": available, "row_widths": list(ROW_WIDTHS), "supports": SUPPORTS,
@@ -354,9 +365,12 @@ def plan(layout: dict | None, names: dict[str, str], history: dict[int, dict] | 
         cx = x0 + row_in / 2
         segs = []
         for sg in row_segments(layout, i, names):
-            seg = _segment(layout, cx, sg["start_ft"] * 12, sg["ft"] * 12, sg["crop"], names[sg["crop"]])
+            habit = (((traits or {}).get(trait_key(sg["crop"], sg.get("variety") or "")) or {}).get("habit")) if sg.get("variety") else None
+            seg = _segment(layout, cx, sg["start_ft"] * 12, sg["ft"] * 12, sg["crop"], names[sg["crop"]], habit)
             segs.append(seg)
             c = crops.setdefault(sg["crop"], {"key": sg["crop"], "name": names[sg["crop"]], **settings_for(layout, sg["crop"]),
+                                              "post_set": bool((layout.get("crops", {}).get(sg["crop"]) or {}).get("post_ft")),
+                                              "post_rec": [{"habit": h["name"], "post_ft": h["post_ft"]} for h in sun.habits_for(sg["crop"]) if h["post_ft"]],
                                               "rows": 0, "_rows": set(), "feet": 0.0, "plants": 0, "posts": 0, "stakes": 0,
                                               "twine_ft": 0, "cages": 0})
             c["_rows"].add(i)

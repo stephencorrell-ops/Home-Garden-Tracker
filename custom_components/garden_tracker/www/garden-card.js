@@ -2093,7 +2093,7 @@ class GardenTrackerCard extends HTMLElement {
             if (cs.support === "cage") o += `<circle cx="${fix(x)}" cy="${fix(y * s)}" r="${fix(rad + 2)}" fill="none" stroke="var(--primary-text-color)" pointer-events="none"/>`;
           } else o += `<line x1="${x}" x2="${x}" y1="${fix(sg.start_in * s)}" y2="${fix((sg.start_in + sg.len_in) * s)}" stroke="${c}" stroke-width="${fix(Math.max(1.5, rad))}" stroke-dasharray="1 ${Math.max(2, cs.spacing_in * s)}" stroke-linecap="round" pointer-events="none"/>`;
         });
-        const stations = []; for (let k = 0; k * cs.post_ft * 12 <= sg.len_in + 1e-6; k++) stations.push(sg.start_in + k * cs.post_ft * 12);
+        const stations = []; for (let k = 0; k * (sg.post_ft || cs.post_ft) * 12 <= sg.len_in + 1e-6; k++) stations.push(sg.start_in + k * (sg.post_ft || cs.post_ft) * 12);
         if (cs.support === "tpost") for (const y of stations) o += `<rect x="${fix(r.x * s - 2.5)}" y="${fix(y * s - 2.5)}" width="5" height="5" fill="var(--primary-text-color)" pointer-events="none"/>`;
         if (cs.support === "corral") {
           const half = Math.min(sg.block_w_in, L.row_in - 2) / 2, xa = (r.x - half) * s, xb = (r.x + half) * s, sz = cs.post_kind === "tpost" ? 5 : 3.5;
@@ -2217,6 +2217,7 @@ class GardenTrackerCard extends HTMLElement {
     const L = g.layout, c = L.available.find((a) => a.key === key);
     return {
       title: `Spacing: ${c.name}`, submitLabel: "Save",
+      note: c.post_rec && c.post_rec.length ? `Recommended post spacing: ${c.post_rec.map((r) => `${num(r.post_ft, 1)} ft for ${r.habit.toLowerCase()}`).join(", ")}. It follows the growth habit set on the variety, and a spacing you enter here replaces it.` : undefined,
       fields: [
         { name: "pattern", label: "How the plants sit across the row", type: "select", options: Object.entries(L.patterns), value: c.pattern },
         { name: "spacing_in", label: "Inches between plants", type: "number", step: "any", value: c.spacing_in, req: true },
@@ -2225,10 +2226,10 @@ class GardenTrackerCard extends HTMLElement {
         { name: "height_ft", label: "Full-grown height (ft), for shade", type: "number", step: "any", value: c.height_ft },
         { name: "support", label: "Support", type: "select", options: Object.entries(L.supports), value: c.support },
         { name: "post_kind", label: "Corral posts", type: "select", options: Object.entries(L.totals.post_kinds), value: c.post_kind, show: (v) => v.support === "corral" },
-        { name: "post_ft", label: "Feet between posts", type: "number", step: "any", value: c.post_ft, show: (v) => v.support === "tpost" || v.support === "corral" },
+        { name: "post_ft", label: `Feet between posts${c.post_rec && c.post_rec.length ? " (empty for the recommended)" : ""}`, type: "number", step: "any", value: c.post_set || !(c.post_rec && c.post_rec.length) ? c.post_ft : "", show: (v) => v.support === "tpost" || v.support === "corral" },
         { name: "twine_levels", label: "Lines of twine up the posts", type: "number", step: "1", value: c.twine_levels, show: (v) => v.support === "corral" },
       ],
-      submit: (x) => this._call("set_layout_crop", { garden: g.id, crop: key, spacing_in: x.spacing_in, support: x.support, post_ft: x.post_ft, post_kind: x.post_kind, twine_levels: x.twine_levels, pattern: x.pattern, stagger: x.pattern === "double" ? x.stagger === "1" : undefined, yield_lb: x.yield_lb, height_ft: x.height_ft }),
+      submit: (x) => this._call("set_layout_crop", { garden: g.id, crop: key, spacing_in: x.spacing_in, support: x.support, post_ft: Number.isFinite(Number(x.post_ft)) && x.post_ft !== "" && x.post_ft != null ? x.post_ft : 0, post_kind: x.post_kind, twine_levels: x.twine_levels, pattern: x.pattern, stagger: x.pattern === "double" ? x.stagger === "1" : undefined, yield_lb: x.yield_lb, height_ft: x.height_ft }),
     };
   }
   _fAType(g) {

@@ -4,6 +4,14 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.22.0 - 2026-10-25
+
+### Added
+- **Recommended post spacing by growth habit.** Determinate tomatoes default to 8 ft between T-posts and indeterminate tomatoes to 4 ft, following the habit set on the variety. Climbing beans, climbing peas and vining cucumbers default to 6 ft. The Spacing form shows the recommendation, a spacing you enter replaces it, and leaving the field empty goes back to the recommended one.
+
+### Changed
+- Raspberry and blackberry trellis posts default to 20 ft apart (was 10 ft).
+
 ## 0.21.0 - 2026-10-25
 
 ### Added

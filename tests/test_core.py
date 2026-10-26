@@ -531,6 +531,28 @@ class Layout(unittest.TestCase):
         m.log_ph(gid, 5.2, "2099-01-01")
         self.assertEqual(warn(), [])
 
+    def test_post_spacing_follows_tomato_habit(self):
+        from custom_components.garden_tracker.core import layout as L2
+        m, gid = self.garden()
+        m.set_variety_traits("tomato", "Roma", habit="determinate")
+        m.set_variety_traits("tomato", "Brandywine", habit="indeterminate")
+        names = {"tomato": "Tomatoes"}
+        lay = {"width_ft": 6, "length_ft": 40, "row_in": 36, "path_in": 24, "rotation": 0, "year": 2026, "crops": {"tomato": {"support": "tpost"}}, "draft": None}
+
+        def post(variety):
+            lay["rows"] = [[{"crop": "tomato", "ft": 40, "start_ft": 0, "variety": variety}]]
+            return L2.plan(lay, names, None, 2026, m.data["variety_traits"])["rows"][0]["segments"][0]["post_ft"]
+        self.assertEqual(post("Roma"), 8.0)
+        self.assertEqual(post("Brandywine"), 4.0)
+        self.assertEqual(post(""), 4.0)
+        lay["crops"]["tomato"]["post_ft"] = 5  # the user's own spacing wins
+        self.assertEqual(post("Roma"), 5)
+        m.set_layout(gid, 6, 40, 36)
+        m.set_layout_crop(gid, "tomato", post_ft=7)
+        m.set_layout_crop(gid, "tomato", post_ft=0)  # back to the recommended
+        self.assertIsNone(m._layout_of(gid)[1]["crops"]["tomato"]["post_ft"])
+        self.assertEqual(L2.recommended_post("bean", "pole"), 6.0)
+
     def test_bramble_cut_back_in_fall(self):
         from datetime import date
         from custom_components.garden_tracker.core import chores
