@@ -10,6 +10,7 @@ from typing import Any, Callable
 
 from . import calc
 from . import irrigation as irr
+from . import moisture as moist
 from . import layout as lay
 from . import rotation as rot
 from . import microclimate as mc
@@ -911,10 +912,10 @@ class GardenModel:
         return g, g["irrigation"]
 
     def set_irrigation(self, garden: str, method: Any = None, soil: Any = None, per_week: Any = None, run_min: Any = "keep",
-                       max_line_gph: Any = None, weather: Any = None) -> None:
+                       max_line_gph: Any = None, weather: Any = None, mulch: Any = None) -> None:
         g, I = self._irrigation_of(garden)
         try:
-            I.update(irr.validate_settings(method, soil, per_week, run_min, max_line_gph, weather))
+            I.update(irr.validate_settings(method, soil, per_week, run_min, max_line_gph, weather, mulch))
         except irr.IrrigationError as e:
             raise GardenError(str(e)) from None
         self._touch()
@@ -1271,12 +1272,14 @@ class GardenModel:
         self._touch()
 
     def log_watering(self, garden: str, when: Any = None, notes: str | None = None) -> None:
-        g = self._location(garden)
+        g = self.find_garden(garden)
+        self._ensure_garden(g)
         g["watering"].append({"id": new_id(), "date": iso(when) or self.today().isoformat(), "notes": notes or ""})
         self._touch()
 
     def set_water_interval(self, garden: str, days: int | None) -> None:
-        g = self._location(garden)
+        g = self.find_garden(garden)
+        self._ensure_garden(g)
         if days is not None and not 1 <= int(days) <= 60:
             raise GardenError("Water every must be between 1 and 60 days")
         g["water_every"] = int(days) if days else None
@@ -2225,7 +2228,7 @@ class GardenModel:
         if "out_temp" in metrics:  # with no sensor of its own it follows the main outdoor sensor
             metrics["out_temp"]["fallback"] = bool(not metrics["out_temp"]["entities"] and self.outdoor_entity)
         soil = kind == "garden"
-        self._weather_fill(metrics, today)
+        self._weather_fill(g, metrics, today)
         return {
             "id": g["id"], "name": g["name"], "kind": kind, "kind_name": LOCATION_KINDS[kind], "metrics": metrics,
             "planting": self._planting_view(metrics["soil_temp"], g, today) if soil else None,
@@ -2239,6 +2242,7 @@ class GardenModel:
             "chores": self._chores_view(g, today) if soil and kind == "garden" else [],
             "layout_history": ({y: lay.plan(h, self._plant_names(), None, int(y)) for y, h in g["layout_history"].items()} if soil else {}),
             "trays": g.get("trays", 0), "water": self._water_view(g, today),
+            "soil_setup": self._soil_setup(g) if soil else None,
             "trays_calc": self._trays_calc(g) if kind != "garden" else None,
             "power": self._power_view(g, today) if kind != "garden" else None,
             "power_groups": POWER_GROUPS.get(kind, {}), "power_sensors": {k: list(v) for k, v in g.get("power_sensors", {}).items()},
@@ -2298,6 +2302,12 @@ class GardenModel:
             level = "none" if since is None else ("due" if since >= every else ("soon" if since >= every - 1 else "ok"))
         return {"last": last, "days_since": since, "every": every, "level": level, "log": log[:60]}
 
+    @staticmethod
+    def _soil_setup(g: dict) -> dict:
+        I = g.get("irrigation") or irr.blank()
+        return {"soil": I.get("soil", irr.DEFAULT_SOIL), "mulch": bool(I.get("mulch")),
+                "soils": [{"key": k, "name": v[0]} for k, v in irr.SOILS.items()]}
+
     def _climate_view(self, g: dict, metrics: dict) -> dict:
         c = g.get("climate") or dict(DEFAULT_CLIMATE)
         st = self.climate_state.get(g["id"], {})
@@ -2333,7 +2343,7 @@ class GardenModel:
         out["level"] = "low" if e < elo else ("high" if e > ehi else "ok")
         if mo["current"] is not None:
             m = mo["current"]
-            out["moisture_state"] = "dry" if m < mlo else ("wet" if m > mhi else "ok")
+            out["moisture_state"] = mo_est["level"] if (mo_est := mo.get("estimate")) else ("dry" if m < mlo else ("wet" if m > mhi else "ok"))
         ms = out["moisture_state"]
         depth = out["depth"]
         depth = int(depth) if float(depth).is_integer() else depth
@@ -2436,7 +2446,7 @@ class GardenModel:
             self._touch()
         return changed
 
-    def _weather_fill(self, metrics: dict, today: date) -> None:
+    def _weather_fill(self, g: dict, metrics: dict, today: date) -> None:
         """Where there is no recent reading, show local weather for the outside air and an estimate for
         the soil (the web app has no sensors). A manual reading or a sensor always wins once it is newer."""
         wn = self.data.get("weather_now")
@@ -2465,6 +2475,27 @@ class GardenModel:
             m["history"] = (m["history"] + rows)[-180:]
             r = rows[-1]
             m.update(current=now["temp"] if key == "out_temp" else r["value"], date=r["date"], source=src, min=r["min"], max=r["max"])
+        self._moisture_fill(g, metrics, today, wn, limit)
+
+    def _moisture_fill(self, g: dict, metrics: dict, today: date, wn: dict, limit: str) -> None:
+        m = metrics.get("moisture")
+        if m is None or m["entities"] or g.get("kind", "garden") != "garden":
+            return
+        real = [r for r in m["history"] if r.get("source") in ("manual", "sensor")]
+        if real and real[-1]["date"] >= limit:
+            return
+        I = g.get("irrigation") or irr.blank()
+        est = moist.estimate(I.get("soil", irr.DEFAULT_SOIL), bool(I.get("mulch")), self.data["daily"], self.data["rain"],
+                          [e["date"] for e in g.get("watering", [])], today, self._lat(), (wn.get("lo"), wn.get("hi")))
+        if not est:
+            return
+        last = real[-1]["date"] if real else ""
+        rows = [{"id": f"w-{r['date']}", "date": r["date"], "value": r["value"], "source": "estimated"} for r in est["rows"] if r["date"] > last]
+        m["history"] = (m["history"] + rows)[-180:]
+        m.update(current=est["value"], date=today.isoformat(), source="estimated", avail=est["avail"])
+        m["estimate"] = {**{k: est[k] for k in ("avail", "since_water", "watered", "days_left", "level", "taw_in", "depth_in")},
+                         "soil": I.get("soil", irr.DEFAULT_SOIL), "soil_name": irr.SOILS[I.get("soil", irr.DEFAULT_SOIL)][0],
+                         "mulch": bool(I.get("mulch"))}
 
     def _planting_view(self, temp: dict, g: dict, today: date) -> dict | None:
         """Is the soil warm enough? Uses the average of the last 3 daily lows (or readings). A crop is left

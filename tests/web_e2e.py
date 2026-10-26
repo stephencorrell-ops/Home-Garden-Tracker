@@ -143,6 +143,15 @@ def main():
             pg.screenshot(path=str(SHOTS / "temps2.png"))
         text = card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText")
         check("Estimated from local weather" in text and "Local weather" in text, "the temperature card says where the numbers come from")
+        card.locator("[data-act=log-water]").first.click()
+        pg.wait_for_timeout(400)
+        mm = pg.evaluate("window.__garden.engine.snapshot()")["gardens"][0]["metrics"]["moisture"]
+        check(mm["source"] == "estimated" and mm["estimate"]["since_water"] == 0 and mm["estimate"]["avail"] > 0.9, "moisture is estimated from the watering just logged")
+        text = card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText")
+        check("estimated soil moisture" in text, "garden page shows the moisture estimate")
+        if SHOTS:
+            card.get_by_text("estimated soil moisture").first.evaluate("e => e.closest('.card').scrollIntoView()")
+            pg.screenshot(path=str(SHOTS / "moist.png"))
         card.locator("[data-act=open-layout]").click()
         card.locator("[data-act=lay-start]").click()
         card.locator("[data-act=lay-fill]").wait_for(timeout=5000)

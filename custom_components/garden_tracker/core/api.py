@@ -68,7 +68,7 @@ HANDLERS: dict[str, Handler] = {
     "set_crop_days": lambda m, c: m.set_crop_days(c["crop"], c["days"], c.get("hardy")),
     "reset_crop_days": lambda m, c: m.reset_crop_days(c["crop"]),
     "remove_variety_traits": lambda m, c: m.remove_variety_traits(c["crop"], c["variety"]),
-    "set_irrigation": lambda m, c: m.set_irrigation(c["garden"], c.get("method"), c.get("soil"), c.get("per_week"), c.get("run_min", "keep"), c.get("max_line_gph"), c.get("weather")),
+    "set_irrigation": lambda m, c: m.set_irrigation(c["garden"], c.get("method"), c.get("soil"), c.get("per_week"), c.get("run_min", "keep"), c.get("max_line_gph"), c.get("weather"), c.get("mulch")),
     "set_sprinkler": lambda m, c: m.set_sprinkler(c["garden"], c.get("mode"), c.get("pr_mode"), c.get("gpm"), c.get("radius_ft"), c.get("arc"), c.get("pr_in_hr", "keep"), c.get("heads", "keep"), c.get("per_week", "keep")),
     "set_irrigation_crop": lambda m, c: m.set_irrigation_crop(c["garden"], c["crop"], c.get("water_in_week"), c.get("lines"), c.get("flow_gph", "keep"), c.get("emit_in", "keep"), c.get("ppm_n")),
     "reset_irrigation_crop": lambda m, c: m.reset_irrigation_crop(c["garden"], c["crop"]),

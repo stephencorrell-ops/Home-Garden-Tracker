@@ -718,6 +718,13 @@ class GardenTrackerCard extends HTMLElement {
     let h = `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("watering-can")} Watering</div>${this._btn("log-water", "plus", "Water now", `data-g="${gid}"`, "primary")}</div>`;
     h += `<div class="row" style="align-items:baseline;margin:6px 0"><span class="ph">${w.days_since === null ? "–" : w.days_since === 0 ? "Today" : `${w.days_since} d`}</span><span class="small mut">${w.last ? `since ${fmtDate(w.last)}` : "no watering logged yet"}</span></div>`;
     h += `<div class="row" style="flex-wrap:wrap;gap:6px">${this._waterPill(g)}${this._btn("form-water-every", "bell-outline", w.every ? `Every ${w.every} days` : "Set reminder", `data-g="${gid}"`)}</div>`;
+    const est = g.metrics && g.metrics.moisture && g.metrics.moisture.estimate;
+    if (est) {
+      const left = est.level === "dry" || est.days_left <= 0 ? "It is time to water." : est.days_left === 1 ? "Plan to water tomorrow." : est.days_left > 14 ? "No watering needed for two weeks or more." : `Plan to water in about ${est.days_left} days.`;
+      h += `<div style="margin:10px 0 4px"><span class="ph">${num(g.metrics.moisture.current, 0)}%</span> <span class="small mut">estimated soil moisture, about ${Math.round(est.avail * 100)}% of the water this soil can hold</span></div>`;
+      h += `<div class="small" style="margin-bottom:4px">${left} ${est.watered ? `Worked out from the watering ${est.since_water === 0 ? "today" : `${est.since_water} day${est.since_water === 1 ? "" : "s"} ago`}, ` : "No recent watering is logged, so this starts from half full. Worked out from "}the weather, ${esc(est.soil_name.toLowerCase())} soil${est.mulch ? " and the mulch" : ", no mulch"}. Log a moisture reading to replace it.</div>`;
+    }
+    if (g.soil_setup) h += `<div class="row" style="margin-top:6px">${this._btn("form-soil", "sprout", `${g.soil_setup.soils.find((x) => x.key === g.soil_setup.soil).name}, ${g.soil_setup.mulch ? "mulched" : "no mulch"}`, `data-g="${gid}"`)}</div>`;
     for (const e of w.log.slice(0, 5)) h += this._logRow("water", gid, e.id, "Watered", `${fmtDate(e.date)}${e.notes ? " · " + esc(e.notes) : ""}`);
     return h + `</div>`;
   }
@@ -929,7 +936,7 @@ class GardenTrackerCard extends HTMLElement {
     h += `<div class="row" style="margin-top:8px">${this._btn("form-ph", "plus", "Log reading", `data-g="${gid}"`)}</div>`;
     const recent = ph.history.slice().reverse().slice(0, 5);
     for (const r of recent) h += this._logRow("ph", gid, r.id, `pH ${num(r.value, 2)}`, `${fmtDate(r.date)}, ${r.source}`);
-    h += `</div>${this._soilCards(g)}${this._coverCard(g)}<div class="card"><div class="row"><div class="sec grow" style="margin:0">Soil adjuncts this season</div>${this._btn("form-adj", "plus", "Log something else", `data-g="${gid}" data-s="__new__"`)}${this._btn("form-atype", "calendar-plus", "Schedule", `data-g="${gid}"`)}</div>`;
+    h += `</div>${this._soilCards(g)}${this._waterCard(g)}${this._coverCard(g)}<div class="card"><div class="row"><div class="sec grow" style="margin:0">Soil adjuncts this season</div>${this._btn("form-adj", "plus", "Log something else", `data-g="${gid}" data-s="__new__"`)}${this._btn("form-atype", "calendar-plus", "Schedule", `data-g="${gid}"`)}</div>`;
     for (const a of g.adjuncts) {
       const per = a.per_year || 0;
       const pips = per && !a.as_needed ? `<div class="pips" style="--c:var(--${a.level === "ok" ? "ok" : "spray"})">${Array.from({ length: per }, (_, i) => `<i class="${i < a.count ? "f" : ""}"></i>`).join("")}</div>` : "";
@@ -1065,6 +1072,7 @@ class GardenTrackerCard extends HTMLElement {
         return f.extra.act().then(() => { this._form = null; this._err = null; }, (e) => { f.err = e.message || String(e); }).then(() => this._render());
       }
       case "irr-method": return this._act("set_irrigation", { garden: d.g, method: d.m });
+      case "form-soil": return this._open(this._fSoil(this._garden(d.g)));
       case "irr-set": return this._open(this._fIrr(this._garden(d.g)));
       case "irr-crop": return this._open(this._fIrrCrop(this._garden(d.g), d.c));
       case "irr-acid": return this._open(this._fAcid(this._garden(d.g)));
@@ -1943,19 +1951,32 @@ class GardenTrackerCard extends HTMLElement {
       submit: (x) => this._call("set_sprinkler", { garden: g.id, mode: x.mode, gpm: x.gpm, radius_ft: x.radius_ft, arc: Number(x.arc), pr_mode: x.pr_mode, pr_in_hr: x.pr_mode === "measured" ? (x.pr_in_hr === undefined ? null : x.pr_in_hr) : null, heads: x.mode === "fixed" ? (x.heads === undefined ? null : x.heads) : null, per_week: x.per_week === undefined ? null : x.per_week }),
     };
   }
+  _fSoil(g) {
+    const S = g.soil_setup;
+    return {
+      title: `Soil and mulch: ${g.name}`, submitLabel: "Save",
+      fields: [
+        { name: "soil", label: "Soil", type: "select", options: S.soils.map((x) => [x.key, x.name]), value: S.soil },
+        { name: "mulch", label: "Mulch layer", type: "select", options: [["0", "No mulch"], ["1", "Mulched"]], value: S.mulch ? "1" : "0" },
+      ],
+      note: "Used to estimate soil moisture from your last watering and the weather when you have no probe. Mulch slows the drying. A moisture reading you log replaces the estimate.",
+      submit: (x) => this._call("set_irrigation", { garden: g.id, soil: x.soil, mulch: x.mulch === "1" }),
+    };
+  }
   _fIrr(g) {
     const W = g.irrigation;
     return {
       title: `Soil and run time: ${g.name}`, submitLabel: "Save",
       fields: [
         { name: "soil", label: "Soil", type: "select", options: W.soils.map((x) => [x.key, x.name]), value: W.soil },
+        { name: "mulch", label: "Mulch layer", type: "select", options: [["0", "No mulch"], ["1", "Mulched"]], value: g.soil_setup && g.soil_setup.mulch ? "1" : "0" },
         { name: "per_week", label: "Waterings a week", type: "number", step: "1", value: W.per_week, req: true },
         { name: "run_min", label: "Minutes each watering (empty to work it out)", type: "number", step: "any", value: W.run_min_set || "" },
         { name: "weather", label: "Adjust for the week's weather", type: "select", options: [["1", "Yes, from my temperature and rain sensors"], ["0", "No, use the usual amounts"]], value: W.use_weather ? "1" : "0" },
         { name: "max_line_gph", label: "Most gph through one run of drip line", type: "number", step: "any", value: W.max_line_gph, show: () => W.method === "drip" },
       ],
       note: "Clay soaks in slowly and only takes 1/2 gph emitters; the other soils take 1 gph. Each garden is its own irrigation zone, so its lines all run together for the same time. The weather adjustment uses the daily low and high and the rain your sensors recorded over the last week, so a hot week asks for more water and a cool or rainy one for less.",
-      submit: (x) => this._call("set_irrigation", { garden: g.id, soil: x.soil, per_week: x.per_week, run_min: x.run_min === undefined ? null : x.run_min, max_line_gph: x.max_line_gph, weather: x.weather === "1" }),
+      submit: (x) => this._call("set_irrigation", { garden: g.id, soil: x.soil, mulch: x.mulch === "1", per_week: x.per_week, run_min: x.run_min === undefined ? null : x.run_min, max_line_gph: x.max_line_gph, weather: x.weather === "1" }),
     };
   }
   _fIrrCrop(g, key) {

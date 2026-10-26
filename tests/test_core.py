@@ -153,6 +153,32 @@ class App(unittest.TestCase):
         b = self.app(a.data())  # the estimate survives a restore
         self.assertEqual(json.loads(b.snapshot())["gardens"][0]["metrics"]["out_temp"]["source"], "weather")
 
+    def test_moisture_is_estimated_from_watering_weather_soil_and_mulch(self):
+        a = self.app()
+        a.call("add_garden", json.dumps({"name": "Back yard"}))
+        gid = json.loads(a.snapshot())["gardens"][0]["id"]
+        daily = {f"2026-10-{d:02d}": [40, 70] for d in range(1, 24)}
+        a.merge_weather(json.dumps({"daily": daily, "now": {"temp": 60, "date": "2026-10-24", "lo": 42, "hi": 68}}))
+
+        def est():
+            return json.loads(a.snapshot())["gardens"][0]["metrics"]["moisture"]
+        self.assertEqual(est()["estimate"]["watered"], False)
+        self.assertTrue(json.loads(a.call("log_watering", json.dumps({"garden": gid, "date": "2026-10-23"})))["ok"])
+        fresh = est()
+        self.assertEqual((fresh["source"], fresh["estimate"]["since_water"]), ("estimated", 1))
+        self.assertGreater(fresh["estimate"]["avail"], 0.7)
+        a.call("log_watering", json.dumps({"garden": gid, "date": "2026-10-17"}))
+        a.call("set_irrigation", json.dumps({"garden": gid, "soil": "sand"}))
+        sand = est()["estimate"]["avail"]
+        a.call("set_irrigation", json.dumps({"garden": gid, "soil": "clay"}))
+        clay = est()["estimate"]["avail"]
+        a.call("set_irrigation", json.dumps({"garden": gid, "mulch": True}))
+        mulched = est()["estimate"]["avail"]
+        self.assertLess(sand, clay)  # sand dries out faster than clay
+        self.assertGreater(mulched, clay)  # mulch slows the drying
+        a.call("log_garden_reading", json.dumps({"garden": gid, "metric": "moisture", "value": 33, "date": "2026-10-24"}))
+        self.assertEqual((est()["source"], est()["current"]), ("manual", 33))
+
     def test_bad_location_is_refused(self):
         self.assertFalse(json.loads(self.app().call("set_location", json.dumps({"lat": 99, "lon": 0})))["ok"])
 
