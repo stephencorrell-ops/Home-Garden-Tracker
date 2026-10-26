@@ -55,7 +55,13 @@ class IrrigationError(ValueError):
 
 
 DEFAULT_PUMP = {"name": "Dosatron D14MZ2", "min_ratio": 50, "max_ratio": 500, "min_gpm": 0.05, "max_gpm": 14.0,
-                "tank_gal": 4.0, "flush_min": 5.0}
+                "tank_gal": 4.0, "flush_min": 5.0, "type": "dosing"}
+# A venturi draws stock in by suction, so it has no dial. How much it draws (gallons an hour) depends on the water
+# pressure going in and coming out and is read off its performance chart, or measured. These are placeholders.
+DEFAULT_VENTURI = {"name": "Venturi injector", "type": "venturi", "min_ratio": 1, "max_ratio": 5000, "min_gpm": 0.0, "max_gpm": 1000.0,
+                   "tank_gal": 5.0, "flush_min": 5.0, "suction_gph": 10.0, "motive_gpm": None, "inlet_psi": None, "outlet_psi": None,
+                   "install": "inline"}
+MIN_DROP = 0.2  # a venturi needs at least about 20 to 25 percent less pressure coming out than going in
 
 
 def default_acid() -> dict:
@@ -250,8 +256,23 @@ def validate_fert(every_days: Any = None, active: Any = None) -> dict:
 
 
 def validate_injector(name: Any = None, min_ratio: Any = None, max_ratio: Any = None, min_gpm: Any = None, max_gpm: Any = None,
-                      tank_gal: Any = None, flush_min: Any = None) -> dict:
+                      tank_gal: Any = None, flush_min: Any = None, kind: Any = None, suction_gph: Any = None, motive_gpm: Any = "keep",
+                      inlet_psi: Any = "keep", outlet_psi: Any = "keep", install: Any = None) -> dict:
     out: dict[str, Any] = {}
+    if kind is not None:
+        if kind not in ("dosing", "venturi"):
+            raise IrrigationError("A pump is a dosing pump or a venturi")
+        out["type"] = kind
+    if suction_gph is not None:
+        out["suction_gph"] = _num(suction_gph, "Suction (gallons an hour)", 0.1, 5000)
+    for key, val, label, hi in (("motive_gpm", motive_gpm, "Flow through the venturi", 5000), ("inlet_psi", inlet_psi, "Pressure going in", 300),
+                                ("outlet_psi", outlet_psi, "Pressure coming out", 300)):
+        if val != "keep":  # empty clears it
+            out[key] = None if val in (None, "") else _num(val, label, 0, hi)
+    if install is not None:
+        if install not in ("inline", "bypass"):
+            raise IrrigationError("A venturi is in the main line or on a bypass")
+        out["install"] = install
     if name is not None:
         out["name"] = str(name).strip()[:60] or "Injector"
     if min_ratio is not None:
@@ -327,7 +348,7 @@ def fert_of(f: dict | None) -> dict:
     d = default_fert()
     if not f or "mixes" not in f:
         return d
-    pumps = {k: {**DEFAULT_PUMP, **p} for k, p in (f.get("pumps") or {}).items()}
+    pumps = {k: {**(DEFAULT_VENTURI if p.get("type") == "venturi" else DEFAULT_PUMP), **p} for k, p in (f.get("pumps") or {}).items()}
     if not pumps:  # an older save with a single injector
         pumps = {"pump1": {**DEFAULT_PUMP, **(f.get("injector") or {})}}
     first = next(iter(pumps))
@@ -645,6 +666,41 @@ def flush_for(inj: dict, run_min: float) -> float:
     return inj["flush_min"] if run_min > 3 * inj["flush_min"] else 0.0
 
 
+def venturi_notes(inj: dict, gpm: float = 0.0) -> list[str]:
+    """Things to check about a venturi: pressure drop, and whether the zone's flow suits one in the main line."""
+    out: list[str] = []
+    i, o = inj.get("inlet_psi"), inj.get("outlet_psi")
+    if i and o is not None and i > 0:
+        drop = (i - o) / i
+        if drop < MIN_DROP:
+            out.append(f"A venturi needs the pressure to fall by about 20 to 25 percent across it. {i:g} psi going in and {o:g} coming out is a {100 * drop:.0f} percent drop, so it may not draw at all.")
+    elif i is not None and o is not None and i <= o:
+        out.append("The pressure going in must be higher than the pressure coming out, or the venturi will not draw.")
+    m = inj.get("motive_gpm")
+    if inj.get("install") == "inline" and m and gpm and abs(gpm - m) / m > 0.3:
+        out.append(f"In the main line, a venturi passes about {m:g} GPM at those pressures, but this zone runs {gpm:g} GPM. Match them, or put the venturi on a bypass.")
+    return out
+
+
+def stock_plan(inj: dict, water: float, inject_min: float | None) -> dict:
+    """How the stock tank is diluted: the ratio to set and the batches for a dosing pump, or for a venturi the
+    gallons it draws while it runs. The most it can draw is what the tank holds, so a faster venturi is throttled."""
+    if inj.get("type") != "venturi":
+        ratio, batches = _dilution(inj, water)
+        return {"ratio": ratio, "batches": batches, "stock_gal": water / ratio / batches, "venturi": False,
+                "dial": f"1:{ratio} ({100 / ratio:.2f}%)"}
+    suction = inj.get("suction_gph") or 0.0
+    draw = suction * (inject_min or 0.0) / 60
+    throttle = None
+    stock = draw
+    if draw > inj["tank_gal"]:
+        stock, throttle = inj["tank_gal"], inj["tank_gal"] * 60 / inject_min
+    ratio = water / stock if stock else 0.0
+    dial = (f"suction throttled to {throttle:.1f} gph" if throttle else f"suction wide open, {suction:g} gph") + (f", about 1:{ratio:.0f}" if ratio else "")
+    return {"ratio": ratio, "batches": 1, "stock_gal": stock, "venturi": True, "suction_gph": suction, "throttle_gph": round(throttle, 1) if throttle else None,
+            "dial": dial}
+
+
 def _dilution(inj: dict, water: float) -> tuple[int, int]:
     """The ratio to set and the number of batches, so each batch fits the stock tank and the pump's range."""
     ratio = max(inj["min_ratio"], math.ceil(water / inj["tank_gal"] - 1e-9))
@@ -655,7 +711,7 @@ def _dilution(inj: dict, water: float) -> tuple[int, int]:
     return int(ratio), batches
 
 
-def _raise(out: dict, a: dict, inj: dict, water: float) -> dict:
+def _raise(out: dict, a: dict, inj: dict, water: float, inject_min: float | None = None) -> dict:
     """Base for the stock tank when the water's pH is below the target."""
     name, g_eq, purity, bicarb = BASES[out["base"]]
     eq = base_eq_per_litre(a["ph"], a["ta_ppm"], a["target_ph"], bicarb)
@@ -669,10 +725,10 @@ def _raise(out: dict, a: dict, inj: dict, water: float) -> dict:
                 "table": [{"ph": t, "g_per_gal": round((base_eq_per_litre(a["ph"], a["ta_ppm"], t, bicarb) or 0) * g_eq / purity * 3.78541, 2)}
                           for t in (6.0, 6.5, 7.0, 7.5) if t > a["ph"] and (not bicarb or t < 8.3)]})
     if water > 0:
-        ratio, batches = _dilution(inj, water)
-        stock = water / ratio / batches
+        sp = stock_plan(inj, water, inject_min)
+        ratio, batches, stock = sp["ratio"], sp["batches"], sp["stock_gal"]
         grams = g_gal * water / batches
-        out["tank"] = {"ratio": ratio, "percent": round(100 / ratio, 3), "dial": f"1:{ratio} ({100 / ratio:.2f}%)", "stock_gal": round(stock, 2),
+        out["tank"] = {"ratio": ratio, "percent": round(100 / ratio, 3) if ratio else 0, "dial": sp["dial"], "stock_gal": round(stock, 2),
                        "batches": batches, "g": round(grams), "oz": round(grams / 28.3495, 1), "g_per_gal_stock": round(grams / stock) if stock else None}
         if out["tank"]["g_per_gal_stock"] and out["tank"]["g_per_gal_stock"] > 400:
             out["warnings"].append("That is a strong stock solution; bicarbonate dissolves to about 330 g a gallon, so use a weaker dilution or a bigger tank.")
@@ -681,7 +737,7 @@ def _raise(out: dict, a: dict, inj: dict, water: float) -> dict:
     return out
 
 
-def acid(a: dict | None, inj: dict, water: float, pump: str = "pump1") -> dict:
+def acid(a: dict | None, inj: dict, water: float, pump: str = "pump1", inject_min: float | None = None) -> dict:
     """Acid for the stock tank. `water` is the gallons that pass through the injector in one watering."""
     a = {**default_acid(), **(a or {})}
     out: dict[str, Any] = {"ph": a["ph"], "ta_ppm": a["ta_ppm"], "target_ph": a["target_ph"], "strength_pct": a["strength_pct"],
@@ -697,17 +753,18 @@ def acid(a: dict | None, inj: dict, water: float, pump: str = "pump1") -> dict:
     if a["ph"] == a["target_ph"]:
         out["warnings"].append("The water is already at the target pH.")
     if out["mode"] == "raise":
-        return _raise(out, a, inj, water)
+        return _raise(out, a, inj, water, inject_min)
     eq = acid_eq_per_litre(a["ph"], a["ta_ppm"], a["target_ph"])
     ml_gal = eq * 1000 * 3.78541 / meq_ml
     out.update({"meq_l": round(eq * 1000, 2), "ml_per_gal": round(ml_gal, 2), "ml_per_1000": round(ml_gal * 1000), "water_gal": round(water, 1),
                 "table": [{"ph": t, "ml_per_gal": round(acid_eq_per_litre(a["ph"], a["ta_ppm"], t) * 1000 * 3.78541 / meq_ml, 2)}
                           for t in (6.5, 6.0, 5.5, 5.0) if t < a["ph"]]})
     if water > 0:
-        ratio, batches = _dilution(inj, water)
-        stock = water / ratio
+        sp = stock_plan(inj, water, inject_min)
+        ratio, batches = sp["ratio"], sp["batches"]
+        stock = sp["stock_gal"] * batches
         ml = ml_gal * water / batches
-        out["tank"] = {"ratio": int(ratio), "percent": round(100 / ratio, 3), "dial": f"1:{int(ratio)} ({100 / ratio:.2f}%)",
+        out["tank"] = {"ratio": ratio, "percent": round(100 / ratio, 3) if ratio else 0, "dial": sp["dial"],
                        "stock_gal": round(stock / batches, 2), "batches": batches, "ml": round(ml), "oz": round(ml / 29.5735, 1),
                        "ml_per_gal_stock": round(ml / (stock / batches)) if stock else None}
     if a["ta_ppm"] and a["ph"] < 6.0 and a["ta_ppm"] > 60:
@@ -783,7 +840,7 @@ def _acid_for(st: dict, gal: float, run_min: float, ft: dict) -> dict:
     f = fert_of(st["fert"])
     pk, inj = pump_for(f, "acid")
     water = gal * (run_min - flush_for(inj, run_min)) / run_min if run_min else gal
-    out = acid(st["acid"], inj, water, pk)
+    out = acid(st["acid"], inj, water, pk, (run_min - flush_for(inj, run_min)) if run_min else None)
     out["with_feed"] = bool(ft.get("feed_pumps")) and pk not in ft["feed_pumps"]
     if ft.get("feed_pumps"):
         out["note"] = ("Runs with the feeding, on its own pump." if out["with_feed"]
@@ -849,23 +906,22 @@ def fert(f: dict | None, crops: list[dict], gal: float, method: str, area: float
         grams = sum(c["g"] for c in mine)
         pk, inj = pump_for(f, t)
         runs.setdefault(pk, []).append(t)
-        ratio = max(inj["min_ratio"], math.ceil(water / inj["tank_gal"] - 1e-9))
-        batches = 1
-        if ratio > inj["max_ratio"]:
-            ratio = inj["max_ratio"]
-            batches = math.ceil(water / ratio / inj["tank_gal"] - 1e-9)
-        stock = water / ratio
-        per_batch = stock / batches
+        sp = stock_plan(inj, water, inject_min)
+        ratio, batches, per_batch = sp["ratio"], sp["batches"], sp["stock_gal"]
         tk = {"tank": t, "pump": pk, "pump_name": inj["name"],
               "components": [{"name": c["name"], "g": round(c["g"] / batches, 1), "oz": round(c["g"] / batches / 28.3495, 2),
                               "lb": round(c["g"] / batches / 453.592, 3)} for c in mine],
-              "grams": round(grams / batches, 1), "ratio": int(ratio), "percent": round(100 / ratio, 3), "stock_gal": round(per_batch, 2),
-              "batches": batches, "g_per_gal": round(grams / batches / per_batch) if per_batch else None,
-              "dial": f"1:{int(ratio)} ({100 / ratio:.2f}%)"}
+              "grams": round(grams / batches, 1), "ratio": round(ratio) if ratio else None, "percent": round(100 / ratio, 3) if ratio else None,
+              "stock_gal": round(per_batch, 2), "batches": batches, "g_per_gal": round(grams / batches / per_batch) if per_batch else None,
+              "dial": sp["dial"], "venturi": sp["venturi"], "suction_gph": sp.get("suction_gph"), "throttle_gph": sp.get("throttle_gph")}
+        if sp["venturi"]:
+            out["warnings"] += [w for w in venturi_notes(inj, gpm) if w not in out["warnings"]]
+            if not per_batch:
+                out["warnings"].append(f"{inj['name']} has no suction set, so the stock tank cannot be worked out.")
         if tk["g_per_gal"] and tk["g_per_gal"] > 570:  # about 150 g a litre, more than most fertilizers dissolve
-            out["warnings"].append(f"Tank {t} is very strong ({tk['g_per_gal']} g a gallon) and may not dissolve all the way. Use a bigger tank or a weaker dilution.")
+            out["warnings"].append(f"Tank {t} is very strong ({tk['g_per_gal']} g a gallon) and may not dissolve all the way. Use a bigger tank, " + ("a venturi that draws more, " if sp["venturi"] else "") + "or a weaker dilution.")
         out["tanks"].append(tk)
-        if gpm and not inj["min_gpm"] <= gpm <= inj["max_gpm"]:
+        if gpm and inj.get("type") != "venturi" and not inj["min_gpm"] <= gpm <= inj["max_gpm"]:
             out["warnings"].append(f"The garden runs at {gpm:g} GPM, outside the {inj['name']}'s {inj['min_gpm']:g} to {inj['max_gpm']:g} GPM range.")
     n_runs = max((len(v) for v in runs.values()), default=1)
     out["feed_runs"] = [{"n": i + 1, "tanks": [v[i] for v in runs.values() if i < len(v)]} for i in range(n_runs)]

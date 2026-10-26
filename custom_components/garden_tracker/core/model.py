@@ -987,11 +987,15 @@ class GardenModel:
         self._touch()
 
     def set_pump(self, garden: str, pump: str | None = None, name: Any = None, min_ratio: Any = None, max_ratio: Any = None,
-                 min_gpm: Any = None, max_gpm: Any = None, tank_gal: Any = None, flush_min: Any = None) -> str:
-        """Change a pump, or add one when `pump` is empty. Returns its key."""
+                 min_gpm: Any = None, max_gpm: Any = None, tank_gal: Any = None, flush_min: Any = None,
+                 kind: Any = None, suction_gph: Any = None, motive_gpm: Any = "keep", inlet_psi: Any = "keep",
+                 outlet_psi: Any = "keep", install: Any = None) -> str:
+        """Change a pump, or add one when `pump` is empty. Returns its key. A venturi has no dilution dial: it draws
+        `suction_gph` gallons an hour at the pressures going in and coming out."""
         F = self._fert_of(garden)
         try:
-            vals = irr.validate_injector(name, min_ratio, max_ratio, min_gpm, max_gpm, tank_gal, flush_min)
+            vals = irr.validate_injector(name, min_ratio, max_ratio, min_gpm, max_gpm, tank_gal, flush_min, kind, suction_gph,
+                                         motive_gpm, inlet_psi, outlet_psi, install)
             if pump:
                 if pump not in F["pumps"]:
                     raise irr.IrrigationError("Unknown pump")
@@ -999,10 +1003,13 @@ class GardenModel:
             else:
                 if not vals.get("name"):
                     raise irr.IrrigationError("A pump needs a name")
-                new = {**irr.DEFAULT_PUMP, **vals}
-            if new["min_ratio"] > new["max_ratio"]:
+                new = {**(irr.DEFAULT_VENTURI if kind == "venturi" else irr.DEFAULT_PUMP), **vals}
+            if new.get("type") == "venturi":
+                if (new.get("inlet_psi") is not None and new.get("outlet_psi") is not None and new["outlet_psi"] > new["inlet_psi"]):
+                    raise irr.IrrigationError("The pressure coming out cannot be higher than the pressure going in")
+            elif new["min_ratio"] > new["max_ratio"]:
                 raise irr.IrrigationError("The strongest dilution (1:50) must be a smaller number than the weakest (1:500)")
-            if new["min_gpm"] > new["max_gpm"]:
+            if new.get("type") != "venturi" and new["min_gpm"] > new["max_gpm"]:
                 raise irr.IrrigationError("The lowest flow must be less than the highest")
         except irr.IrrigationError as e:
             raise GardenError(str(e)) from None

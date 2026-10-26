@@ -75,7 +75,7 @@ HANDLERS: dict[str, Handler] = {
     "set_acid": lambda m, c: m.set_acid(c["garden"], c.get("ph"), c.get("ta_ppm"), c.get("target_ph"), c.get("strength_pct"), c.get("sg", "keep"), c.get("base")),
     "set_lime": lambda m, c: m.set_lime(c["garden"], c.get("target_ph"), c.get("type"), c.get("depth_in"), c.get("tilled"), c.get("ph", "keep"), c.get("lb_per_unit", "keep")),
     "set_fertigation": lambda m, c: m.set_fertigation(c["garden"], c.get("every_days"), c.get("active")),
-    "set_pump": lambda m, c: m.set_pump(c["garden"], c.get("pump"), c.get("name"), c.get("min_ratio"), c.get("max_ratio"), c.get("min_gpm"), c.get("max_gpm"), c.get("tank_gal"), c.get("flush_min")),
+    "set_pump": lambda m, c: m.set_pump(c["garden"], c.get("pump"), c.get("name"), c.get("min_ratio"), c.get("max_ratio"), c.get("min_gpm"), c.get("max_gpm"), c.get("tank_gal"), c.get("flush_min"), c.get("kind"), c.get("suction_gph"), c.get("motive_gpm", "keep"), c.get("inlet_psi", "keep"), c.get("outlet_psi", "keep"), c.get("install")),
     "remove_pump": lambda m, c: m.remove_pump(c["garden"], c["pump"]),
     "set_tank_pump": lambda m, c: m.set_tank_pump(c["garden"], c["tank"], c["pump"]),
     "log_acid": lambda m, c: m.log_acid(c["garden"], c.get("date"), c.get("ml"), c.get("water_gal"), c.get("ph_before"), c.get("ph_after"), c.get("notes"), c.get("g"), c.get("product")),

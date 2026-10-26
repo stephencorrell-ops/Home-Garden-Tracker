@@ -969,6 +969,32 @@ class Irrigation(unittest.TestCase):
         with self.assertRaises(GardenError):
             self.m.set_pump(self.gid, "pump1", min_ratio=1100)  # past the weakest dilution
 
+    def test_a_venturi_has_no_dial_and_sizes_the_stock_from_its_suction(self):
+        key = self.m.set_pump(self.gid, None, "Mazzei 484", kind="venturi", suction_gph=12, inlet_psi=40, outlet_psi=20, motive_gpm=3.4, tank_gal=10)
+        self.m.set_tank_pump(self.gid, "A", key)
+        f = self.water()["fert"]
+        t = next(x for x in f["tanks"] if x["tank"] == "A")
+        draw = 12 * f["inject_min"] / 60
+        self.assertTrue(t["venturi"])
+        self.assertAlmostEqual(t["stock_gal"], min(draw, 10), delta=0.01)
+        self.assertTrue(t["dial"].startswith("suction"))
+        self.assertAlmostEqual(t["grams"] / t["stock_gal"], t["g_per_gal"], delta=1)
+        # a tank that holds less than it would draw means the suction is throttled
+        self.m.set_pump(self.gid, key, tank_gal=0.5)
+        t = next(x for x in self.water()["fert"]["tanks"] if x["tank"] == "A")
+        self.assertEqual(t["stock_gal"], 0.5)
+        self.assertLess(t["throttle_gph"], 12)
+        self.assertIn("throttled", t["dial"])
+        # too little pressure drop is called out; so is a back pressure higher than the inlet
+        self.m.set_pump(self.gid, key, inlet_psi=30, outlet_psi=28)
+        self.assertTrue(any("pressure to fall" in w for w in self.water()["fert"]["warnings"]))
+        with self.assertRaises(GardenError):
+            self.m.set_pump(self.gid, key, inlet_psi=20, outlet_psi=30)
+        self.m.set_pump(self.gid, key, outlet_psi=None)  # clearing a pressure is allowed
+        self.m.set_acid(self.gid, ph=8.0, ta_ppm=100)
+        self.m.set_tank_pump(self.gid, "acid", key)
+        self.assertTrue(self.water()["acid"]["tank"]["dial"].startswith("suction"))
+
     def test_a_second_pump_lets_the_tanks_run_together_and_acid_run_with_the_feeding(self):
         self.m.set_fertigation(self.gid, active="fruiting")
         f = self.water()["fert"]
