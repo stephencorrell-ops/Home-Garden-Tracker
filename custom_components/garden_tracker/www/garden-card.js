@@ -325,6 +325,15 @@ class GardenTrackerCard extends HTMLElement {
       this.shadowRoot.addEventListener("click", (e) => this._onClick(e));
       this.shadowRoot.addEventListener("input", (e) => this._onInput(e, false));
       this.shadowRoot.addEventListener("change", (e) => this._onInput(e, true));
+      this.shadowRoot.addEventListener("focusin", (e) => {
+        const el = e.target;
+        if (el.dataset && el.dataset.fs !== undefined && this._form && !(this._form.search && this._form.search[el.dataset.fs] !== undefined)) {
+          this._form.search = this._form.search || {};
+          this._form.search[el.dataset.fs] = "";
+          this._focusF = el.dataset.fs;
+          this._render();
+        }
+      });
     }
     this._render();
   }
@@ -414,6 +423,11 @@ class GardenTrackerCard extends HTMLElement {
       (this._undo && this._snap && this._snap.can_undo && !this._form
         ? `<div class="undo"><span>Entry removed</span><button data-act="undo">Undo</button></div>` : "");
     this.shadowRoot.innerHTML = `<style>${CSS}${this._web ? WEB_PHONE_CSS : ""}</style><ha-card${this._web ? ' class="web"' : ""}>${banner}${body}</ha-card>`;
+    if (this._focusF) {
+      const el = this.shadowRoot.querySelector(`input[data-fs="${this._focusF}"]`);
+      this._focusF = null;
+      if (el) { el.focus(); try { el.setSelectionRange(el.value.length, el.value.length); } catch (e) { /* not a text box */ } }
+    }
     if (this._focusQ) {  // keep the cursor in a search box while its list is redrawn
       const el = this.shadowRoot.querySelector(`input[data-q="${this._focusQ}"]`);
       this._focusQ = null;
@@ -1181,6 +1195,7 @@ class GardenTrackerCard extends HTMLElement {
       case "sort": this._sort = d.s; this._setPref("sort", d.s); return this._render();
       case "psort": this._psort = d.s; this._setPref("psort", d.s); return this._render();
       case "lay-plant": return this._open(this._fPlantLayout(this._garden(d.g)));
+      case "find-pick": { const f = this._form; f.values[d.f] = d.val; if (f.search) delete f.search[d.f]; return this._render(); }
       case "form-view": return this._open(this._fView());
       case "air-range": this._airRange = d.s; return this._render();
       case "temp-range": this._tempRange = d.s; return this._render();
@@ -1263,6 +1278,13 @@ class GardenTrackerCard extends HTMLElement {
   }
   _onInput(e, isChange) {
     const el = e.target;
+    if (el.dataset && el.dataset.fs !== undefined && this._form) {
+      if (isChange) return;
+      this._form.search = this._form.search || {};
+      this._form.search[el.dataset.fs] = el.value;
+      this._focusF = el.dataset.fs;
+      return this._render();
+    }
     if (el.dataset && el.dataset.q !== undefined && !isChange) { this._q[el.dataset.q] = el.value; this._focusQ = el.dataset.q; return this._render(); }
     if (el.dataset && el.dataset.lay && isChange && el.tagName === "INPUT") {
       const L = this._garden(el.dataset.g).layout;
@@ -1328,6 +1350,16 @@ class GardenTrackerCard extends HTMLElement {
       const label = x.labelFn ? x.labelFn(vals) : x.label, val = vals[x.name] ?? "";
       let ctl;
       if (x.type === "select") ctl = `<select data-f="${x.name}">${x.options.map(([v, t]) => `<option value="${esc(v)}" ${String(val) === String(v) ? "selected" : ""}>${esc(t)}</option>`).join("")}</select>`;
+      else if (x.type === "find") {
+        const typed = f.search && f.search[x.name] !== undefined ? f.search[x.name] : null;
+        const cur = x.options.find(([v]) => String(v) === String(val));
+        const q = (typed || "").trim().toLowerCase();
+        const hits = typed === null ? [] : x.options.filter(([v, t]) => v !== "other" && (!q || q.split(/\s+/).every((w) => t.toLowerCase().includes(w))));
+        const shown = hits.slice(0, q ? 10 : 14), more = hits.length - shown.length;
+        const last = x.options.find(([v]) => v === "other");
+        ctl = `<input data-fs="${x.name}" type="search" autocomplete="off" placeholder="${esc(x.placeholder || "Search")}" value="${esc(typed !== null ? typed : cur ? cur[1] : "")}">`;
+        if (typed !== null) ctl += `<div class="seg" style="flex-wrap:wrap;margin-top:6px">${shown.map(([v, t]) => `<button data-act="find-pick" data-f="${x.name}" data-val="${esc(v)}" class="${String(val) === String(v) ? "on" : ""}">${esc(t)}</button>`).join("")}${last ? `<button data-act="find-pick" data-f="${x.name}" data-val="other">${esc(last[1])}</button>` : ""}</div>${more > 0 ? `<div class="small mut" style="margin-top:4px">${more} more. Keep typing to narrow it down.</div>` : ""}${!hits.length ? `<div class="small mut" style="margin-top:4px">Nothing matches. Pick Other to add your own.</div>` : ""}`;
+      }
       else if (x.type === "multi") { const on = new Set(String(val).split(",").filter(Boolean)); ctl = `<div class="seg" style="flex-wrap:wrap">${x.options.map(([v, t]) => `<button data-act="toggle" data-f="${x.name}" data-val="${esc(v)}" class="${on.has(v) ? "on" : ""}">${esc(t)}</button>`).join("") || `<span class="small mut">No matching sensors found. Type entity ids below.</span>`}</div>`; }
       else if (x.type === "seg" || x.type === "chips") ctl = `<div class="seg">${x.options.map(([v, t]) => `<button data-act="pick" data-f="${x.name}" data-val="${esc(v)}" class="${val === v ? "on" : ""}">${esc(t)}</button>`).join("")}</div>`;
       else if (x.type === "textarea") ctl = `<textarea data-f="${x.name}" rows="3">${esc(val)}</textarea>`;
@@ -1386,8 +1418,8 @@ class GardenTrackerCard extends HTMLElement {
     return {
       title: "Add plant", submitLabel: "Add plant",
       fields: [
-        { name: "garden", label: "Where", type: "select", options: [...gs.map((g) => [g.id, g.kind === "garden" ? g.name : `${g.name} (${g.kind_name.toLowerCase()})`]), ["", "No garden (trees only)"]], value: gid || (gs[0] ? gs[0].id : ""), span: 3 },
-        { name: "species", label: "Type", type: "select", options: [...sp.map((s) => [s.key, s.name]), ["other", "Other..."]], value: this._snap.species.tomato ? "tomato" : sp[0] ? sp[0].key : "other", span: 3 },
+        { name: "garden", label: "Where", type: "select", options: [...gs.map((g) => [g.id, g.kind === "garden" ? g.name : `${g.name} (${g.kind_name.toLowerCase()})`]), ["", "No garden (trees only)"]], value: gid || (gs[0] ? gs[0].id : ""), span: 6 },
+        { name: "species", label: "Type", type: "find", placeholder: "Search plants", options: [...sp.map((s) => [s.key, s.name]), ["other", "Other..."]], value: this._snap.species.tomato ? "tomato" : sp[0] ? sp[0].key : "other", span: 6 },
         { name: "species_other", label: "Type name", type: "text", req: true, show: (v) => v.species === "other", span: 3 },
         { name: "kind", label: "Kind", type: "seg", options: [["plant", "Plant"], ["tree", "Tree"]], value: "plant", show: (v) => v.species === "other", span: 3 },
         { name: "single_harvest", label: "Pulled when harvested?", type: "seg", options: [["false", "No"], ["true", "Yes"]], value: "false", show: (v) => v.species === "other" && v.kind !== "tree", span: 3 },
