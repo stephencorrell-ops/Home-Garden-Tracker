@@ -4,6 +4,11 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.29.0 - 2026-10-29
+
+### Added
+- **Plant this layout.** The layout planner's new "Plant this layout" card turns the planted rows into tracked plantings: one per crop (and variety), with the number of plants the layout holds, a planting date, seed or starts, and a note of which rows. Sections already turned into plantings are skipped, so you can run it again after adding more rows. New `plant_layout` service.
+
 ## 0.28.1 - 2026-10-29
 
 ### Fixed
