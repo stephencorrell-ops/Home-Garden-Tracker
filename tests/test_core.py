@@ -1234,7 +1234,7 @@ class TreeNames(unittest.TestCase):
         import json, pathlib
         p = pathlib.Path(__file__).parent.parent / "custom_components/garden_tracker/core/species.json"
         d = json.loads(p.read_text())
-        names = {k: v["name"] for k, v in d.items() if isinstance(v, dict) and "name" in v}
+        names = {k: v["name"] for k, v in d.items() if isinstance(v, dict) and v.get("kind") == "tree"}
         self.assertEqual(names["black_walnut"], "Walnut tree, black")
         self.assertEqual(names["cherry"] if "cherry" in names else "Cherry tree", "Cherry tree")
         for k, n in names.items():
