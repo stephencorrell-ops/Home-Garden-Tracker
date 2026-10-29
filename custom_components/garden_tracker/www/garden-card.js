@@ -378,6 +378,7 @@ class GardenTrackerCard extends HTMLElement {
   async _call(service, data) {
     const clean = {};
     for (const [k, v] of Object.entries(data)) {
+      if (v === "" && (k === "garden" || k === "to")) { clean[k] = v; continue; }  // empty means "no garden" for a tree
       if (v === "" || v === undefined || v === null || (typeof v === "number" && isNaN(v))) continue;
       clean[k] = v;
     }

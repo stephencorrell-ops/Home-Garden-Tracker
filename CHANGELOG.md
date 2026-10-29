@@ -4,6 +4,11 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.28.1 - 2026-10-29
+
+### Fixed
+- **Adding a tree with "No garden" in Home Assistant** failed with "required key not provided at 'garden'", because the card dropped the empty garden before sending it. The card now sends it, and `garden` (add_variety) and `to` (move_plants) default to empty in the service schemas.
+
 ## 0.28.0 - 2026-10-26
 
 ### Added
