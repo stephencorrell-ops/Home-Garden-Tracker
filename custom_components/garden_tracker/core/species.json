@@ -1,7 +1,7 @@
 {
  "_comment": "STARTER VALUES ONLY. Verify thresholds and feeding focus with your extension service and product labels. Add or override species with the garden_tracker.add_species service.",
  "apple": {
-  "name": "Apple",
+  "name": "Apple tree",
   "kind": "tree",
   "pests": [
    {
@@ -24,7 +24,7 @@
   ]
  },
  "pear": {
-  "name": "Pear",
+  "name": "Pear tree",
   "kind": "tree",
   "pests": [
    {
@@ -47,7 +47,7 @@
   ]
  },
  "asian_pear": {
-  "name": "Asian pear",
+  "name": "Asian pear tree",
   "kind": "tree",
   "pests": [
    {
@@ -70,7 +70,7 @@
   ]
  },
  "cherry": {
-  "name": "Cherry",
+  "name": "Cherry tree",
   "kind": "tree",
   "pests": [
    {
@@ -93,12 +93,12 @@
   ]
  },
  "nectarine": {
-  "name": "Nectarine",
+  "name": "Nectarine tree",
   "kind": "tree",
   "pests": []
  },
  "pawpaw": {
-  "name": "Pawpaw",
+  "name": "Pawpaw tree",
   "kind": "tree",
   "pests": []
  },
@@ -215,12 +215,12 @@
   "single_harvest": true
  },
  "peach": {
-  "name": "Peach",
+  "name": "Peach tree",
   "kind": "tree",
   "pests": []
  },
  "jujube": {
-  "name": "Jujube",
+  "name": "Jujube tree",
   "kind": "tree",
   "pests": []
  },
@@ -446,17 +446,17 @@
   "pests": []
  },
  "apricot": {
-  "name": "Apricot",
+  "name": "Apricot tree",
   "kind": "tree",
   "pests": []
  },
  "hazelnut": {
-  "name": "Hazelnut (filbert)",
+  "name": "Hazelnut tree (filbert)",
   "kind": "tree",
   "pests": []
  },
  "english_walnut": {
-  "name": "English walnut",
+  "name": "Walnut tree, English",
   "kind": "tree",
   "pests": [
    {
@@ -475,7 +475,7 @@
   "prune_text": "Walnuts are pruned before they bud out in spring, March to April."
  },
  "black_walnut": {
-  "name": "Black walnut",
+  "name": "Walnut tree, black",
   "kind": "tree",
   "pests": [
    {
@@ -494,32 +494,32 @@
   "prune_text": "Walnuts are pruned before they bud out in spring, March to April."
  },
  "plum": {
-  "name": "Plum",
+  "name": "Plum tree",
   "kind": "tree",
   "pests": []
  },
  "quince": {
-  "name": "Quince",
+  "name": "Quince tree",
   "kind": "tree",
   "pests": []
  },
  "fig": {
-  "name": "Fig",
+  "name": "Fig tree",
   "kind": "tree",
   "pests": []
  },
  "persimmon": {
-  "name": "Persimmon",
+  "name": "Persimmon tree",
   "kind": "tree",
   "pests": []
  },
  "mulberry": {
-  "name": "Mulberry",
+  "name": "Mulberry tree",
   "kind": "tree",
   "pests": []
  },
  "chestnut": {
-  "name": "Chestnut",
+  "name": "Chestnut tree",
   "kind": "tree",
   "pests": []
  }

@@ -4,6 +4,12 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.30.0 - 2026-10-29
+
+- **Search when adding a plant.** The Type field is now a search box: type a few letters and pick from the matches.
+- **Search the layout crop picker.** "Plan a crop" in the layout planner works the same way.
+- **Trees are named "X tree".** Cherry tree, Apple tree, Peach tree and so on, with the walnuts as "Walnut tree, black" and "Walnut tree, English". Plants you already added show the new names.
+
 ## 0.29.0 - 2026-10-29
 
 ### Added
