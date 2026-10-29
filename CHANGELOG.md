@@ -4,6 +4,10 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.30.1 - 2026-10-29
+
+- **Dates can always be picked.** Date fields (expected harvest, planting date and the rest) are now Month, Day and Year dropdowns. Before, some phones only let you change the month and year, so the day stayed on today's date.
+
 ## 0.30.0 - 2026-10-29
 
 - **Search when adding a plant.** The Type field is now a search box: type a few letters and pick from the matches.
