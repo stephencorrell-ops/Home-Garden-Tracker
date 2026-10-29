@@ -1180,6 +1180,7 @@ class GardenTrackerCard extends HTMLElement {
       case "filter": this._filter = d.s; return this._render();
       case "sort": this._sort = d.s; this._setPref("sort", d.s); return this._render();
       case "psort": this._psort = d.s; this._setPref("psort", d.s); return this._render();
+      case "lay-plant": return this._open(this._fPlantLayout(this._garden(d.g)));
       case "form-view": return this._open(this._fView());
       case "air-range": this._airRange = d.s; return this._render();
       case "temp-range": this._tempRange = d.s; return this._render();
@@ -1343,6 +1344,18 @@ class GardenTrackerCard extends HTMLElement {
     const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + n);
     const p = (x) => String(x).padStart(2, "0");
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  }
+  _fPlantLayout(g) {
+    const L = g.layout, n = L.to_plant.reduce((a, x) => a + x.plants, 0);
+    return {
+      title: `Plant ${g.name}'s layout`, submitLabel: "Plant and track",
+      fields: [
+        { name: "date", label: "Planting date", type: "date", value: this._snap.today, span: 3 },
+        { name: "origin", label: "Started from", type: "seg", options: [["start", "Starts"], ["seed", "Seed"]], value: "start", span: 3 },
+      ],
+      note: `Adds ${L.to_plant.length} planting${L.to_plant.length === 1 ? "" : "s"} (${n} plants): ${L.to_plant.map((x) => `${x.variety || x.name} ${x.plants}`).join(", ")}. Days to harvest come from each crop's usual time; change them on the plant afterward.`,
+      submit: (x) => this._call("plant_layout", { garden: g.id, date: x.date, origin: x.origin || "start" }),
+    };
   }
   _fView() {
     const on = (k) => (this._show[k] ? "1" : "0"), seg = [["1", "Show"], ["0", "Hide"]];
@@ -2382,6 +2395,15 @@ class GardenTrackerCard extends HTMLElement {
       h += `</table>`;
     }
     h += `<div class="small mut" style="margin-top:8px">T-posts go at both ends of a planted section and then at the spacing set for the crop. A double line shares one set of posts down its middle. A corral puts a post on each side at every station, with twine run along both sides and across the ends.</div></div>`;
+    if (!past && ((L.to_plant || []).length || L.tracked_plants)) {
+      h += `<div class="card"><div class="sec">Plant this layout</div>`;
+      if (L.to_plant.length) {
+        h += L.to_plant.map((x) => `<div class="row small" style="margin:4px 0"><div class="grow"><b>${esc(x.variety || x.name)}</b>${x.variety ? ` <span class="mut">${esc(x.name)}</span>` : ""}<div class="mut">Row${x.rows.length === 1 ? "" : "s"} ${x.rows.join(", ")}</div></div><b>${x.plants} plants</b></div>`).join("");
+        h += `<div class="small mut" style="margin:6px 0">Adds each crop to your plants in ${esc(g.name)} with this many plants, so you can track feeding, sprays and harvests. Rows already planted${L.tracked_plants ? ` (${L.tracked_plants} plants)` : ""} are left alone.</div>`;
+        h += `<div class="row">${this._btn("lay-plant", "sprout", "Plant and track these", `data-g="${gid}"`, "primary grow")}</div>`;
+      } else h += `<div class="pill ok" style="margin:0">All ${L.tracked_plants} plants are planted and tracked</div>`;
+      h += `</div>`;
+    }
     if (!past) {
       h += `<div class="card">${this._confirm === "season" ? `<div class="conf">Keep ${L.year}'s layout and start ${L.year + 1} with empty rows? ${L.year}'s layout stays here to look up, and your rotation is checked against it.<div class="row"><button data-act="cancel-del">Not yet</button><button class="primary" data-act="do-season" data-g="${gid}">Start ${L.year + 1}</button></div></div>` : `<button data-act="ask-season">Start the ${L.year + 1} season</button>`}</div>`;
       h += `<div class="card">${this._confirm === "lay" ? `<div class="conf">Remove this season's layout? Your plants are not affected.<div class="row"><button data-act="cancel-del">Keep</button><button class="danger" data-act="do-lay" data-g="${gid}">Remove</button></div></div>` : `<button class="danger" data-act="ask-lay">Remove layout</button>`}</div>`;

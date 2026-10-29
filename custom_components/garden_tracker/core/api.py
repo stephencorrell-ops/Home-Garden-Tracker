@@ -63,6 +63,7 @@ HANDLERS: dict[str, Handler] = {
     "remove_layout_segment": lambda m, c: m.remove_layout_segment(c["garden"], c["row"], c.get("index")),
     "set_layout_crop": lambda m, c: m.set_layout_crop(c["garden"], c["crop"], c.get("spacing_in"), c.get("support"), c.get("post_ft"), c.get("post_kind"), c.get("twine_levels"), c.get("pattern"), c.get("stagger"), c.get("yield_lb"), c.get("height_ft")),
     "set_layout_draft": lambda m, c: m.set_layout_draft(c["garden"], c.get("crop"), c.get("mode"), c.get("value"), c.get("yield_lb"), c.get("spacing_in"), c.get("variety")),
+    "plant_layout": lambda m, c: m.plant_layout(c["garden"], c.get("date"), c.get("origin", "start"), c.get("crops")),
     "place_layout_draft": lambda m, c: m.place_layout_draft(c["garden"], c["row"], c.get("start_ft")),
     "start_layout_season": lambda m, c: m.start_layout_season(c["garden"], c.get("year")),
     "set_variety_traits": lambda m, c: m.set_variety_traits(c["crop"], c["variety"], c["resist"] if "resist" in c else UNSET, c["height_ft"] if "height_ft" in c else UNSET, c["habit"] if "habit" in c else UNSET),

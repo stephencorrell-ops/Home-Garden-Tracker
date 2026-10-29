@@ -195,7 +195,7 @@ def row_segments(layout: dict, i: int, names: dict[str, str] | None = None) -> l
         ft = min(float(sg.get("ft") or 0), end - start)
         if ft <= 1e-6:
             continue
-        out.append({"crop": sg["crop"], "ft": round(ft, 3), "start_ft": round(start, 3), "variety": sg.get("variety") or ""})
+        out.append({"crop": sg["crop"], "ft": round(ft, 3), "start_ft": round(start, 3), "variety": sg.get("variety") or "", "planted": sg.get("planted") or ""})
         floor = start + ft
     return out
 
@@ -380,6 +380,7 @@ def plan(layout: dict | None, names: dict[str, str], history: dict[int, dict] | 
             c["twine_ft"] = round(c["twine_ft"] + seg["twine_ft"], 1)
             bed_ft2 += sg["ft"] * row_in / 12
             seg["variety"] = sg.get("variety") or ""
+            seg["planted"] = sg.get("planted") or ""
             vt = (traits or {}).get(trait_key(sg["crop"], seg["variety"])) if seg["variety"] else None
             seg["height_ft"] = (vt or {}).get("height_ft") or c["height_ft"]  # a variety can be taller or shorter than its crop usually is
             resist = resistances(traits, sg["crop"], seg["variety"])

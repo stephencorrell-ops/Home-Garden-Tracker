@@ -1270,6 +1270,51 @@ class GardenModel:
     def _history(self, g: dict) -> dict[int, dict]:
         return {int(y): h for y, h in g["layout_history"].items()}
 
+    def plant_layout(self, garden: str, when: Any = None, origin: str = "start", crops: list[str] | None = None) -> list[str]:
+        """Turn the layout's planted rows into tracked plantings in this garden, one per crop (and variety), each with the
+        number of plants the layout holds. Sections already turned into plantings are skipped, so this can be run again
+        after adding more to the layout. Returns the new plantings."""
+        g, L = self._layout_of(garden)
+        if g.get("kind", "garden") != "garden":
+            raise GardenError("Only a garden has a layout")
+        names = self._plant_names()
+        day = iso(when) or self.today().isoformat()
+        plan = lay.plan(L, names)
+        groups: dict[tuple[str, str], dict] = {}
+        for r in plan["rows"]:
+            for sg in r["segments"]:
+                if sg["planted"] and sg["planted"] in self.data["varieties"]:
+                    continue
+                if crops and sg["crop"] not in crops:
+                    continue
+                gp = groups.setdefault((sg["crop"], sg["variety"]), {"plants": 0, "rows": []})
+                gp["plants"] += sg["plants"]
+                if r["i"] + 1 not in gp["rows"]:
+                    gp["rows"].append(r["i"] + 1)
+        groups = {k: v for k, v in groups.items() if v["plants"] > 0}
+        if not groups:
+            raise GardenError("Nothing in the layout is waiting to be planted")
+        made: dict[tuple[str, str], str] = {}
+        for (crop, variety), gp in groups.items():
+            rows = ", ".join(str(i) for i in sorted(gp["rows"]))
+            made[(crop, variety)] = self.add_variety(
+                g["id"], crop, variety or names[crop], gp["plants"], origin, day, day, None, None, None,
+                f"From the {L.get('year') or self.today().year} layout, row{'s' if len(gp['rows']) > 1 else ''} {rows}.")
+        n = lay.row_count(L)
+        cur = (list(L.get("rows") or []) + [None] * n)[:n]
+        for i in range(n):
+            segs = lay.row_segments(L, i)
+            hit = False
+            for sg in segs:
+                vid = made.get((sg["crop"], sg["variety"]))
+                if vid and not (sg["planted"] and sg["planted"] in self.data["varieties"]):
+                    sg["planted"], hit = vid, True
+            if hit:
+                cur[i] = segs
+        L["rows"] = cur
+        self._touch(True)
+        return list(made.values())
+
     def start_layout_season(self, garden: str, year: Any = None) -> None:
         """Keep this season's layout and begin the next one with the same garden, empty rows and the same crop settings."""
         g, L = self._layout_of(garden)
@@ -2252,6 +2297,25 @@ class GardenModel:
                 "containers": list(DEFAULT_CONTAINERS), "container_per_tray": dict(CONTAINER_PER_TRAY),
                 "reasons": REASONS}
 
+    def _layout_view(self, g: dict, today: date) -> dict:
+        out = lay.plan(g.get("layout"), self._plant_names(), self._history(g), today.year, self.data["variety_traits"], self._lat(), *self._soil_ph(g))
+        if not out.get("configured"):
+            return out
+        groups: dict[tuple[str, str], dict] = {}
+        tracked = 0
+        for r in out["rows"]:
+            for sg in r["segments"]:
+                if sg["planted"] and sg["planted"] in self.data["varieties"]:
+                    tracked += sg["plants"]
+                    continue
+                gp = groups.setdefault((sg["crop"], sg["variety"]), {"crop": sg["crop"], "name": sg["name"], "variety": sg["variety"], "plants": 0, "rows": []})
+                gp["plants"] += sg["plants"]
+                if r["i"] + 1 not in gp["rows"]:
+                    gp["rows"].append(r["i"] + 1)
+        out["to_plant"] = [v for v in groups.values() if v["plants"] > 0]
+        out["tracked_plants"] = tracked
+        return out
+
     def _past_gardens(self) -> list[dict]:
         out = []
         for g in self.data["gardens"].values():
@@ -2288,7 +2352,7 @@ class GardenModel:
             "frost": self._frost_view(g, today),
             "paused": {k: bool(g.get("sensors_paused", {}).get(k)) for k in METRICS},
             "fertility": self._fertility_view(g, metrics, today) if soil else None,
-            "layout": lay.plan(g.get("layout"), self._plant_names(), self._history(g), today.year, self.data["variety_traits"], self._lat(), *self._soil_ph(g)) if soil else None,
+            "layout": self._layout_view(g, today) if soil else None,
             "irrigation": self._irrigation_view(g, today) if soil else None,
             "season": self._season_view(g, today) if soil and kind == "garden" else None,
             "chores": self._chores_view(g, today) if soil and kind == "garden" else [],

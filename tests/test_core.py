@@ -255,6 +255,32 @@ class Layout(unittest.TestCase):
         self.assertEqual(v["totals"]["posts"], 8 * 11)  # a post every 4 ft plus the end one: 40 / 4 + 1
         self.assertEqual(v["totals"]["density"], 0.2)
 
+    def test_the_layout_can_be_planted_and_tracked(self):
+        m, gid = self.garden()
+        m.set_layout(gid, 20, 10, 30, None, 0)
+        m.assign_layout_rows(gid, "tomato", [0, 1], "Sungold")
+        m.assign_layout_rows(gid, "pepper", [2])
+        v = self.view(m, gid)
+        self.assertEqual({(x["crop"], x["variety"]): x["plants"] for x in v["to_plant"]},
+                         {("tomato", "Sungold"): v["rows"][0]["plants"] + v["rows"][1]["plants"], ("pepper", ""): v["rows"][2]["plants"]})
+        made = m.plant_layout(gid, "2026-10-20", "start")
+        self.assertEqual(len(made), 2)
+        snap = m.snapshot()
+        got = {x["name"]: x for x in snap["varieties"] if x["garden"] == gid}
+        self.assertEqual(got["Sungold"]["count"], v["rows"][0]["plants"] + v["rows"][1]["plants"])
+        self.assertEqual((got["Sungold"]["origin"], got["Sungold"]["planted"], got["Sungold"]["in_ground"]), ("start", "2026-10-20", "2026-10-20"))
+        self.assertIn("row 1, 2", got["Sungold"]["notes"].replace("rows", "row"))
+        after = self.view(m, gid)
+        self.assertEqual(after["to_plant"], [])
+        self.assertEqual(after["tracked_plants"], v["totals"]["plants"])
+        with self.assertRaises(GardenError):
+            m.plant_layout(gid)  # nothing left to plant
+        m.assign_layout_rows(gid, "tomato", [3], "Sungold")  # more added later: only the new row is planted
+        self.assertEqual(self.view(m, gid)["to_plant"][0]["rows"], [4])
+        self.assertEqual(len(m.plant_layout(gid, None, "seed")), 1)
+        m.assign_layout_rows(gid, None, [0])  # clearing a row keeps the plantings
+        self.assertEqual(len([x for x in m.snapshot()["varieties"] if x["garden"] == gid]), 3)
+
     def test_double_line_doubles_the_plants_and_can_be_staggered(self):
         m, gid = self.garden()
         m.set_layout(gid, 6, 10, 36)
