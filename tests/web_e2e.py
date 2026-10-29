@@ -163,6 +163,19 @@ def main():
         check(lay["totals"]["posts"] > 0, "tomato rows need T-posts")
         text = card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText")
         check("T-posts" in text and "Per sq ft" in text, "layout page shows the counts")
+        # plant the layout: the rows become tracked plantings
+        lay_n = pg.evaluate("window.__garden.engine.snapshot()")["gardens"][0]["layout"]["totals"]["plants"]
+        if SHOTS:
+            card.locator("[data-act=lay-plant]").evaluate("e => e.closest('.card').scrollIntoView()")
+            pg.screenshot(path=str(SHOTS / "plant_layout.png"))
+        card.locator("[data-act=lay-plant]").click()
+        card.locator("[data-act=form-submit]").click()
+        card.get_by_text("planted and tracked").wait_for(timeout=5000)
+        pv = [v for v in pg.evaluate("window.__garden.engine.snapshot()")["varieties"] if v["garden"] == pg.evaluate("window.__garden.engine.snapshot()")["gardens"][0]["id"]]
+        check(len(pv) == 1 and pv[0]["count"] == lay_n, f"planting the layout adds {lay_n} tracked plants")
+        if SHOTS:
+            card.get_by_text("planted and tracked").first.evaluate("e => e.scrollIntoView()")
+            pg.screenshot(path=str(SHOTS / "planted.png"))
         # watering: drip is the default, with a run time, a GPM and drip line to order
         card.locator("[data-act=back]").first.click()
         card.locator("[data-act=open-water]").click()
@@ -220,7 +233,7 @@ def main():
         card.locator("input[data-q=home]").fill("")
         card.locator("[data-act=sort][data-s=name]").click()
         names = card.evaluate("el => [...el.shadowRoot.querySelectorAll('.tile[data-act=open-v]')].map((t) => t.querySelector('[style*=\"font-weight:500\"], [style*=\"font-size:15px\"]').innerText)")
-        check(names == sorted(names, key=str.lower) and len(names) == 4, f"sorted by name: {names}")
+        check(names == sorted(names, key=str.lower) and len(names) == 5, f"sorted by name: {names}")
         if SHOTS:
             pg.screenshot(path=str(SHOTS / "lists.png"), full_page=True)
         card.locator("[data-act=form-view]").click()

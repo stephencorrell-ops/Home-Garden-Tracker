@@ -81,6 +81,7 @@ SERVICES: dict[str, dict] = {
         O("pattern"): vol.In(["single", "double", "grid"]), O("stagger"): cv.boolean, O("yield_lb"): NUM, O("height_ft"): NUM},
     "set_layout_draft": {R("garden"): cv.string, O("crop"): cv.string, O("mode"): vol.In(["weight", "plants", "length"]), O("value"): NUM,
         O("yield_lb"): NUM, O("spacing_in"): NUM, O("variety"): cv.string},
+    "plant_layout": {R("garden"): cv.string, O("date"): cv.date, O("origin"): vol.In(["seed", "start"]), O("crops"): [cv.string]},
     "place_layout_draft": {R("garden"): cv.string, R("row"): vol.All(vol.Coerce(int), vol.Range(min=0, max=199)), O("start_ft"): NUM},
     "start_layout_season": {R("garden"): cv.string, O("year"): vol.All(vol.Coerce(int), vol.Range(min=2000, max=2200))},
     "set_variety_traits": {R("crop"): cv.string, R("variety"): cv.string, O("resist"): vol.All(cv.ensure_list, [cv.string]),
