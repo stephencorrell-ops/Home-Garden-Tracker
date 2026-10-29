@@ -164,6 +164,7 @@ def main():
         check(card.evaluate("el => el.shadowRoot.querySelector('input[data-lq]').value") == "Pepper", "the picked crop shows in the box")
         card.locator("input[data-lq]").click()
         card.locator("input[data-lq]").fill("tomat")
+        if SHOTS: pg.screenshot(path=str(SHOTS / "cropfind.png"))
         card.locator("[data-act=brush-pick]", has_text="Tomato").first.click()
         pg.wait_for_timeout(200)
         card.locator("[data-act=lay-fill]").click()
