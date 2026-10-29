@@ -1312,6 +1312,17 @@ class GardenTrackerCard extends HTMLElement {
     if (el.dataset && el.dataset.placerow !== undefined && isChange) { this._placeRow = el.value; return; }
     if (el.dataset && el.dataset.placestart !== undefined && isChange) { this._placeStart = el.value; return; }
     if (el.dataset && el.dataset.brush !== undefined && isChange) { this._brush = el.value; return this._act("set_layout_draft", { garden: el.dataset.g, crop: el.value }); }
+    if (el.dataset && el.dataset.fd && this._form && isChange) {
+      const [nm, part] = el.dataset.fd.split(":"), f = this._form;
+      f.dp = f.dp || {};
+      const cur = f.dp[nm] || this._dateParts(f.values[nm]);
+      cur[part] = el.value;
+      f.dp[nm] = cur;
+      const full = cur.y && cur.m && cur.d;
+      if (full) cur.d = String(Math.min(Number(cur.d), new Date(Number(cur.y), Number(cur.m), 0).getDate()));
+      f.values[nm] = full ? `${cur.y}-${String(cur.m).padStart(2, "0")}-${String(cur.d).padStart(2, "0")}` : "";
+      return this._render();
+    }
     const name = el.dataset && el.dataset.f;
     if (!name || !this._form || el.tagName === "BUTTON") return;
     const isSelect = el.tagName === "SELECT";
@@ -1319,6 +1330,21 @@ class GardenTrackerCard extends HTMLElement {
     this._form.values[name] = el.value;
     if (isSelect) this._render();
     else this._updatePreview();
+  }
+  _dateParts(iso) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || "");
+    return m ? { y: m[1], m: String(Number(m[2])), d: String(Number(m[3])) } : { y: "", m: "", d: "" };
+  }
+  _dateField(x, val) {
+    const f = this._form, c = (f.dp && f.dp[x.name]) || this._dateParts(val);
+    const yr = new Date().getFullYear(), years = [];
+    for (let y = yr - 2; y <= yr + 8; y++) years.push(y);
+    if (c.y && !years.includes(Number(c.y))) years.push(Number(c.y));
+    years.sort((a, b) => a - b);
+    const mons = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const days = c.y && c.m ? new Date(Number(c.y), Number(c.m), 0).getDate() : 31;
+    const sel = (part, ph, opts, cur) => `<select data-fd="${x.name}:${part}" style="flex:1;min-width:0"><option value="">${ph}</option>${opts.map(([v, t]) => `<option value="${v}" ${String(cur) === String(v) ? "selected" : ""}>${t}</option>`).join("")}</select>`;
+    return `<div class="row" style="gap:4px;flex-wrap:nowrap">${sel("m", "Month", mons.map((t, i) => [i + 1, t]), c.m)}${sel("d", "Day", Array.from({ length: days }, (_, i) => [i + 1, i + 1]), c.d)}${sel("y", "Year", years.map((y) => [y, y]), c.y)}</div>`;
   }
   _updatePreview() {
     const pv = this.shadowRoot.getElementById("pv");
@@ -1371,9 +1397,10 @@ class GardenTrackerCard extends HTMLElement {
       }
       else if (x.type === "multi") { const on = new Set(String(val).split(",").filter(Boolean)); ctl = `<div class="seg" style="flex-wrap:wrap">${x.options.map(([v, t]) => `<button data-act="toggle" data-f="${x.name}" data-val="${esc(v)}" class="${on.has(v) ? "on" : ""}">${esc(t)}</button>`).join("") || `<span class="small mut">No matching sensors found. Type entity ids below.</span>`}</div>`; }
       else if (x.type === "seg" || x.type === "chips") ctl = `<div class="seg">${x.options.map(([v, t]) => `<button data-act="pick" data-f="${x.name}" data-val="${esc(v)}" class="${val === v ? "on" : ""}">${esc(t)}</button>`).join("")}</div>`;
+      else if (x.type === "date") ctl = this._dateField(x, val);
       else if (x.type === "textarea") ctl = `<textarea data-f="${x.name}" rows="3">${esc(val)}</textarea>`;
       else ctl = `<input data-f="${x.name}" type="${x.type || "text"}" value="${esc(val)}" ${x.step ? `step="${x.step}"` : ""} ${x.placeholder ? `placeholder="${esc(x.placeholder)}"` : ""} ${x.type === "number" ? 'inputmode="decimal"' : ""}>`;
-      h += `<div style="grid-column:span ${x.span || 6}"><label>${esc(label)}${x.req ? " *" : ""}</label>${ctl}</div>`;
+      h += `<div style="grid-column:span ${x.type === "date" ? 6 : x.span || 6}"><label>${esc(label)}${x.req ? " *" : ""}</label>${ctl}</div>`;
     }
     h += `</div>${f.note ? `<p class="small mut">${f.note}</p>` : ""}<div id="pv">${f.preview ? f.preview(vals) : ""}</div>`;
     h += `<div class="row" style="margin-top:12px"><button class="grow" data-act="form-cancel">Cancel</button><button class="grow primary" data-act="form-submit">${esc(f.submitLabel || "Save")}</button></div>${f.extra ? `<div class="row" style="margin-top:8px"><button class="grow" data-act="form-extra">${esc(f.extra.label)}</button></div>` : ""}</div>`;

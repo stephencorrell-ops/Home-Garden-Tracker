@@ -239,10 +239,16 @@ def main():
         check(any("Cherry" in n for n in names) and not any("Tomato" in n for n in names), f"the type search narrows the list: {names}")
         card.locator("[data-act=find-pick]", has_text="Cherry").first.click()
         card.get_by_placeholder("Sungold").fill("Rainier")
+        yr = pg.evaluate("new Date().getFullYear()") + 1
+        card.locator("select[data-fd='expected_harvest_date:m']").select_option("7")
+        card.locator("select[data-fd='expected_harvest_date:y']").select_option(str(yr))
+        card.locator("select[data-fd='expected_harvest_date:d']").select_option("17")
+        if SHOTS: pg.screenshot(path=str(SHOTS / "dates.png"))
         card.locator("[data-act=form-submit]").click()
         pg.wait_for_timeout(500)
         rv = [v for v in pg.evaluate("window.__garden.engine.snapshot()")["varieties"] if v["name"] == "Rainier"]
         check(len(rv) == 1 and rv[0]["garden"] == "" and rv[0]["kind"] == "tree", "a tree can be added from the form with no garden")
+        check(rv and rv[0]["expected_harvest"] == f"{yr}-07-17", f"the day of the month can be chosen: {rv and rv[0].get('expected_harvest')}")
         card.locator("input[data-q=home]").fill("bart")
         pg.wait_for_timeout(300)
         text = card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText")
