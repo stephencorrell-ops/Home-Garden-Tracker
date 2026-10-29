@@ -1227,3 +1227,15 @@ class Irrigation(unittest.TestCase):
         b = GardenApp(SPECIES.read_text("utf-8"), a.data(), TODAY.isoformat())
         w = json.loads(b.snapshot())["gardens"][0]["irrigation"]
         self.assertEqual((w["soil"], w["fert_settings"]["mixes"]["growth"]["ppm_n"], w["fert"]["pumps"][0]["tank_gal"]), ("clay", 125, 3))
+
+
+class TreeNames(unittest.TestCase):
+    def test_trees_are_named_tree(self):
+        import json, pathlib
+        p = pathlib.Path(__file__).parent.parent / "custom_components/garden_tracker/core/species.json"
+        d = json.loads(p.read_text())
+        names = {k: v["name"] for k, v in d.items() if isinstance(v, dict) and "name" in v}
+        self.assertEqual(names["black_walnut"], "Walnut tree, black")
+        self.assertEqual(names["cherry"] if "cherry" in names else "Cherry tree", "Cherry tree")
+        for k, n in names.items():
+            self.assertIn("tree", n.lower(), k)

@@ -327,6 +327,7 @@ class GardenTrackerCard extends HTMLElement {
       this.shadowRoot.addEventListener("change", (e) => this._onInput(e, true));
       this.shadowRoot.addEventListener("focusin", (e) => {
         const el = e.target;
+        if (el.dataset && el.dataset.lq !== undefined && (this._bq === null || this._bq === undefined)) { this._bq = ""; this._focusL = true; this._render(); return; }
         if (el.dataset && el.dataset.fs !== undefined && this._form && !(this._form.search && this._form.search[el.dataset.fs] !== undefined)) {
           this._form.search = this._form.search || {};
           this._form.search[el.dataset.fs] = "";
@@ -423,6 +424,11 @@ class GardenTrackerCard extends HTMLElement {
       (this._undo && this._snap && this._snap.can_undo && !this._form
         ? `<div class="undo"><span>Entry removed</span><button data-act="undo">Undo</button></div>` : "");
     this.shadowRoot.innerHTML = `<style>${CSS}${this._web ? WEB_PHONE_CSS : ""}</style><ha-card${this._web ? ' class="web"' : ""}>${banner}${body}</ha-card>`;
+    if (this._focusL) {
+      const el = this.shadowRoot.querySelector("input[data-lq]");
+      this._focusL = false;
+      if (el) { el.focus(); try { el.setSelectionRange(el.value.length, el.value.length); } catch (e) { /* not a text box */ } }
+    }
     if (this._focusF) {
       const el = this.shadowRoot.querySelector(`input[data-fs="${this._focusF}"]`);
       this._focusF = null;
@@ -1128,6 +1134,7 @@ class GardenTrackerCard extends HTMLElement {
     const el = e.target.closest("[data-act]");
     if (!el) return;
     const a = el.dataset.act, d = el.dataset;
+    if (a !== "brush-pick") this._bq = null;
     const home = () => { this._view = { v: "home" }; this._nav = []; this._confirm = null; };
     switch (a) {
       case "back": return this._back();
@@ -1135,7 +1142,7 @@ class GardenTrackerCard extends HTMLElement {
       case "open-g": return this._go({ v: "garden", id: d.g });
       case "open-archive": return this._go({ v: "archive" });
       case "open-micro": return this._go({ v: "micro" });
-      case "open-layout": this._season = null; this._placeRow = "0"; this._placeStart = ""; this._brush = null; this._selRow = null; this._brushLen = ""; return this._go({ v: "layout", id: d.g });
+      case "open-layout": this._season = null; this._placeRow = "0"; this._placeStart = ""; this._brush = null; this._bq = null; this._selRow = null; this._brushLen = ""; return this._go({ v: "layout", id: d.g });
       case "open-water": return this._go({ v: "water", id: d.g });
       case "form-extra": {
         const f = this._form;
@@ -1195,6 +1202,7 @@ class GardenTrackerCard extends HTMLElement {
       case "sort": this._sort = d.s; this._setPref("sort", d.s); return this._render();
       case "psort": this._psort = d.s; this._setPref("psort", d.s); return this._render();
       case "lay-plant": return this._open(this._fPlantLayout(this._garden(d.g)));
+      case "brush-pick": this._brush = d.k; this._bq = null; return this._act("set_layout_draft", { garden: d.g, crop: d.k });
       case "find-pick": { const f = this._form; f.values[d.f] = d.val; if (f.search) delete f.search[d.f]; return this._render(); }
       case "form-view": return this._open(this._fView());
       case "air-range": this._airRange = d.s; return this._render();
@@ -1278,6 +1286,7 @@ class GardenTrackerCard extends HTMLElement {
   }
   _onInput(e, isChange) {
     const el = e.target;
+    if (el.dataset && el.dataset.lq !== undefined && !isChange) { this._bq = el.value; this._focusL = true; return this._render(); }
     if (el.dataset && el.dataset.fs !== undefined && this._form) {
       if (isChange) return;
       this._form.search = this._form.search || {};
@@ -1376,6 +1385,15 @@ class GardenTrackerCard extends HTMLElement {
     const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + n);
     const p = (x) => String(x).padStart(2, "0");
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  }
+  _brushFind(L, gid, brush) {
+    const cur = L.available.find((a) => a.key === brush), typed = this._bq === undefined ? null : this._bq;
+    const q = (typed || "").trim().toLowerCase();
+    const hits = typed === null ? [] : L.available.filter((a) => !q || q.split(/\s+/).every((w) => a.name.toLowerCase().includes(w)));
+    const shown = hits.slice(0, q ? 10 : 14), more = hits.length - shown.length;
+    let h = `<input data-lq data-g="${gid}" type="search" autocomplete="off" placeholder="Search crops" value="${esc(typed !== null ? typed : cur ? cur.name : "")}">`;
+    if (typed !== null) h += `<div class="seg" style="flex-wrap:wrap;margin-top:6px">${shown.map((a) => `<button data-act="brush-pick" data-g="${gid}" data-k="${esc(a.key)}" class="${a.key === brush ? "on" : ""}">${esc(a.name)}</button>`).join("")}</div>${more > 0 ? `<div class="small mut" style="margin-top:4px">${more} more. Keep typing to narrow it down.</div>` : ""}${!hits.length ? `<div class="small mut" style="margin-top:4px">No crop matches.</div>` : ""}`;
+    return h;
   }
   _fPlantLayout(g) {
     const L = g.layout, n = L.to_plant.reduce((a, x) => a + x.plants, 0);
@@ -2354,7 +2372,7 @@ class GardenTrackerCard extends HTMLElement {
       M.rot1 = h.length;
       const brush = this._brushFor(L), cur = L.available.find((a) => a.key === brush), d = L.draft && L.draft.crop === brush ? L.draft : null;
       const mode = (d && d.mode) || "weight";
-      h += `<div class="card"><div class="sec">Plan a crop</div><div class="row wrap" style="margin-bottom:10px"><div class="grow" style="min-width:140px"><select data-brush data-g="${gid}">${L.available.map((a) => `<option value="${esc(a.key)}" ${a.key === brush ? "selected" : ""}>${esc(a.name)}</option>`).join("")}</select></div>${this._btn("lay-edit", "pencil", "Spacing", `data-g="${gid}" data-c="${esc(brush)}"`)}</div>`;
+      h += `<div class="card"><div class="sec">Plan a crop</div><div class="row wrap" style="margin-bottom:10px"><div class="grow" style="min-width:140px">${this._brushFind(L, gid, brush)}</div>${this._btn("lay-edit", "pencil", "Spacing", `data-g="${gid}" data-c="${esc(brush)}"`)}</div>`;
       const names = [...new Set([...(this._snap.variety_traits || []).filter((t) => t.crop === brush).map((t) => t.name), ...this._snap.varieties.filter((v) => v.species === brush).map((v) => v.name)])];
       const vr = (d && d.variety) || "";
       h += `<label>Variety (optional)</label><div class="row" style="margin-bottom:10px"><div class="grow"><input type="text" list="vl" placeholder="Roma VF" value="${esc(vr)}" data-dvar data-g="${gid}"><datalist id="vl">${names.map((n) => `<option value="${esc(n)}"></option>`).join("")}</datalist></div>${this._btn("lay-traits", "pencil", "Height and resists", `data-g="${gid}"`)}</div>`;

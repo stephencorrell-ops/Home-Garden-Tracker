@@ -2709,7 +2709,7 @@ class GardenModel:
         pruning = self._pruning_view(v, today, sp) if kind == "tree" else None
         status = self._status(kind, dh, spray, pests, proj, pruning)
         return {
-            "id": v["id"], "name": v["name"], "species": v["species"], "species_name": v["species_name"], "custom_type": bool((self.data["species"].get(v["species"]) or {}).get("custom")),
+            "id": v["id"], "name": v["name"], "species": v["species"], "species_name": (self.presets.get(v["species"]) or {}).get("name") or v["species_name"], "custom_type": bool((self.data["species"].get(v["species"]) or {}).get("custom")),
             "kind": kind, "garden": v["garden"],
             "garden_name": g["name"] if g else ((v.get("archived") or {}).get("garden_name", v.get("garden_name", "")) or ("" if v["garden"] else "")),
             "origin": v["origin"], "planted": v["planted"], "in_ground": v.get("in_ground"),
