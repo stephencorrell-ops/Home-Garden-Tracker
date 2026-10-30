@@ -261,6 +261,20 @@ def main():
         rv = [v for v in pg.evaluate("window.__garden.engine.snapshot()")["varieties"] if v["name"] == "Rainier"]
         check(len(rv) == 1 and rv[0]["garden"] == "" and rv[0]["kind"] == "tree", "a tree can be added from the form with no garden")
         check(rv and rv[0]["expected_harvest"] == f"{yr}-07-17", f"the day of the month can be chosen: {rv and rv[0].get('expected_harvest')}")
+        # fix a plant that went in the wrong garden from its edit form
+        card.locator(".lrow", has_text="Rainier").first.click()
+        card.locator("[data-act=edit-v]").click()
+        gsel = card.locator("select[data-f=garden]")
+        check(gsel.count() == 1, "the edit form has a Where it is field")
+        gid = pg.evaluate("window.__garden.engine.snapshot().gardens.find((g) => g.kind === 'garden').id")
+        gsel.select_option(gid)
+        if SHOTS: pg.screenshot(path=str(SHOTS / "edit-where.png"))
+        card.locator("[data-act=form-submit]").click()
+        pg.wait_for_timeout(500)
+        rv = [v for v in pg.evaluate("window.__garden.engine.snapshot()")["varieties"] if v["name"] == "Rainier"]
+        check(rv and rv[0]["garden"] == gid, "editing a plant can move it to another garden")
+        card.locator("[data-act=back]").first.click()
+        pg.wait_for_timeout(300)
         card.locator("input[data-q=home]").fill("bart")
         pg.wait_for_timeout(300)
         text = card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText")
