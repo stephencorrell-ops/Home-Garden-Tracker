@@ -120,7 +120,7 @@ def main():
         card.get_by_text("Set location").first.click()
         pg.fill("#q", "Ephrata")
         pg.get_by_role("button", name="Ephrata, Washington, US").click()
-        card.get_by_text("Hardiness zone").wait_for(timeout=20000)
+        card.get_by_text("Your zone").first.wait_for(timeout=20000)
         pg.wait_for_timeout(500)
         text = card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText")
         check("Zone" in text or "zone" in text, "microclimate page shows after location is set")
@@ -128,6 +128,7 @@ def main():
         snap = pg.evaluate("window.__garden.engine.snapshot()")
         z = snap["micro"]["zone"]
         check(z["zone"] is not None and snap["micro"]["frost"]["years"], f"weather filled in zone {z['zone']} and frost years")
+        check("Your zone" in text and "Official USDA zone" in text and "of readings" in text, "zone card says what the zone is based on and the official USDA zone")
         check(card.locator(".foldhd").count() >= 4, "microclimate sections fold under a summary")
         check(card.locator(".foldbody").count() == 1, "only the frost section starts open")
         card.locator(".foldhd[data-s=soil]").click()

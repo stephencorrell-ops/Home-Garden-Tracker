@@ -511,10 +511,10 @@ class GardenTrackerCard extends HTMLElement {
     const fold = (id, title, peek, body) => `<div class="card fold"><button class="foldhd" data-act="micro-fold" data-s="${id}"><span class="grow">${title}</span><span class="small mut">${peek}</span>${this._icon(open.includes(id) ? "chevron-up" : "chevron-down")}</button>${open.includes(id) ? `<div class="foldbody">${body}</div>` : ""}</div>`;
     const dash = (v, u, d = 0) => (v === null || v === undefined ? "-" : num(v, d) + u);
     // summary: zone and the four numbers checked most
-    h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">Hardiness zone</div>${z.zone ? `<div style="font-size:28px;font-weight:600">${esc(z.zone)}</div>` : ""}</div>`;
-    if (z.zone) h += `<div class="sub">From your sensors: average yearly low ${num(z.avg_min, 1)}°F over ${z.count} winter${z.count === 1 ? "" : "s"}</div>`;
-    else h += `<div class="small mut">Needs one full winter of readings. Your sensors have not recorded enough yet${z.so_far ? `, lowest so far this winter is ${num(z.so_far.lowest, 1)}°F on ${fmtDate(z.so_far.date)}` : ""}.</div>`;
-    if (z.usda) h += `<div class="pill info" style="margin-top:8px">USDA map says ${esc(z.usda)}</div>`;
+    const big = (label, val, sub) => `<div class="grow" style="min-width:0"><div class="sec" style="margin:0">${label}</div><div style="font-size:28px;font-weight:600">${val}</div>${sub ? `<div class="small mut">${sub}</div>` : ""}</div>`;
+    const usdaM = z.usda ? /^\s*([0-9]+[ab]?)\s*(?:\((.*)\))?\s*$/i.exec(String(z.usda)) : null;
+    h += `<div class="card"><div class="row" style="align-items:flex-start;gap:16px">${z.zone ? big("Your zone", esc(z.zone), `Based on ${z.count} winter${z.count === 1 ? "" : "s"} of readings, average yearly low ${num(z.avg_min, 1)}°F`) : ""}${z.usda ? big("Official USDA zone", esc(usdaM ? usdaM[1] : z.usda), usdaM && usdaM[2] ? esc(usdaM[2]) : "") : ""}</div>`;
+    if (!z.zone) h += `<div class="small mut">Needs one full winter of readings to work out your own zone. Your sensors have not recorded enough yet${z.so_far ? `, lowest so far this winter is ${num(z.so_far.lowest, 1)}°F on ${fmtDate(z.so_far.date)}` : ""}.</div>`;
     if (z.winters.length) h += `<div class="small mut" style="margin-top:8px">${z.winters.map((w) => `${esc(w.label)}: ${num(w.lowest, 1)}°F${w.complete ? "" : " so far"}`).join(" · ")}</div>`;
     h += `<div style="margin-top:10px">${this._statGrid([["Last frost", f.expected_last ? fmtMd(f.expected_last) : "n/a"], ["First frost", f.expected_first ? fmtMd(f.expected_first) : "n/a"], ["Soil now", dash(s2.actual, "°F", 1)], ["Rain, week", m.rain.sensors.length ? num(m.rain.week, 2) + " in" : "n/a"]])}</div></div>`;
     // frost by year
