@@ -2699,13 +2699,21 @@ class GardenModel:
                 rates = [r for r in (rate, calc.recent_dd_rate(daily, today, 3, lo, up), calc.recent_dd_rate(daily, today, 14, lo, up)) if r > 0.5]
                 est_low, est_high = int(-(-need // max(rates))), int(-(-need // min(rates)))
             if st:
-                since = st["open_since"]
-                fresh = since and (today - date.fromisoformat(since)).days <= 21 and not any(x["date"] >= since for x in v["sprays"])
-                if fresh:
-                    alert = {"state": "open", "pest": pest["name"], "dd": st["dd"], "target": st["reached"][-1]["dd"], "since": since,
-                             "note": st["open_note"], "days": 0, "date": since}
+                since, rep = st["open_since"], st["repeat_days"]
+                done = sorted(x["date"] for x in v["sprays"] if since and x["date"] >= since)
+                base = {"pest": pest["name"], "dd": st["dd"]}
+                if since and not done and (today - date.fromisoformat(since)).days <= 21:
+                    alert = {**base, "state": "open", "target": st["open_dd"], "since": since, "note": st["open_note"], "days": 0, "date": since}
+                elif since and done and rep and len(done) < 2 and (today - date.fromisoformat(done[0])).days <= rep + 14:
+                    due = date.fromisoformat(done[0]) + timedelta(days=rep)  # the follow-up spray, a set number of days after the first
+                    left = (due - today).days
+                    if left <= 0:
+                        alert = {**base, "state": "open", "target": st["open_dd"], "since": due.isoformat(), "note": f"Second spray due, {rep} days after the first", "days": 0, "date": due.isoformat(), "second": True}
+                    elif left <= 7:
+                        alert = {**base, "state": "soon", "target": st["open_dd"], "note": f"Second spray, {rep} days after the first", "days": left, "low": left, "high": left,
+                                 "date": due.isoformat(), "date_low": due.isoformat(), "date_high": due.isoformat(), "second": True}
                 elif est is not None and est <= 7:
-                    alert = {"state": "soon", "pest": pest["name"], "dd": st["dd"], "target": st["next_dd"], "note": st["next_action"],
+                    alert = {**base, "state": "soon", "target": st["next_dd"], "note": st["next_action"],
                              "days": est, "low": est_low, "high": est_high, "date": (today + timedelta(days=est)).isoformat(),
                              "date_low": (today + timedelta(days=est_low)).isoformat(), "date_high": (today + timedelta(days=est_high)).isoformat()}
             pests.append({"key": pest["key"], "name": pest["name"], "status": st, "est_days": est, "est_low": est_low, "est_high": est_high,

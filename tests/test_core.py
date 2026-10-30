@@ -1259,17 +1259,17 @@ class SprayAttention(unittest.TestCase):
         m = self._orchard(date(2026, 3, 1), 2)  # 59 days at 2 degree days
         p = self._gala(m)["pests"][0]
         self.assertEqual(p["status"]["biofix"], "2026-01-01")
-        self.assertEqual(p["status"]["next_dd"], 346)
+        self.assertEqual(p["status"]["next_dd"], 425)
         self.assertTrue(p["status"]["estimated_start"])
         self.assertFalse(p["needs_biofix"])
 
     def test_a_spray_within_seven_days_is_flagged_with_a_range(self):
-        m = self._orchard(date(2026, 3, 22), 4)  # 80 days at 4 dd = 320, so 26 to go: 7 days
+        m = self._orchard(date(2026, 4, 11), 4)  # 100 days at 4 dd = 400, so 25 to go: 7 days
         v = self._gala(m)
         a = v["alert"]
         self.assertEqual(a["state"], "soon")
         self.assertEqual(a["days"], 7)
-        self.assertEqual(a["date"], "2026-03-29")
+        self.assertEqual(a["date"], "2026-04-18")
         self.assertLessEqual(a["low"], a["days"])
         self.assertGreaterEqual(a["high"], a["days"])
         self.assertEqual(v["status"]["level"], "spray")
@@ -1280,10 +1280,30 @@ class SprayAttention(unittest.TestCase):
         self.assertNotEqual(self._gala(m)["status"]["level"], "spray")
 
     def test_window_open_until_a_spray_is_logged(self):
-        m = self._orchard(date(2026, 4, 10), 4)  # past 346 on Mar 28
+        m = self._orchard(date(2026, 4, 20), 4)  # 425 passed on Apr 17
         a = self._gala(m)["alert"]
         self.assertEqual(a["state"], "open")
-        m.log_spray("Gala", "Spinosad", "2026-04-05")
+        self.assertEqual(a["target"], 425)
+        m.log_spray("Gala", "Spinosad", "2026-04-19")
+        self.assertIsNone(self._gala(m)["alert"])  # the follow-up is 10 days on, more than a week away
+
+    def test_the_second_spray_comes_ten_days_after_the_first(self):
+        m = self._orchard(date(2026, 4, 25), 4)
+        m.log_spray("Gala", "Spinosad", "2026-04-18")
+        a = self._gala(m)["alert"]
+        self.assertEqual((a["state"], a["days"], a["date"], a.get("second")), ("soon", 3, "2026-04-28", True))
+        m2 = self._orchard(date(2026, 4, 29), 4)
+        m2.log_spray("Gala", "Spinosad", "2026-04-18")
+        self.assertEqual(self._gala(m2)["alert"]["state"], "open")
+        m2.log_spray("Gala", "Spinosad", "2026-04-28")
+        self.assertIsNone(self._gala(m2)["alert"])
+
+    def test_the_gap_window_says_do_not_spray(self):
+        m = self._orchard(date(2026, 7, 1), 6)  # 181 days at 6 = 1086, between 925 and 1400
+        st = self._gala(m)["pests"][0]["status"]
+        self.assertTrue(st["in_gap"])
+        self.assertIn("do not spray", st["gap_note"].lower())
+        self.assertEqual(st["next_dd"], 1400)
         self.assertIsNone(self._gala(m)["alert"])
 
     def test_a_logged_trap_catch_restarts_the_count_at_250(self):

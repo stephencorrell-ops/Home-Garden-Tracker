@@ -90,14 +90,16 @@ def pest_status(v: dict, pest: dict, daily: dict, today: date) -> dict[str, Any]
     cut = pest.get("no_biofix_dd", 0) if logged else 0
     total = degree_days(daily, biofix, today, pest["lower_f"], pest["upper_f"])
     ms = sorted(({**m, "dd": m["dd"] - cut} for m in pest.get("milestones", [])), key=lambda m: m["dd"])
-    nxt = next((m for m in ms if m["dd"] > total), None)
+    nxt = next((m for m in ms if m["dd"] > total and not m.get("gap")), None)
     reached = [m for m in ms if m["dd"] <= total]
+    act = next((m for m in reversed(reached) if not m.get("gap")), None)  # the latest spray window that has opened
+    in_gap = bool(reached and reached[-1].get("gap"))
     open_since = None
-    if reached:  # the day the latest target was passed, so the card can say a spray window is open
+    if act:  # the day that window opened, so the card can say a spray is due
         run, day = 0.0, biofix
         while day <= today:
             run += degree_days(daily, day, day, pest["lower_f"], pest["upper_f"])
-            if run >= reached[-1]["dd"]:
+            if run >= act["dd"]:
                 open_since = day.isoformat()
                 break
             day += timedelta(days=1)
@@ -107,7 +109,8 @@ def pest_status(v: dict, pest: dict, daily: dict, today: date) -> dict[str, Any]
         "next_action": nxt["note"] if nxt else None,
         "dd_to_next": round(nxt["dd"] - total, 1) if nxt else None,
         "reached": reached, "open_since": open_since,
-        "open_note": reached[-1]["note"] if reached else None,
+        "open_note": act["note"] if act else None, "open_dd": act["dd"] if act else None, "repeat_days": act.get("repeat_days") if act else None,
+        "in_gap": in_gap, "gap_note": reached[-1]["note"] if in_gap else None,
     }
 
 
