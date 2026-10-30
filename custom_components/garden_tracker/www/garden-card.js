@@ -25,7 +25,7 @@ const fmtDur = (ms) => {
 const fmtClock = (iso) => new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 const dAgo = (n) => (n === null || n === undefined ? "–" : `${n} d`);
 const dIn = (n) => (n === null || n === undefined ? "–" : n < 0 ? `${-n} d late` : n === 0 ? "today" : `${n} d`);
-const yrs = (y) => (y < 1 ? "<1 yr" : `${Math.floor(y)} yr${Math.floor(y) === 1 ? "" : "s"}`);
+const yrs = (y) => `${Math.floor(y || 0)} yr${Math.floor(y || 0) === 1 ? "" : "s"}`;
 
 const CSS = `
 :host{display:block;width:100%;--ok:var(--success-color,#43a047);--spray:var(--warning-color,#ffa000);--hold:var(--error-color,#db4437);--info:var(--info-color,#039be5);--mut:var(--secondary-text-color);--line:var(--divider-color)}
