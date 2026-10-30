@@ -42,7 +42,7 @@ input,select,textarea{font:inherit;width:100%;color:var(--primary-text-color);ba
 textarea{resize:vertical}
 label{display:block;font-size:12px;color:var(--mut);margin-bottom:4px}
 .row{display:flex;gap:8px;align-items:center}.grow{flex:1;min-width:0}.wrap{flex-wrap:wrap}
-.hd{display:flex;gap:8px;align-items:center;margin-bottom:12px}
+.hd{display:flex;gap:8px;align-items:center;margin-bottom:12px}.hd button{flex:none;white-space:nowrap}.hd .ttl{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.hd .locn{display:inline-block;max-width:56px;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom}
 .ttl{font-size:18px;font-weight:500}.sub{font-size:12px;color:var(--mut)}.mut{color:var(--mut)}.small{font-size:12px}
 .card{background:var(--ha-card-background,var(--card-background-color));border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
 .sec{font-size:12px;color:var(--mut);margin:0 0 6px}
@@ -502,7 +502,7 @@ class GardenTrackerCard extends HTMLElement {
   }
   _microView() {
     const m = this._snap.micro;
-    let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="ttl grow">Microclimate</div>${this._web ? this._btn("web-location", "map-marker", m.settings.location && m.settings.location.name ? esc(m.settings.location.name) : "Location") : ""}${this._btn("form-micro", "cog", "Settings")}</div>`;
+    let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="ttl grow">Microclimate</div>${this._web ? this._btn("web-location", "map-marker", m.settings.location && m.settings.location.name ? `<span class="locn">${esc(m.settings.location.name)}</span>` : "Location") : ""}${this._btn("form-micro", "cog", "Settings")}</div>`;
     if (this._web && !m.settings.location) h += `<div class="msg">Set where your garden is and the app fills in local weather: frost dates, your zone, temperatures and rain.<br><br>${this._btn("web-location", "map-marker", "Set location", "", "primary")}</div>`;
     else if (!this._web && !m.settings.outdoor_entity) h += `<div class="msg">Set an outside temperature sensor in the Garden Tracker integration options to start recording frost and temperatures here.</div>`;
     const z = m.zone, f = m.frost, s2 = m.soil, yrs = f.years;

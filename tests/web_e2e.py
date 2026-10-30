@@ -136,7 +136,8 @@ def main():
         card.locator(".foldhd[data-s=soil]").click()
         check(card.locator(".foldbody").count() == 1, "tapping again folds it")
         if SHOTS:
-            card.evaluate("el => el.scrollIntoView()")
+            pg.evaluate("window.scrollTo(0, 0)")
+            pg.wait_for_timeout(300)
             pg.screenshot(path=str(SHOTS / "micro.png"), full_page=True)
         mt = snap["gardens"][0]["metrics"]
         check(mt["out_temp"]["source"] == "weather" and mt["out_temp"]["current"] == 55.5, "outside temperature comes from local weather")
