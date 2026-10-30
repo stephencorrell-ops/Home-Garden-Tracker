@@ -4,6 +4,10 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.31.6 - 2026-10-30
+
+- **Fix a plant in the wrong garden.** The Edit form has a "Where it is" field listing every garden, rack and greenhouse (trees also get "No garden"). It only corrects where the plant shows. It adds nothing to its move history and does not split the planting. The Move button is still there for a real move.
+
 ## 0.31.5 - 2026-10-30
 
 - **Microclimate sensors no longer vanish after a restart.** Home Assistant removed the Microclimate device every time it started, so the zone, frost, temperature, rain, humidity, sun and air sensors were missing until you next changed something, and any names or areas you gave them were lost.
@@ -12,10 +16,6 @@ After updating in HACS, restart Home Assistant and refresh your dashboard (close
 - **A rejected edit changes nothing.** Editing a log entry with one bad value (such as negative pounds) showed an error but still kept the other changes, like a new date.
 - **Web app: weather stays with the right place.** Weather that was still downloading when you restored a backup or picked a new location is no longer saved to it, and the new place's weather is fetched after.
 - **Web app: your last change is saved when you leave.** Changes are saved when the page closes or goes to the background, and a banner asks you to back up if the browser fails to save.
-
-## 0.31.5 - 2026-10-30
-
-- **Fix a plant in the wrong garden.** The Edit form has a "Where it is" field listing every garden, rack and greenhouse (trees also get "No garden"). It only corrects where the plant shows. It adds nothing to its move history and does not split the planting. The Move button is still there for a real move.
 
 ## 0.31.4 - 2026-10-30
 
