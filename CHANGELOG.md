@@ -4,6 +4,15 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.31.5 - 2026-10-30
+
+- **Microclimate sensors no longer vanish after a restart.** Home Assistant removed the Microclimate device every time it started, so the zone, frost, temperature, rain, humidity, sun and air sensors were missing until you next changed something, and any names or areas you gave them were lost.
+- **The temperature alarm sensor now appears when you turn it on.** On a rack or greenhouse that already had the sensor offline alarm, turning on the temperature alarm later did not add its sensor until Home Assistant restarted.
+- **The thermostat says idle while the heater rests** after its maximum run time, instead of off.
+- **A rejected edit changes nothing.** Editing a log entry with one bad value (such as negative pounds) showed an error but still kept the other changes, like a new date.
+- **Web app: weather stays with the right place.** Weather that was still downloading when you restored a backup or picked a new location is no longer saved to it, and the new place's weather is fetched after.
+- **Web app: your last change is saved when you leave.** Changes are saved when the page closes or goes to the background, and a banner asks you to back up if the browser fails to save.
+
 ## 0.31.4 - 2026-10-30
 
 - **Pruning reminder no longer runs all year.** It was due from February until you logged a pruning, so trees in full leaf still said "Due now" in the fall. It now runs from the prune month through two months after it (February to April, or March to May for walnuts), then waits for next year and shows the next reminder date. Logging "Pruned" or "No pruning needed" still clears it for the year.

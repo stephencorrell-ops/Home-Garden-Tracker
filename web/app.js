@@ -7,7 +7,7 @@ const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${Stri
 const BACKUP_EVERY_DAYS = 14;
 const params = new URLSearchParams(location.search);
 
-let engine, today = todayIso(), saveTimer = null;
+let engine, today = todayIso(), saveTimer = null, saveFailed = false;
 const listeners = new Set();
 
 // ---- the card talks to this as if it were Home Assistant -------------------------------------------------
@@ -35,7 +35,14 @@ function changed() {
   saveTimer = setTimeout(save, 300);
   checkBackupNotice(snap);
 }
-async function save() { await store.set("data", engine.data()); }
+async function save() {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  try { await store.set("data", engine.data()); saveFailed = false; }
+  catch (e) { console.error("Not saved:", e); saveFailed = true; }
+  checkBackupNotice();
+}
+function flushSave() { if (saveTimer) save(); }  // the page is closing or going to the background
 
 // ---- backup and restore ----------------------------------------------------------------------------------
 function hasData(snap) { return snap.gardens.length > 0 || snap.varieties.length > 0; }
@@ -58,6 +65,12 @@ function checkBackupNotice(snap = engine.snapshot()) {
   const age = (Date.now() - store.lastBackup()) / 864e5;
   let snoozed = false;
   try { snoozed = Date.now() < Number(localStorage.getItem("gt.snooze") || 0); } catch { /* ignore */ }
+  if (saveFailed) {
+    box.innerHTML = `<span style="flex:1">This browser didn't save your last change. Back up now so it isn't lost.</span><button class="link" id="nb">Back up now</button>`;
+    box.hidden = false;
+    $("nb").onclick = downloadBackup;
+    return;
+  }
   if (!hasData(snap) || snoozed || (store.lastBackup() && age < BACKUP_EVERY_DAYS)) { box.hidden = true; return; }
   box.innerHTML = `<span style="flex:1">${store.lastBackup() ? `Last backup ${Math.floor(age)} days ago.` : "Not backed up yet."} This browser can clear saved data.</span><button class="link" id="nb">Back up now</button><button class="link mut" id="ns" aria-label="Remind me later">Later</button>`;
   box.hidden = false;
@@ -100,10 +113,12 @@ async function restoreFrom(file) {
 }
 
 // ---- weather ---------------------------------------------------------------------------------------------
-let weatherBusy = false;
+let weatherBusy = false, weatherAgain = false;
+const placeKey = () => { const l = engine.snapshot().micro.settings.location; return l ? `${l.lat},${l.lon}` : null; };
 async function refreshWeather(force = false) {
   const loc = engine.snapshot().micro.settings.location;
-  if (!loc || weatherBusy || !navigator.onLine) return;
+  if (weatherBusy) { weatherAgain = weatherAgain || force; return; }  // run again once the current fetch is done
+  if (!loc || !navigator.onLine) return;
   const key = `${loc.lat},${loc.lon}`;
   let last = 0, fullFor = null;
   try { last = Number(localStorage.getItem("gt.weatherAt") || 0); fullFor = localStorage.getItem("gt.weatherFull"); } catch { /* ignore */ }
@@ -111,12 +126,16 @@ async function refreshWeather(force = false) {
   weatherBusy = true;
   try {
     const w = await fetchWeather(loc, today, fullFor !== key || force);
+    if (placeKey() !== key) { weatherAgain = true; return; }  // the place changed or a backup was restored meanwhile
     engine.mergeWeather(w);
     try { localStorage.setItem("gt.weatherAt", String(Date.now())); localStorage.setItem("gt.weatherFull", key); } catch { /* ignore */ }
     changed();
   } catch (e) {
     console.warn("Weather not updated:", e);
-  } finally { weatherBusy = false; }
+  } finally {
+    weatherBusy = false;
+    if (weatherAgain) { weatherAgain = false; refreshWeather(true); }
+  }
 }
 
 function chooseLocation() {
@@ -176,7 +195,8 @@ async function main() {
   setInterval(() => {  // a new day: refresh the dates and the weather
     if (todayIso() !== today) { today = todayIso(); engine.setToday(today); changed(); refreshWeather(true); }
   }, 60e3);
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) { if (todayIso() !== today) { today = todayIso(); engine.setToday(today); changed(); } refreshWeather(); } });
+  window.addEventListener("pagehide", flushSave);
+  document.addEventListener("visibilitychange", () => { if (document.hidden) flushSave(); else { if (todayIso() !== today) { today = todayIso(); engine.setToday(today); changed(); } refreshWeather(); } });
 
   let prompt;
   window.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); prompt = e; $("install").hidden = false; });
