@@ -285,6 +285,28 @@ def main():
         check("290 / 425" in text and "in 4 days" in text and "likely" in text and "no trap needed" in text.lower(), "the plant page gives the projected date, its range and the trap-free note")
         if SHOTS: pg.screenshot(path=str(SHOTS / "projection.png"), full_page=True)
         card.evaluate("el => { el._snap.varieties.find((v) => v.name === 'Gala').pests = el._saved; el._go({ v: 'home' }); }")
+        # calendar sprays: a peach shows its leaf curl and twig borer windows, and a window alert reads as a card
+        pg.evaluate("() => window.__garden.engine.call('add_variety', { garden: '', species: 'Peach', variety: 'Redhaven' })")
+        pg.evaluate("window.__garden.refreshWeather(true)")
+        pg.wait_for_timeout(500)
+        card.evaluate("""el => {
+          const g = el._snap.varieties.find((v) => v.name === 'Redhaven');
+          const t = el._snap.today;
+          g.alert = { state: 'soon', pest: 'Peach leaf curl', note: 'Copper after most leaves have dropped, before heavy winter rain', calendar: true, days: 5, date: t.slice(0, 4) + '-11-20', until: t.slice(0, 4) + '-12-15', dd: null, target: null };
+          g.status = { level: 'spray', text: 'Spray peach leaf curl in about 5 days' };
+          el._render();
+        }""")
+        pg.wait_for_timeout(200)
+        text = card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText")
+        check("Peach leaf curl" in text and "window opens" in text and "Copper after most leaves" in text, "a window alert reads as an attention card")
+        if SHOTS: pg.screenshot(path=str(SHOTS / "leafcurl.png"), full_page=True)
+        card.locator(".acard", has_text="Redhaven").first.click()
+        pg.wait_for_timeout(300)
+        text = card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText")
+        check("Peach leaf curl" in text and "Peach twig borer" in text and "Nov 20" in text and "Delayed dormant" in text, "the peach page lists both pests and their spray windows")
+        if SHOTS: pg.screenshot(path=str(SHOTS / "peachpage.png"), full_page=True)
+        card.locator("[data-act=back]").first.click()
+        pg.wait_for_timeout(200)
         card.evaluate("el => { delete el._vars; el._render(); }")
         pg.wait_for_timeout(200)
         if SHOTS: pg.screenshot(path=str(SHOTS / "compact.png"), full_page=True)

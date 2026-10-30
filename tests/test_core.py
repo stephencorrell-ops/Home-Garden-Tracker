@@ -1312,3 +1312,49 @@ class SprayAttention(unittest.TestCase):
         st = self._gala(m)["pests"][0]["status"]
         self.assertEqual(st["next_dd"], 250)
         self.assertFalse(st["estimated_start"])
+
+
+class CalendarSprays(unittest.TestCase):
+    def _peach(self, today):
+        m = make(today)
+        m.add_variety("", "peach", "Redhaven")
+        return m
+
+    def _pests(self, m):
+        v = next(x for x in m.snapshot()["varieties"] if x["name"] == "Redhaven")
+        return v, {p["key"]: p for p in v["pests"]}
+
+    def test_peaches_and_nectarines_get_leaf_curl_and_twig_borer_apricots_only_the_borer(self):
+        for sp, keys in [("peach", ["leaf_curl", "twig_borer"]), ("nectarine", ["leaf_curl", "twig_borer"]), ("apricot", ["twig_borer"])]:
+            m = make()
+            self.assertEqual([p["key"] for p in m.get_species(sp)["pests"]], keys, sp)
+
+    def test_leaf_curl_window_alert_opens_a_week_ahead_and_clears_on_a_copper_spray(self):
+        m = self._peach(date(2026, 11, 14))
+        v, p = self._pests(m)
+        self.assertEqual((p["leaf_curl"]["alert"]["state"], p["leaf_curl"]["alert"]["days"]), ("soon", 6))
+        self.assertEqual(v["status"]["level"], "spray")
+        m2 = self._peach(date(2026, 11, 25))
+        v, p = self._pests(m2)
+        self.assertEqual(p["leaf_curl"]["alert"]["state"], "open")
+        m2.log_spray("Redhaven", "Copper fungicide", "2026-11-26")
+        v, p = self._pests(m2)
+        self.assertIsNone(p["leaf_curl"]["alert"])
+        self.assertEqual(p["leaf_curl"]["calendar"][0]["state"], "done")
+        self.assertEqual(p["leaf_curl"]["calendar"][1]["state"], "upcoming")
+        self.assertEqual(p["leaf_curl"]["calendar"][1]["from"], "2027-02-01")
+
+    def test_a_spinosad_spray_clears_the_dormant_window_not_leaf_curl_or_bloom(self):
+        m = self._peach(date(2026, 4, 1))
+        m.log_spray("Redhaven", "Spinosad", "2026-03-10")
+        v, p = self._pests(m)
+        self.assertEqual(p["twig_borer"]["calendar"][0]["state"], "done")
+        self.assertEqual(p["twig_borer"]["calendar"][1]["state"], "open")
+        self.assertEqual(p["leaf_curl"]["calendar"][1]["state"], "upcoming")  # this February is over: next year's shows
+
+    def test_nothing_is_flagged_in_summer(self):
+        m = self._peach(date(2026, 7, 15))
+        v, p = self._pests(m)
+        self.assertIsNone(p["leaf_curl"]["alert"])
+        self.assertIsNone(p["twig_borer"]["alert"])
+        self.assertIsNone(v["alert"])

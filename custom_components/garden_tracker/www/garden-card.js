@@ -856,12 +856,14 @@ class GardenTrackerCard extends HTMLElement {
     const kind = a ? (a.state === "open" ? "open" : "soon") : lvl === "hold" ? "open" : "soon";
     const est = (a && a.state === "soon" && a.date_low && a.date_low !== a.date_high) ? `<div class="small" style="margin-top:2px">Likely ${fmtDate(a.date_low)} to ${fmtDate(a.date_high)}</div>` : "";
     let mid;
-    if (a) {
+    if (a && a.calendar) {
+      mid = `<div class="small">${esc(v.species_name)} · ${esc(a.pest)}</div><div class="small" style="margin-top:6px">${esc(a.note)}</div>`;
+    } else if (a) {
       const pct = Math.max(0, Math.min(100, (a.dd / a.target) * 100));
       mid = `<div class="small">${esc(v.species_name)} · ${esc(a.pest)}</div><div class="small" style="margin-top:6px">${num(a.dd, 0)} of ${a.target} degree days${v.pests.some((p) => p.status && p.status.estimated_start) ? " since Jan 1" : ""}</div><div class="bar"><i style="width:${pct}%"></i></div>${est}`;
     } else mid = `<div class="small">${esc(v.species_name)}</div><div class="small" style="margin-top:2px">${esc(v.status.text)}</div>`;
     const big = a ? (a.state === "open" ? "Now" : `${a.days} day${a.days === 1 ? "" : "s"}`) : lvl === "hold" ? "Hold" : "Soon";
-    const small = a ? (a.state === "open" ? (a.second ? "second spray due" : "spray window open") : `${a.second ? "second" : "first"} spray about ${fmtDate(a.date)}`) : "";
+    const small = a ? (a.calendar ? (a.state === "open" ? `open until ${fmtDate(a.until)}` : `window opens ${fmtDate(a.date)}`) : a.state === "open" ? (a.second ? "second spray due" : "spray window open") : `${a.second ? "second" : "first"} spray about ${fmtDate(a.date)}`) : "";
     return `<div class="acard ${kind}" data-act="open-v" data-v="${v.id}"><div class="grow" style="min-width:0"><div class="an">${esc(v.name)}</div>${mid}</div><div class="ar"><div class="ab">${esc(big)}</div><div class="small">${esc(small)}</div>${a ? `<button data-act="form-spray" data-v="${v.id}">Sprayed</button>` : ""}</div></div>`;
   }
   _lineRow(v, withGarden) {
@@ -993,6 +995,9 @@ class GardenTrackerCard extends HTMLElement {
         const t = p.trap, id2 = v.id;
         const line = { early: `Hang traps high in the canopy by ${fmtDate(t.monitor_from, true)}.`, watch: `Check your traps. Spray within ${t.spray_within_days} days of a sharp rise in catches, usually ${t.usual}.`, spray: `Spray by ${fmtDate(t.spray_by, true)} (${t.days_left === 0 ? "today" : `${t.days_left} day${t.days_left === 1 ? "" : "s"} left`}).`, late: `Past the ${t.spray_within_days} days since the catches rose (${fmtDate(t.spray_by, true)}). Spray now.`, sprayed: `Sprayed ${fmtDate(t.sprayed)}. Bait is repeated every ${t.bait_every_days} days while flies are caught.` }[t.state];
         h += `<div style="margin-top:10px"><div class="row"><b class="grow" style="font-weight:500">${esc(p.name)}</b><span class="pill ${t.state === "spray" || t.state === "late" ? "spray" : "info"}" style="margin:0">${{ early: "Not yet", watch: "Watching", spray: "Spray due", late: "Overdue", sprayed: "Sprayed" }[t.state]}</span></div><div class="small" style="margin-top:4px">${esc(line)}</div><div class="small mut" style="margin-top:4px">No degree-day model. Timing comes from trap catches. ${esc(t.products)}</div>${arch ? "" : `<div class="row" style="margin-top:6px">${this._btn("form-biofix", "calendar", t.catch ? `Catches rose ${fmtDate(t.catch, true)}` : "Log the rise in catches", `data-v="${id2}" data-s="${p.key}"`)}</div>`}</div>`;
+      } else if (p.calendar) {
+        const lab = { done: ["ok", "Sprayed"], open: ["spray", "Spray now"], upcoming: ["info", "Coming up"], past: ["info", "Not sprayed"] };
+        h += `<div style="margin-top:10px"><b style="font-weight:500">${esc(p.name)}</b>${p.calendar.map((w) => { const [c, t] = lab[w.state]; return `<div class="row" style="margin-top:6px;align-items:flex-start"><div class="grow"><div class="small"><b>${fmtDate(w.from)} to ${fmtDate(w.to)}</b></div><div class="small mut">${esc(w.note)}</div></div><span class="pill ${c}" style="margin:0">${w.state === "done" ? `Sprayed ${fmtDate(w.done)}` : w.state === "upcoming" ? `In ${w.days} day${w.days === 1 ? "" : "s"}` : t}</span></div>`; }).join("")}<div class="small mut" style="margin-top:4px">Log a spray with the product and it clears the window. Check the label for days to harvest.</div></div>`;
       } else if (p.needs_biofix && !arch) {
         h += `<div style="margin-top:10px" class="row"><span class="small grow">${esc(p.name)}: set the biofix date to start counting</span>${this._btn("form-biofix", "calendar", "Set biofix", `data-v="${id}" data-s="${p.key}"`)}</div>`;
       }

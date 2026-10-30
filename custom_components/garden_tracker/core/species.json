@@ -119,7 +119,87 @@
  "nectarine": {
   "name": "Nectarine tree",
   "kind": "tree",
-  "pests": []
+  "pests": [
+   {
+    "key": "leaf_curl",
+    "name": "Peach leaf curl",
+    "calendar": [
+     {
+      "id": "fall",
+      "from": "11-20",
+      "to": "12-15",
+      "note": "Copper after most leaves have dropped, before heavy winter rain",
+      "match": [
+       "copper",
+       "lime sulfur",
+       "fungicide",
+       "ziram",
+       "chlorothalonil",
+       "bordeaux",
+       "curl"
+      ]
+     },
+     {
+      "id": "winter",
+      "from": "02-01",
+      "to": "02-28",
+      "note": "Copper or lime sulfur before bud swell, on a day above 40°F",
+      "match": [
+       "copper",
+       "lime sulfur",
+       "fungicide",
+       "ziram",
+       "chlorothalonil",
+       "bordeaux",
+       "curl"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "twig_borer",
+    "name": "Peach twig borer",
+    "calendar": [
+     {
+      "id": "dormant",
+      "from": "03-01",
+      "to": "03-24",
+      "note": "Delayed dormant: oil plus insecticide when buds first show green",
+      "match": [
+       "oil",
+       "insecticide",
+       "spinosad",
+       "malathion",
+       "carbaryl",
+       "sevin",
+       "bt",
+       "bacillus",
+       "dipel",
+       "borer"
+      ]
+     },
+     {
+      "id": "bloom",
+      "from": "03-25",
+      "to": "04-20",
+      "note": "Bloom: Bt, or spinosad if you did not use Bt. Spray at dawn or dusk",
+      "match": [
+       "bt",
+       "bacillus",
+       "dipel",
+       "thuricide",
+       "spinosad",
+       "success",
+       "entrust",
+       "malathion",
+       "carbaryl",
+       "sevin",
+       "borer"
+      ]
+     }
+    ]
+   }
+  ]
  },
  "pawpaw": {
   "name": "Pawpaw tree",
@@ -241,7 +321,87 @@
  "peach": {
   "name": "Peach tree",
   "kind": "tree",
-  "pests": []
+  "pests": [
+   {
+    "key": "leaf_curl",
+    "name": "Peach leaf curl",
+    "calendar": [
+     {
+      "id": "fall",
+      "from": "11-20",
+      "to": "12-15",
+      "note": "Copper after most leaves have dropped, before heavy winter rain",
+      "match": [
+       "copper",
+       "lime sulfur",
+       "fungicide",
+       "ziram",
+       "chlorothalonil",
+       "bordeaux",
+       "curl"
+      ]
+     },
+     {
+      "id": "winter",
+      "from": "02-01",
+      "to": "02-28",
+      "note": "Copper or lime sulfur before bud swell, on a day above 40°F",
+      "match": [
+       "copper",
+       "lime sulfur",
+       "fungicide",
+       "ziram",
+       "chlorothalonil",
+       "bordeaux",
+       "curl"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "twig_borer",
+    "name": "Peach twig borer",
+    "calendar": [
+     {
+      "id": "dormant",
+      "from": "03-01",
+      "to": "03-24",
+      "note": "Delayed dormant: oil plus insecticide when buds first show green",
+      "match": [
+       "oil",
+       "insecticide",
+       "spinosad",
+       "malathion",
+       "carbaryl",
+       "sevin",
+       "bt",
+       "bacillus",
+       "dipel",
+       "borer"
+      ]
+     },
+     {
+      "id": "bloom",
+      "from": "03-25",
+      "to": "04-20",
+      "note": "Bloom: Bt, or spinosad if you did not use Bt. Spray at dawn or dusk",
+      "match": [
+       "bt",
+       "bacillus",
+       "dipel",
+       "thuricide",
+       "spinosad",
+       "success",
+       "entrust",
+       "malathion",
+       "carbaryl",
+       "sevin",
+       "borer"
+      ]
+     }
+    ]
+   }
+  ]
  },
  "jujube": {
   "name": "Jujube tree",
@@ -472,7 +632,51 @@
  "apricot": {
   "name": "Apricot tree",
   "kind": "tree",
-  "pests": []
+  "pests": [
+   {
+    "key": "twig_borer",
+    "name": "Peach twig borer",
+    "calendar": [
+     {
+      "id": "dormant",
+      "from": "03-01",
+      "to": "03-24",
+      "note": "Delayed dormant: oil plus insecticide when buds first show green",
+      "match": [
+       "oil",
+       "insecticide",
+       "spinosad",
+       "malathion",
+       "carbaryl",
+       "sevin",
+       "bt",
+       "bacillus",
+       "dipel",
+       "borer"
+      ]
+     },
+     {
+      "id": "bloom",
+      "from": "03-25",
+      "to": "04-20",
+      "note": "Bloom: Bt, or spinosad if you did not use Bt. Spray at dawn or dusk",
+      "match": [
+       "bt",
+       "bacillus",
+       "dipel",
+       "thuricide",
+       "spinosad",
+       "success",
+       "entrust",
+       "malathion",
+       "carbaryl",
+       "sevin",
+       "borer"
+      ]
+     }
+    ]
+   }
+  ]
  },
  "hazelnut": {
   "name": "Hazelnut tree (filbert)",

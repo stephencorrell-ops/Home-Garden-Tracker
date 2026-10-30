@@ -2689,6 +2689,11 @@ class GardenModel:
                 pests.append({"key": pest["key"], "name": pest["name"], "status": None, "est_days": None, "needs_biofix": False,
                               "trap": self._trap_view(v, pest, today)})
                 continue
+            if pest.get("calendar"):  # sprayed in set windows of the year, no degree-day model (leaf curl, twig borer)
+                wins, alert = self._calendar_view(v, pest, today)
+                pests.append({"key": pest["key"], "name": pest["name"], "status": None, "est_days": None, "needs_biofix": False,
+                              "alert": alert, "calendar": wins})
+                continue
             st = calc.pest_status(v, pest, daily, today)
             lo, up = pest["lower_f"], pest["upper_f"]
             rate = calc.recent_dd_rate(daily, today, 7, lo, up)
@@ -2754,6 +2759,35 @@ class GardenModel:
             "reviews": sorted(v["reviews"], key=lambda e: (e["year"], e["id"]), reverse=True),
             "projection": proj, "seasons": seasons, "status": status, "archived": v.get("archived"),
         }
+
+    @staticmethod
+    def _calendar_view(v: dict, pest: dict, today: date) -> tuple[list, dict | None]:
+        """Spray windows that fall on the same dates every year. A spray logged inside a window that matches its
+        products (or names the pest) counts as done. The alert is the window open now, or the next one 7 days or less away."""
+        wins, alert = [], None
+        for w in pest["calendar"]:
+            fm, fd = w["from"].split("-")
+            tm, td = w["to"].split("-")
+            start, end = date(today.year, int(fm), int(fd)), date(today.year, int(tm), int(td))
+            words = [x.lower() for x in w.get("match", [])] + [pest["name"].lower()]
+            done = next((x["date"] for x in sorted(v["sprays"], key=lambda e: e["date"])
+                         if start.isoformat() <= x["date"] <= end.isoformat()
+                         and any(k in f"{x.get('product') or ''} {x.get('target') or ''}".lower() for k in words)), None)
+            if done:
+                state = "done"
+            elif today < start:
+                state = "upcoming"
+            elif today <= end:
+                state = "open"
+            else:  # this year's window has gone by: show next year's
+                start, end = start.replace(year=start.year + 1), end.replace(year=end.year + 1)
+                state = "upcoming"
+            days = (start - today).days if state == "upcoming" else 0
+            wins.append({"id": w["id"], "from": start.isoformat(), "to": end.isoformat(), "note": w["note"], "state": state, "done": done, "days": days})
+            if alert is None and (state == "open" or (state == "upcoming" and days <= 7)):
+                alert = {"state": "open" if state == "open" else "soon", "pest": pest["name"], "note": w["note"], "calendar": True,
+                         "days": days, "date": start.isoformat(), "until": end.isoformat(), "dd": None, "target": None}
+        return wins, alert
 
     @staticmethod
     def _trap_view(v: dict, pest: dict, today: date) -> dict:
