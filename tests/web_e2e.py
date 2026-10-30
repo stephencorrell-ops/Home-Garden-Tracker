@@ -129,6 +129,7 @@ def main():
         z = snap["micro"]["zone"]
         check(z["zone"] is not None and snap["micro"]["frost"]["years"], f"weather filled in zone {z['zone']} and frost years")
         check("Your zone" in text and "Official USDA zone" in text and "of readings" in text and "the USDA map" in text, "zone card says what the zone is based on and the official USDA zone")
+        check(card.locator(".pill", has_text="frost").count() >= 1, "microclimate page shows the next frost line")
         check(card.locator(".foldhd").count() >= 3, "microclimate sections fold under a summary")
         check(card.locator(".foldbody").count() == 0, "folding sections start closed")
         card.locator(".foldhd[data-s=soil]").click()
@@ -139,11 +140,13 @@ def main():
             pg.evaluate("window.scrollTo(0, 0)")
             pg.wait_for_timeout(300)
             pg.screenshot(path=str(SHOTS / "micro.png"), full_page=True)
+        card.locator("[data-act=back]").first.click()
+        pg.wait_for_timeout(300)
+        check(card.locator(".pill", has_text="frost").count() == 0, "no frost banners on the home list")
         mt = snap["gardens"][0]["metrics"]
         check(mt["out_temp"]["source"] == "weather" and mt["out_temp"]["current"] == 55.5, "outside temperature comes from local weather")
         check(mt["soil_temp"]["source"] == "estimated" and mt["soil_temp"]["current"] is not None, "soil temperature is estimated")
         # layout planner: size a garden, fill it with tomatoes and read the counts off the page
-        card.locator("[data-act=back]").first.click()
         card.locator("[data-act=open-g]").first.click()
         if SHOTS:
             card.get_by_text("Soil and outside temperature").first.scroll_into_view_if_needed()
