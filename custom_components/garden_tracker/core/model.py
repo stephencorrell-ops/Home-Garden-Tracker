@@ -2817,7 +2817,10 @@ class GardenModel:
         """Where this year's pruning stands: waiting for its month, due until it is marked, or done or not needed."""
         usual = (sp or {}).get("prune_month") or PRUNE_MONTH
         month = v.get("prune_month") or usual
-        start = date(today.year, month, 1)
+        # Due from the prune month through two months after it (February to April by default). After that the
+        # reminder waits for next year, so trees in full leaf in the fall are not nagged.
+        past = today.month > min(month + 2, 12)
+        start = date(today.year + 1 if past else today.year, month, 1)
         done = sorted((e for e in v.get("prunings", []) if e["date"][:4] == str(today.year)), key=lambda e: (e["date"], e["id"]))
         last = done[-1] if done else None
         state = ("skipped" if last["outcome"] == "skipped" else "pruned") if last else ("due" if today >= start else "waiting")
