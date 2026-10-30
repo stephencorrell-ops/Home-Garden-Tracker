@@ -323,7 +323,7 @@ class GardenTrackerCard extends HTMLElement {
     this._psort = this._pref("psort", "year");
     this._tab = this._pref("tab", "all");
     this._compact = this._pref("compact", true);
-    this._microOpen = this._pref("micro_open", ["frost"]);
+    this._microOpen = this._pref("micro_open", []);
     this._show = { water: true, micro: true, cover: true, chores: true, frost: true, ...this._pref("show", {}) };
     if (!this.shadowRoot) {
       this.attachShadow({ mode: "open" });
@@ -511,13 +511,20 @@ class GardenTrackerCard extends HTMLElement {
     const fold = (id, title, peek, body) => `<div class="card fold"><button class="foldhd" data-act="micro-fold" data-s="${id}"><span class="grow">${title}</span><span class="small mut">${peek}</span>${this._icon(open.includes(id) ? "chevron-up" : "chevron-down")}</button>${open.includes(id) ? `<div class="foldbody">${body}</div>` : ""}</div>`;
     const dash = (v, u, d = 0) => (v === null || v === undefined ? "-" : num(v, d) + u);
     // summary: zone and the four numbers checked most
-    const big = (label, val, sub) => `<div class="grow" style="min-width:0"><div class="sec" style="margin:0">${label}</div><div style="font-size:28px;font-weight:600">${val}</div>${sub ? `<div class="small mut">${sub}</div>` : ""}</div>`;
+    const zrow = (val, label, sub, dim) => `<div class="row" style="gap:12px;align-items:center"><div style="font-size:34px;font-weight:600;min-width:56px${dim ? ";opacity:.75" : ""}">${val}</div><div class="grow" style="min-width:0"><div style="font-weight:600">${label}</div><div class="small mut">${sub}</div></div></div>`;
     const usdaM = z.usda ? /^\s*([0-9]+[ab]?)\s*(?:\((.*)\))?\s*$/i.exec(String(z.usda)) : null;
-    h += `<div class="card"><div class="row" style="align-items:flex-start;gap:16px">${z.zone ? big("Your zone", esc(z.zone), `Based on ${z.count} winter${z.count === 1 ? "" : "s"} of readings, average yearly low ${num(z.avg_min, 1)}°F`) : ""}${z.usda ? big("Official USDA zone", esc(usdaM ? usdaM[1] : z.usda), usdaM && usdaM[2] ? esc(usdaM[2]) : "") : ""}</div>`;
-    if (!z.zone) h += `<div class="small mut">Needs one full winter of readings to work out your own zone. Your sensors have not recorded enough yet${z.so_far ? `, lowest so far this winter is ${num(z.so_far.lowest, 1)}°F on ${fmtDate(z.so_far.date)}` : ""}.</div>`;
+    const half = (s) => { const q = /^(\d+)([ab])$/i.exec(String(s || "").trim()); return q ? Number(q[1]) * 2 + (q[2].toLowerCase() === "b" ? 1 : 0) : null; };
+    const hd = half(z.zone) !== null && usdaM ? half(z.zone) - half(usdaM[1]) : null;
+    const zoneWords = (n) => { const w = Math.floor(n / 2); return `${w ? w + (n % 2 ? " and a half" : "") : "half a"} zone${w > 1 || (w === 1 && n % 2) ? "s" : ""}`; };
+    h += `<div class="card">`;
+    if (z.zone) h += zrow(esc(z.zone), "Your zone", `Based on ${z.count} winter${z.count === 1 ? "" : "s"} of readings. Average yearly low is ${num(z.avg_min, 1)}°F.`);
+    else h += `<div class="small mut">Needs one full winter of readings to work out your own zone. Your sensors have not recorded enough yet${z.so_far ? `, lowest so far this winter is ${num(z.so_far.lowest, 1)}°F on ${fmtDate(z.so_far.date)}` : ""}.</div>`;
+    if (z.usda) h += `<div style="border-top:1px solid var(--divider-color);margin-top:10px;padding-top:10px">${zrow(esc(usdaM ? usdaM[1] : z.usda), "Official USDA zone", usdaM && usdaM[2] ? esc(usdaM[2]) : "Your zone from the USDA map", true)}</div>`;
+    if (hd !== null) h += `<div class="pill ${hd === 0 ? "info" : "ok"}" style="margin-top:10px">${hd === 0 ? "Your garden matches the USDA map." : `Your garden runs ${zoneWords(Math.abs(hd))} ${hd > 0 ? "warmer" : "colder"} than the USDA map.`}</div>`;
     if (z.winters.length) h += `<div class="small mut" style="margin-top:8px">${z.winters.map((w) => `${esc(w.label)}: ${num(w.lowest, 1)}°F${w.complete ? "" : " so far"}`).join(" · ")}</div>`;
-    h += `<div style="margin-top:10px">${this._statGrid([["Last frost", f.expected_last ? fmtMd(f.expected_last) : "n/a"], ["First frost", f.expected_first ? fmtMd(f.expected_first) : "n/a"], ["Soil now", dash(s2.actual, "°F", 1)], ["Rain, week", m.rain.sensors.length ? num(m.rain.week, 2) + " in" : "n/a"]])}</div></div>`;
-    // frost by year
+    h += `<div style="margin-top:10px">${this._statGrid([["Last frost", f.expected_last ? fmtMd(f.expected_last) : "n/a"], ["First frost", f.expected_first ? fmtMd(f.expected_first) : "n/a"], ["Soil now", dash(s2.actual, "°F", 1)], ["Rain, week", m.rain.sensors.length ? num(m.rain.week, 2) + " in" : "n/a"]])}</div>`;
+    // frost by year, open under the summary
+    h += `<div class="sec" style="margin:12px 0 4px">Frost, ${f.threshold}°F or colder</div>`;
     let b = "";
     if (!yrs.length) b = `<div class="small mut">No readings yet.</div>`;
     else {
@@ -530,7 +537,7 @@ class GardenTrackerCard extends HTMLElement {
       b += `</table>`;
       if (yrs.some((y) => y.spring_partial)) b += `<div class="small mut">* Readings started after the winter, so an earlier frost may have been missed.</div>`;
     }
-    h += fold("frost", `Frost, ${f.threshold}°F or colder`, yrs.length ? `${yrs.length} year${yrs.length === 1 ? "" : "s"}` : "", b);
+    h += b + `</div>`;
     // soil
     if (s2.expected === null && s2.actual === null) b = `<div class="small mut">Needs a few days of outside readings and a soil temperature sensor.</div>`;
     else {
