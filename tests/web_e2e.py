@@ -115,7 +115,8 @@ def main():
         pg.click("#ok")
 
         # weather: set location, open the microclimate page
-        card.get_by_role("button", name="Microclimate").first.click() if card.get_by_role("button", name="Microclimate").count() else card.locator("[data-act=open-micro]").click()
+        check(card.locator(".tile[data-act=open-micro]").count() == 0 and card.locator(".chip[data-act=open-micro]").count() == 1, "the microclimate link is a chip in the top row, not a card")
+        card.locator(".chip[data-act=open-micro]").click()
         card.get_by_text("Set location").first.click()
         pg.fill("#q", "Ephrata")
         pg.get_by_role("button", name="Ephrata, Washington, US").click()

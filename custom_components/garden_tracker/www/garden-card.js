@@ -492,14 +492,11 @@ class GardenTrackerCard extends HTMLElement {
     if (r && r.first_fall) rec.push(`first fall frost ${fmtDate(r.first_fall)}`);
     return `<div class="pill ${soon ? "warn" : "info"}" style="margin:4px 6px 4px 0">${this._icon("snowflake-alert")} ${named ? esc(g.name) + ": " : ""}${nm} ${n.days === 0 ? "expected today" : `in ${n.days} day${n.days === 1 ? "" : "s"}`} (${fmtDate(n.date)})${rec.length ? `<div class="small" style="font-weight:400">Recorded by your sensors this year: ${rec.join(", ")}</div>` : ""}</div>`;
   }
-  _microTile() {
-    if (!this._show.micro) return "";
+  _microChip() {
     const m = this._snap.micro;
-    if (!m) return "";
-    const z = m.zone, t = m.temps.year;
-    const zt = z.zone ? `Zone ${esc(z.zone)}` : "Zone still being worked out";
-    const sub = [z.usda ? `USDA says ${esc(z.usda)}` : "", t.low !== null ? `year ${num(t.low, 0)}° to ${num(t.high, 0)}°F` : "", m.rain.sensors.length ? `rain this year ${num(m.rain.year, 1)} in` : ""].filter(Boolean).join(", ");
-    return `<div class="card tile" data-act="open-micro"><div class="row"><div class="pic" style="background:color-mix(in srgb,var(--info) 18%,transparent);color:var(--info)">${this._icon("map-marker-radius")}</div><div class="grow"><div style="font-size:15px;font-weight:500">Microclimate</div><div class="sub">${zt}</div><div class="small mut">${sub || "Your own frost dates, temperatures and rain"}</div></div>${this._icon("chevron-right")}</div></div>`;
+    if (!this._show.micro || !m) return "";
+    const z = m.zone && m.zone.zone;
+    return `<button class="chip" data-act="open-micro">${this._icon("map-marker-radius")} Microclimate${z ? ` · ${esc(z)}` : ""}</button>`;
   }
   _microView() {
     const m = this._snap.micro;
@@ -615,7 +612,7 @@ class GardenTrackerCard extends HTMLElement {
     if (!gs.length && !every.length) {
       return h + `<div class="msg">${pastN ? "Add a garden to start adding plants." : "Create your first garden to start adding plants."} Trees can be added without a garden.<br><br>${this._btn("form-garden", "plus", "Add garden", "", "primary")}</div>` + (pastN ? `<button style="width:100%" data-act="open-archive">${this._icon("history")} History (${pastN})</button>` : "");
     }
-    h += `<div class="chips">${gs.map((g) => `<button class="chip" data-act="open-g" data-g="${g.id}">${g.kind === "garden" ? "" : this._icon(KIND_ICON[g.kind]) + " "}${esc(g.name)}</button>`).join("")}${pastN ? `<button class="chip" data-act="open-archive">${this._icon("history")} History</button>` : ""}${this._config.garden ? "" : `<button class="chip" data-act="form-garden">${this._icon("plus")} Add</button>`}</div>`;
+    h += `<div class="chips">${gs.map((g) => `<button class="chip" data-act="open-g" data-g="${g.id}">${g.kind === "garden" ? "" : this._icon(KIND_ICON[g.kind]) + " "}${esc(g.name)}</button>`).join("")}${this._microChip()}${pastN ? `<button class="chip" data-act="open-archive">${this._icon("history")} History</button>` : ""}${this._config.garden ? "" : `<button class="chip" data-act="form-garden">${this._icon("plus")} Add</button>`}</div>`;
     if (!this._web) h += gs.map((g) => this._sensorBanner(g)).join("");
     const frost = gs.filter((g) => g.kind === "garden").map((g) => this._frostPill(g, gs.length > 1)).join("");
     if (frost) h += `<div>${frost}</div>`;
@@ -648,7 +645,7 @@ class GardenTrackerCard extends HTMLElement {
         if (place) h += this._placeSummary(g);
         if (cov.length) h += `<div class="lbox">${this._coverLine(g, cov)}</div>`;
       }
-      return h + this._microTile();
+      return h;
     }
     const flat = this._sort !== "garden";
     if (flat) h += this._sortVars(shown, this._sort).map((v) => this._row(v, true)).join("");
@@ -663,7 +660,6 @@ class GardenTrackerCard extends HTMLElement {
     }
     const loose = flat ? [] : shown.filter((v) => !v.garden);
     if (loose.length) h += `<div class="sec">Trees, no garden</div>` + loose.map((v) => this._row(v)).join("");
-    h += this._microTile();
     return h;
   }
   _mixText(g) {
