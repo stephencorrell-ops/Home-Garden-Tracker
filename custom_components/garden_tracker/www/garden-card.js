@@ -479,7 +479,6 @@ class GardenTrackerCard extends HTMLElement {
 
   // ---- home ---------------------------------------------------------------------
   _frostPill(g, named) {
-    if (!this._show.frost) return "";
     const n = g.frost && g.frost.next;
     if (!n) {
       const r = g.frost && g.frost.recorded;
@@ -510,6 +509,9 @@ class GardenTrackerCard extends HTMLElement {
     const open = this._microOpen;
     const fold = (id, title, peek, body) => `<div class="card fold"><button class="foldhd" data-act="micro-fold" data-s="${id}"><span class="grow">${title}</span><span class="small mut">${peek}</span>${this._icon(open.includes(id) ? "chevron-up" : "chevron-down")}</button>${open.includes(id) ? `<div class="foldbody">${body}</div>` : ""}</div>`;
     const dash = (v, u, d = 0) => (v === null || v === undefined ? "-" : num(v, d) + u);
+    // one set of frost dates for every garden at this address
+    const fg = this._gardens().find((g) => g.kind === "garden");
+    if (fg) h += `<div>${this._frostPill(fg, false)}</div>`;
     // summary: zone and the four numbers checked most
     const zrow = (val, label, sub, dim) => `<div class="row" style="gap:12px;align-items:center"><div style="font-size:34px;font-weight:600;min-width:56px${dim ? ";opacity:.75" : ""}">${val}</div><div class="grow" style="min-width:0"><div style="font-weight:600">${label}</div><div class="small mut">${sub}</div></div></div>`;
     const usdaM = z.usda ? /^\s*([0-9]+[ab]?)\s*(?:\((.*)\))?\s*$/i.exec(String(z.usda)) : null;
@@ -619,8 +621,6 @@ class GardenTrackerCard extends HTMLElement {
     }
     h += `<div class="chips">${gs.map((g) => `<button class="chip" data-act="open-g" data-g="${g.id}">${g.kind === "garden" ? "" : this._icon(KIND_ICON[g.kind]) + " "}${esc(g.name)}</button>`).join("")}${this._microChip()}${pastN ? `<button class="chip" data-act="open-archive">${this._icon("history")} History</button>` : ""}${this._config.garden ? "" : `<button class="chip" data-act="form-garden">${this._icon("plus")} Add</button>`}</div>`;
     if (!this._web) h += gs.map((g) => this._sensorBanner(g)).join("");
-    const frost = gs.filter((g) => g.kind === "garden").map((g) => this._frostPill(g, gs.length > 1)).join("");
-    if (frost) h += `<div>${frost}</div>`;
     const cnt = (l) => vs.filter((v) => v.status.level === l).length;
     const filters = [["all", `All ${vs.length}`], ["spray", `Spray due ${cnt("spray")}`], ["hold", `Harvest hold ${cnt("hold")}`], ["ok", `On track ${cnt("ok")}`]];
     if (nTrees && nPlants) h += `<div class="chips tabs">${[["all", `All ${every.length}`], ["trees", `Trees ${nTrees}`], ["plants", `Plants ${nPlants}`]].map(([k, t]) => `<button class="chip ${this._tab === k ? "on" : ""}" data-act="tab" data-s="${k}">${t}</button>`).join("")}</div>`;
@@ -1043,7 +1043,7 @@ class GardenTrackerCard extends HTMLElement {
     if (g.kind !== "garden") return this._placeView(g);
     const ph = g.ph, gid = g.id;
     let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="grow"><div class="ttl">${esc(g.name)}</div><div class="sub">${this._vars().filter((v) => v.garden === gid).length} plants</div></div>${this._btn("edit-g", "cog", "", `data-g="${gid}"`, "ic")}</div>`;
-    h += this._frostPill(g, false) + this._sensorBanner(g) + this._choreCard(g) + this._tiles(g) + this._seasonCard(g);
+    h += this._sensorBanner(g) + this._choreCard(g) + this._tiles(g) + this._seasonCard(g);
     h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">Soil pH</div>${ph.level ? `<span class="pill ${ph.level === "ok" ? "ok" : "warn"}" style="margin:0">${ph.level === "ok" ? "In range" : ph.level === "low" ? "Below target" : "Above target"}</span>` : ""}</div>`;
     if (ph.current !== null) {
       const d = ph.first && ph.first.date !== ph.date ? ph.current - ph.first.value : null;
@@ -1504,12 +1504,11 @@ class GardenTrackerCard extends HTMLElement {
         { name: "water", label: "Watering", type: "seg", options: seg, value: on("water") },
         { name: "chores", label: "To do list", type: "seg", options: seg, value: on("chores") },
         { name: "cover", label: "Cover crops", type: "seg", options: seg, value: on("cover") },
-        { name: "frost", label: "Frost dates", type: "seg", options: seg, value: on("frost") },
         { name: "micro", label: "Weather and microclimate", type: "seg", options: seg, value: on("micro") },
       ],
       note: "Saved on this device only. Hiding something only hides it from view; nothing is deleted.",
       submit: (x) => {
-        for (const k of ["water", "chores", "cover", "frost", "micro"]) if (x[k] !== undefined) this._show[k] = x[k] === "1";
+        for (const k of ["water", "chores", "cover", "micro"]) if (x[k] !== undefined) this._show[k] = x[k] === "1";
         if (x.compact !== undefined) { this._compact = x.compact === "1"; this._setPref("compact", this._compact); }
         if (x.sort) { this._sort = x.sort; this._setPref("sort", x.sort); }
         this._setPref("show", this._show);
