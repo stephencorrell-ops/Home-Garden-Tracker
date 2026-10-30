@@ -13,6 +13,10 @@ After updating in HACS, restart Home Assistant and refresh your dashboard (close
 - **Web app: weather stays with the right place.** Weather that was still downloading when you restored a backup or picked a new location is no longer saved to it, and the new place's weather is fetched after.
 - **Web app: your last change is saved when you leave.** Changes are saved when the page closes or goes to the background, and a banner asks you to back up if the browser fails to save.
 
+## 0.31.5 - 2026-10-30
+
+- **Fix a plant in the wrong garden.** The Edit form has a "Where it is" field listing every garden, rack and greenhouse (trees also get "No garden"). It only corrects where the plant shows. It adds nothing to its move history and does not split the planting. The Move button is still there for a real move.
+
 ## 0.31.4 - 2026-10-30
 
 - **Pruning reminder no longer runs all year.** It was due from February until you logged a pruning, so trees in full leaf still said "Due now" in the fall. It now runs from the prune month through two months after it (February to April, or March to May for walnuts), then waits for next year and shows the next reminder date. Logging "Pruned" or "No pruning needed" still clears it for the year.
