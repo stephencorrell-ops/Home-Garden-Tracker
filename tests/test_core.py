@@ -1259,17 +1259,17 @@ class SprayAttention(unittest.TestCase):
         m = self._orchard(date(2026, 3, 1), 2)  # 59 days at 2 degree days
         p = self._gala(m)["pests"][0]
         self.assertEqual(p["status"]["biofix"], "2026-01-01")
-        self.assertEqual(p["status"]["next_dd"], 425)
+        self.assertEqual(p["status"]["next_dd"], 346)
         self.assertTrue(p["status"]["estimated_start"])
         self.assertFalse(p["needs_biofix"])
 
     def test_a_spray_within_seven_days_is_flagged_with_a_range(self):
-        m = self._orchard(date(2026, 4, 11), 4)  # 100 days at 4 dd = 400, so 25 to go: 7 days
+        m = self._orchard(date(2026, 3, 22), 4)  # 80 days at 4 dd = 320, so 26 to go: 7 days
         v = self._gala(m)
         a = v["alert"]
         self.assertEqual(a["state"], "soon")
         self.assertEqual(a["days"], 7)
-        self.assertEqual(a["date"], "2026-04-18")
+        self.assertEqual(a["date"], "2026-03-29")
         self.assertLessEqual(a["low"], a["days"])
         self.assertGreaterEqual(a["high"], a["days"])
         self.assertEqual(v["status"]["level"], "spray")
@@ -1280,10 +1280,10 @@ class SprayAttention(unittest.TestCase):
         self.assertNotEqual(self._gala(m)["status"]["level"], "spray")
 
     def test_window_open_until_a_spray_is_logged(self):
-        m = self._orchard(date(2026, 4, 20), 4)  # past 425
+        m = self._orchard(date(2026, 4, 10), 4)  # past 346 on Mar 28
         a = self._gala(m)["alert"]
         self.assertEqual(a["state"], "open")
-        m.log_spray("Gala", "Spinosad", "2026-04-19")
+        m.log_spray("Gala", "Spinosad", "2026-04-05")
         self.assertIsNone(self._gala(m)["alert"])
 
     def test_a_logged_trap_catch_restarts_the_count_at_250(self):

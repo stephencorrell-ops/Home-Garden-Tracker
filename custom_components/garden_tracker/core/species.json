@@ -10,14 +10,14 @@
     "lower_f": 50,
     "upper_f": 88,
     "default_biofix": "01-01",
-    "no_biofix_dd": 175,
+    "no_biofix_dd": 96,
     "milestones": [
      {
-      "dd": 425,
+      "dd": 346,
       "note": "Egg hatch begins: first cover spray window"
      },
      {
-      "dd": 1425,
+      "dd": 1346,
       "note": "Second generation begins: check for new damage, reapply per label"
      }
     ]
@@ -34,14 +34,14 @@
     "lower_f": 50,
     "upper_f": 88,
     "default_biofix": "01-01",
-    "no_biofix_dd": 175,
+    "no_biofix_dd": 96,
     "milestones": [
      {
-      "dd": 425,
+      "dd": 346,
       "note": "Egg hatch begins: first cover spray window"
      },
      {
-      "dd": 1425,
+      "dd": 1346,
       "note": "Second generation begins: check for new damage, reapply per label"
      }
     ]
@@ -58,14 +58,14 @@
     "lower_f": 50,
     "upper_f": 88,
     "default_biofix": "01-01",
-    "no_biofix_dd": 175,
+    "no_biofix_dd": 96,
     "milestones": [
      {
-      "dd": 425,
+      "dd": 346,
       "note": "Egg hatch begins: first cover spray window"
      },
      {
-      "dd": 1425,
+      "dd": 1346,
       "note": "Second generation begins: check for new damage, reapply per label"
      }
     ]

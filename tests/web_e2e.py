@@ -259,8 +259,8 @@ def main():
         card.evaluate("""el => {
           const orig = el._vars.bind(el), t = el._snap.today;
           const at = (n) => el._isoAdd(t, n);
-          const alerts = { Gala: { state: "soon", pest: "Codling moth", dd: 290, target: 425, days: 4, low: 3, high: 6, date: at(4), date_low: at(3), date_high: at(6) },
-                           Bartlett: { state: "soon", pest: "Codling moth", dd: 268, target: 425, days: 7, low: 6, high: 9, date: at(7), date_low: at(6), date_high: at(9) },
+          const alerts = { Gala: { state: "soon", pest: "Codling moth", dd: 290, target: 346, days: 4, low: 3, high: 6, date: at(4), date_low: at(3), date_high: at(6) },
+                           Bartlett: { state: "soon", pest: "Codling moth", dd: 268, target: 346, days: 7, low: 6, high: 9, date: at(7), date_low: at(6), date_high: at(9) },
                            Rainier: { state: "open", pest: "Western cherry fruit fly", dd: 912, target: 900, days: 0, date: t } };
           el._vars = (...a) => orig(...a).map((v) => alerts[v.name] ? { ...v, alert: alerts[v.name], status: { level: "spray", text: "Spray" } } : v);
           el._render();
@@ -268,7 +268,7 @@ def main():
         pg.wait_for_timeout(200)
         text = card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText")
         check("Needs attention" in text and "4 days" in text and "first spray about" in text, "a spray within a week gets an attention card with the date")
-        check("290 of 425 degree days" in text and "Likely" in text, "the card shows the degree days against the 425 target and a likely range")
+        check("290 of 346 degree days" in text and "Likely" in text, "the card shows the degree days against the 346 target and a likely range")
         check("Now" in text and "spray window open" in text, "an open spray window says Now")
         check(card.locator(".acard").count() == 3 and "Everything else" in text, "the rest stay in the one-line list")
         if SHOTS: pg.screenshot(path=str(SHOTS / "attention.png"), full_page=True)
@@ -277,12 +277,12 @@ def main():
           const g = el._snap.varieties.find((v) => v.name === 'Gala'), t = el._snap.today;
           el._saved = g.pests;
           g.pests = [{ key: 'codling_moth', name: 'Codling moth', est_days: 4, est_low: 3, est_high: 6, needs_biofix: false, alert: null,
-            status: { dd: 290, biofix: t.slice(0, 4) + '-01-01', estimated_start: true, next_dd: 425, next_action: 'Egg hatch begins: first cover spray window', dd_to_next: 135, reached: [] } }];
+            status: { dd: 290, biofix: t.slice(0, 4) + '-01-01', estimated_start: true, next_dd: 346, next_action: 'Egg hatch begins: first cover spray window', dd_to_next: 135, reached: [] } }];
           el._go({ v: 'variety', id: g.id });
         }""")
         pg.wait_for_timeout(300)
         text = card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText")
-        check("290 / 425" in text and "in 4 days" in text and "likely" in text and "no trap needed" in text.lower(), "the plant page gives the projected date, its range and the trap-free note")
+        check("290 / 346" in text and "in 4 days" in text and "likely" in text and "no trap needed" in text.lower(), "the plant page gives the projected date, its range and the trap-free note")
         if SHOTS: pg.screenshot(path=str(SHOTS / "projection.png"), full_page=True)
         card.evaluate("el => { el._snap.varieties.find((v) => v.name === 'Gala').pests = el._saved; el._go({ v: 'home' }); }")
         card.evaluate("el => { delete el._vars; el._render(); }")
