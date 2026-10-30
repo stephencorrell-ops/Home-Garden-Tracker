@@ -115,7 +115,8 @@ def main():
         pg.click("#ok")
 
         # weather: set location, open the microclimate page
-        card.get_by_role("button", name="Microclimate").first.click() if card.get_by_role("button", name="Microclimate").count() else card.locator("[data-act=open-micro]").click()
+        check(card.locator(".tile[data-act=open-micro]").count() == 0 and card.locator(".chip[data-act=open-micro]").count() == 1, "the microclimate link is a chip in the top row, not a card")
+        card.locator(".chip[data-act=open-micro]").click()
         card.get_by_text("Set location").first.click()
         pg.fill("#q", "Ephrata")
         pg.get_by_role("button", name="Ephrata, Washington, US").click()
@@ -127,6 +128,12 @@ def main():
         snap = pg.evaluate("window.__garden.engine.snapshot()")
         z = snap["micro"]["zone"]
         check(z["zone"] is not None and snap["micro"]["frost"]["years"], f"weather filled in zone {z['zone']} and frost years")
+        check(card.locator(".foldhd").count() >= 4, "microclimate sections fold under a summary")
+        check(card.locator(".foldbody").count() == 1, "only the frost section starts open")
+        card.locator(".foldhd[data-s=soil]").click()
+        check(card.locator(".foldbody").count() == 2, "tapping a header opens its section")
+        card.locator(".foldhd[data-s=soil]").click()
+        check(card.locator(".foldbody").count() == 1, "tapping again folds it")
         if SHOTS:
             card.evaluate("el => el.scrollIntoView()")
             pg.screenshot(path=str(SHOTS / "micro.png"), full_page=True)
@@ -309,6 +316,12 @@ def main():
         pg.wait_for_timeout(200)
         card.evaluate("el => { delete el._vars; el._render(); }")
         pg.wait_for_timeout(200)
+        # a cover crop is one line in the list too, with its own Terminate button
+        pg.evaluate("() => { const e = window.__garden.engine, g = e.snapshot().gardens[0].id; e.call('add_cover_crop', { garden: g, crop: 'Winter rye', sown_date: e.snapshot().today }); }")
+        pg.evaluate("window.__garden.refreshWeather(true)")
+        pg.wait_for_timeout(500)
+        check(card.locator(".lrow", has_text="Winter rye").count() == 1 and card.locator(".tile", has_text="Winter rye").count() == 0, "a cover crop shows as one line, not a full card")
+        check(card.locator(".lrow [data-act=form-terminate]").count() == 1, "the cover crop line has a Terminate button")
         if SHOTS: pg.screenshot(path=str(SHOTS / "compact.png"), full_page=True)
         check(card.locator(".lrow").count() >= 3, "plants show as one-line rows by default")
         card.locator("[data-act=tab][data-s=trees]").click()
@@ -332,7 +345,8 @@ def main():
         pg.wait_for_timeout(200)
         card.locator("[data-act=sort][data-s=name]").click()
         names = card.evaluate("el => [...el.shadowRoot.querySelectorAll('.tile[data-act=open-v], .lrow')].map((t) => (t.querySelector('b') || t.querySelector('[style*=\"font-size:15px\"]')).innerText)")
-        check(names == sorted(names, key=str.lower) and len(names) == 5, f"sorted by name: {names}")
+        names = [n for n in names if n != "Winter rye"]  # the cover crop line sits after the plants
+        check(names == sorted(names, key=str.lower) and len(names) >= 5, f"sorted by name: {names}")
         if SHOTS:
             pg.screenshot(path=str(SHOTS / "lists.png"), full_page=True)
         card.locator("[data-act=form-view]").click()
