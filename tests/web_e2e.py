@@ -226,8 +226,8 @@ def main():
             r = pg.evaluate("([n, sp]) => { const e = window.__garden.engine; return e.call('add_variety', { garden: sp === 'Tomato' ? e.snapshot().gardens[0].id : '', species: sp, variety: n }); }", [n, sp])
             check(r["ok"], f"{sp} added" + (" with no garden" if sp != "Tomato" else ""))
         pg.evaluate("window.__garden.refreshWeather(true)")
-        card.get_by_text("Trees, no garden").wait_for(timeout=5000)
-        check(True, "trees without a garden get their own section")
+        card.get_by_text("No garden").first.wait_for(timeout=5000)
+        check(True, "trees without a garden are listed with 'No garden'")
         # the Add plant form with "No garden" chosen, the way the HA card sends it (an empty garden)
         card.locator("[data-act=form-variety]").first.click()
         card.locator("select").nth(0).select_option("")
@@ -255,29 +255,61 @@ def main():
         check("Bartlett" in text and "Gala" not in text and "Sungold" not in text, "typing in the search box filters the plants")
         check(card.evaluate("el => el.shadowRoot.activeElement && el.shadowRoot.activeElement.dataset.q") == "home", "the search box keeps focus while typing")
         card.locator("input[data-q=home]").fill("")
+        # a spray a week out: give the apple and the pear an alert the way the core would, then look at the cards
+        card.evaluate("""el => {
+          const orig = el._vars.bind(el), t = el._snap.today;
+          const at = (n) => el._isoAdd(t, n);
+          const alerts = { Gala: { state: "soon", pest: "Codling moth", dd: 290, target: 425, days: 4, low: 3, high: 6, date: at(4), date_low: at(3), date_high: at(6) },
+                           Bartlett: { state: "soon", pest: "Codling moth", dd: 268, target: 425, days: 7, low: 6, high: 9, date: at(7), date_low: at(6), date_high: at(9) },
+                           Rainier: { state: "open", pest: "Western cherry fruit fly", dd: 912, target: 900, days: 0, date: t } };
+          el._vars = (...a) => orig(...a).map((v) => alerts[v.name] ? { ...v, alert: alerts[v.name], status: { level: "spray", text: "Spray" } } : v);
+          el._render();
+        }""")
+        pg.wait_for_timeout(200)
+        text = card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText")
+        check("Needs attention" in text and "4 days" in text and "first spray about" in text, "a spray within a week gets an attention card with the date")
+        check("290 of 425 degree days" in text and "Likely" in text, "the card shows the degree days against the 425 target and a likely range")
+        check("Now" in text and "spray window open" in text, "an open spray window says Now")
+        check(card.locator(".acard").count() == 3 and "Everything else" in text, "the rest stay in the one-line list")
+        if SHOTS: pg.screenshot(path=str(SHOTS / "attention.png"), full_page=True)
+        # the plant page: the projected date, its range, and the trap-free note
+        card.evaluate("""el => {
+          const g = el._snap.varieties.find((v) => v.name === 'Gala'), t = el._snap.today;
+          el._saved = g.pests;
+          g.pests = [{ key: 'codling_moth', name: 'Codling moth', est_days: 4, est_low: 3, est_high: 6, needs_biofix: false, alert: null,
+            status: { dd: 290, biofix: t.slice(0, 4) + '-01-01', estimated_start: true, next_dd: 425, next_action: 'Egg hatch begins: first cover spray window', dd_to_next: 135, reached: [] } }];
+          el._go({ v: 'variety', id: g.id });
+        }""")
+        pg.wait_for_timeout(300)
+        text = card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText")
+        check("290 / 425" in text and "in 4 days" in text and "likely" in text and "no trap needed" in text.lower(), "the plant page gives the projected date, its range and the trap-free note")
+        if SHOTS: pg.screenshot(path=str(SHOTS / "projection.png"), full_page=True)
+        card.evaluate("el => { el._snap.varieties.find((v) => v.name === 'Gala').pests = el._saved; el._go({ v: 'home' }); }")
+        card.evaluate("el => { delete el._vars; el._render(); }")
+        pg.wait_for_timeout(200)
         if SHOTS: pg.screenshot(path=str(SHOTS / "compact.png"), full_page=True)
-        check(card.locator(".crow").count() >= 3, "plants show as compact rows by default")
+        check(card.locator(".lrow").count() >= 3, "plants show as one-line rows by default")
         card.locator("[data-act=tab][data-s=trees]").click()
         pg.wait_for_timeout(200)
-        names = card.evaluate("el => [...el.shadowRoot.querySelectorAll('.crow .cn')].map((n) => n.innerText)")
+        names = card.evaluate("el => [...el.shadowRoot.querySelectorAll('.lrow b')].map((n) => n.innerText)")
         check(names and "Tomato" not in " ".join(names) and "Rainier" in names, f"the Trees tab lists only trees: {names}")
         if SHOTS: pg.screenshot(path=str(SHOTS / "treestab.png"), full_page=True)
         card.locator("[data-act=tab][data-s=plants]").click()
         pg.wait_for_timeout(200)
-        names = card.evaluate("el => [...el.shadowRoot.querySelectorAll('.crow .cn')].map((n) => n.innerText)")
+        names = card.evaluate("el => [...el.shadowRoot.querySelectorAll('.lrow b')].map((n) => n.innerText)")
         check(names and "Rainier" not in names, f"the Plants tab leaves the trees out: {names}")
         card.locator("[data-act=tab][data-s=all]").click()
         card.locator("[data-act=form-view]").click()
         card.get_by_role("button", name="Cards").click()
         card.locator("[data-act=form-submit]").click()
         pg.wait_for_timeout(200)
-        check(card.locator(".crow").count() == 0 and card.locator(".tile").count() >= 3, "the View option switches back to full cards")
+        check(card.locator(".lrow").count() == 0 and card.locator(".tile").count() >= 3, "the View option switches back to full cards")
         card.locator("[data-act=form-view]").click()
         card.get_by_role("button", name="Compact rows").click()
         card.locator("[data-act=form-submit]").click()
         pg.wait_for_timeout(200)
         card.locator("[data-act=sort][data-s=name]").click()
-        names = card.evaluate("el => [...el.shadowRoot.querySelectorAll('.tile[data-act=open-v]')].map((t) => t.querySelector('.cn, [style*=\"font-size:15px\"]').innerText)")
+        names = card.evaluate("el => [...el.shadowRoot.querySelectorAll('.tile[data-act=open-v], .lrow')].map((t) => (t.querySelector('b') || t.querySelector('[style*=\"font-size:15px\"]')).innerText)")
         check(names == sorted(names, key=str.lower) and len(names) == 5, f"sorted by name: {names}")
         if SHOTS:
             pg.screenshot(path=str(SHOTS / "lists.png"), full_page=True)

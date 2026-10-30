@@ -2690,12 +2690,26 @@ class GardenModel:
                               "trap": self._trap_view(v, pest, today)})
                 continue
             st = calc.pest_status(v, pest, daily, today)
-            rate = calc.recent_dd_rate(daily, today, 7, pest["lower_f"], pest["upper_f"])
-            est = None
+            lo, up = pest["lower_f"], pest["upper_f"]
+            rate = calc.recent_dd_rate(daily, today, 7, lo, up)
+            est, est_low, est_high, alert = None, None, None, None
             if st and st["dd_to_next"] and rate > 0.5:
-                est = int(-(-st["dd_to_next"] // rate))
-            pests.append({"key": pest["key"], "name": pest["name"], "status": st, "est_days": est,
-                          "needs_biofix": st is None and not pest.get("default_biofix")})
+                need = st["dd_to_next"]
+                est = int(-(-need // rate))
+                rates = [r for r in (rate, calc.recent_dd_rate(daily, today, 3, lo, up), calc.recent_dd_rate(daily, today, 14, lo, up)) if r > 0.5]
+                est_low, est_high = int(-(-need // max(rates))), int(-(-need // min(rates)))
+            if st:
+                since = st["open_since"]
+                fresh = since and (today - date.fromisoformat(since)).days <= 21 and not any(x["date"] >= since for x in v["sprays"])
+                if fresh:
+                    alert = {"state": "open", "pest": pest["name"], "dd": st["dd"], "target": st["reached"][-1]["dd"], "since": since,
+                             "note": st["open_note"], "days": 0, "date": since}
+                elif est is not None and est <= 7:
+                    alert = {"state": "soon", "pest": pest["name"], "dd": st["dd"], "target": st["next_dd"], "note": st["next_action"],
+                             "days": est, "low": est_low, "high": est_high, "date": (today + timedelta(days=est)).isoformat(),
+                             "date_low": (today + timedelta(days=est_low)).isoformat(), "date_high": (today + timedelta(days=est_high)).isoformat()}
+            pests.append({"key": pest["key"], "name": pest["name"], "status": st, "est_days": est, "est_low": est_low, "est_high": est_high,
+                          "alert": alert, "needs_biofix": st is None and not pest.get("default_biofix")})
         feeding, g = None, self.data["gardens"].get(v["garden"])
         feeding_off = bool(g and g.get("kind", "garden") == "garden" and self._feeding_off(g, today))
         plan = sp.get("feeding_plan")
@@ -2727,7 +2741,7 @@ class GardenModel:
             "fertilizations": sorted(v["fertilizations"], key=lambda e: (e["date"], e["id"]), reverse=True),
             "last_fert": last_f, "feeding": feeding, "feeding_off": feeding_off,
             "sprays": sorted(v["sprays"], key=lambda e: (e["date"], e["id"]), reverse=True),
-            "spray": spray, "pests": pests,
+            "spray": spray, "pests": pests, "alert": next(iter(sorted((p["alert"] for p in pests if p.get("alert")), key=lambda a: a["days"])), None),
             "pruning": pruning,
             "reviews": sorted(v["reviews"], key=lambda e: (e["year"], e["id"]), reverse=True),
             "projection": proj, "seasons": seasons, "status": status, "archived": v.get("archived"),
@@ -2785,12 +2799,10 @@ class GardenModel:
                 if tr and tr["state"] in ("spray", "late"):
                     return {"level": "spray", "text": f"Spray {p['name'].lower()} by {date.fromisoformat(tr['spray_by']).strftime('%b %-d')}" if tr["state"] == "spray"
                             else f"Spray {p['name'].lower()}: past the {tr['spray_within_days']} days"}
-            near = [(p["status"]["dd_to_next"], p) for p in pests
-                    if p["status"] and p["status"]["dd_to_next"] is not None and p["status"]["dd_to_next"] <= 40]
-            if near:
-                dd, p = min(near, key=lambda x: x[0])
-                est = p["est_days"]
-                return {"level": "spray", "text": f"Spray window in about {est} days" if est else "Spray window near"}
+            al = sorted((p["alert"] for p in pests if p.get("alert")), key=lambda a: a["days"])
+            if al:
+                a = al[0]
+                return {"level": "spray", "text": f"Spray {a['pest'].lower()}: window open" if a["state"] == "open" else f"Spray {a['pest'].lower()} in about {a['days']} day{'' if a['days'] == 1 else 's'}"}
             if spray["next_in"] is not None and spray["next_in"] <= 3:
                 n = spray["next_in"]
                 return {"level": "spray", "text": "Reapply spray due" if n <= 0 else f"Reapply spray in {n} days"}

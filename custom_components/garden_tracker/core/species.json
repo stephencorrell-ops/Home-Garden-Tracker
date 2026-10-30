@@ -9,15 +9,16 @@
     "name": "Codling moth",
     "lower_f": 50,
     "upper_f": 88,
-    "default_biofix": null,
+    "default_biofix": "01-01",
+    "no_biofix_dd": 175,
     "milestones": [
      {
-      "dd": 250,
+      "dd": 425,
       "note": "Egg hatch begins: first cover spray window"
      },
      {
-      "dd": 1050,
-      "note": "Second generation begins: check traps, reapply per label"
+      "dd": 1425,
+      "note": "Second generation begins: check for new damage, reapply per label"
      }
     ]
    }
@@ -32,15 +33,16 @@
     "name": "Codling moth",
     "lower_f": 50,
     "upper_f": 88,
-    "default_biofix": null,
+    "default_biofix": "01-01",
+    "no_biofix_dd": 175,
     "milestones": [
      {
-      "dd": 250,
+      "dd": 425,
       "note": "Egg hatch begins: first cover spray window"
      },
      {
-      "dd": 1050,
-      "note": "Second generation begins: check traps, reapply per label"
+      "dd": 1425,
+      "note": "Second generation begins: check for new damage, reapply per label"
      }
     ]
    }
@@ -55,15 +57,16 @@
     "name": "Codling moth",
     "lower_f": 50,
     "upper_f": 88,
-    "default_biofix": null,
+    "default_biofix": "01-01",
+    "no_biofix_dd": 175,
     "milestones": [
      {
-      "dd": 250,
+      "dd": 425,
       "note": "Egg hatch begins: first cover spray window"
      },
      {
-      "dd": 1050,
-      "note": "Second generation begins: check traps, reapply per label"
+      "dd": 1425,
+      "note": "Second generation begins: check for new damage, reapply per label"
      }
     ]
    }

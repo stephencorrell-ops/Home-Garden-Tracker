@@ -1239,3 +1239,56 @@ class TreeNames(unittest.TestCase):
         self.assertEqual(names["cherry"] if "cherry" in names else "Cherry tree", "Cherry tree")
         for k, n in names.items():
             self.assertIn("tree", n.lower(), k)
+
+
+class SprayAttention(unittest.TestCase):
+    def _orchard(self, today, per_day):
+        """A tree with daily temperatures that give `per_day` degree days a day from Jan 1 to today."""
+        m = make(today)
+        m.add_variety("", "apple", "Gala")
+        d = date(today.year, 1, 1)
+        while d < today:
+            m.data["daily"][d.isoformat()] = [50.0, 50.0 + 2 * per_day]
+            d += timedelta(days=1)
+        return m
+
+    def _gala(self, m):
+        return next(v for v in m.snapshot()["varieties"] if v["name"] == "Gala")
+
+    def test_codling_moth_counts_from_jan_1_with_no_trap(self):
+        m = self._orchard(date(2026, 3, 1), 2)  # 59 days at 2 degree days
+        p = self._gala(m)["pests"][0]
+        self.assertEqual(p["status"]["biofix"], "2026-01-01")
+        self.assertEqual(p["status"]["next_dd"], 425)
+        self.assertTrue(p["status"]["estimated_start"])
+        self.assertFalse(p["needs_biofix"])
+
+    def test_a_spray_within_seven_days_is_flagged_with_a_range(self):
+        m = self._orchard(date(2026, 4, 11), 4)  # 100 days at 4 dd = 400, so 25 to go: 7 days
+        v = self._gala(m)
+        a = v["alert"]
+        self.assertEqual(a["state"], "soon")
+        self.assertEqual(a["days"], 7)
+        self.assertEqual(a["date"], "2026-04-18")
+        self.assertLessEqual(a["low"], a["days"])
+        self.assertGreaterEqual(a["high"], a["days"])
+        self.assertEqual(v["status"]["level"], "spray")
+
+    def test_nothing_is_flagged_when_the_spray_is_weeks_away(self):
+        m = self._orchard(date(2026, 3, 1), 2)
+        self.assertIsNone(self._gala(m)["alert"])
+        self.assertNotEqual(self._gala(m)["status"]["level"], "spray")
+
+    def test_window_open_until_a_spray_is_logged(self):
+        m = self._orchard(date(2026, 4, 20), 4)  # past 425
+        a = self._gala(m)["alert"]
+        self.assertEqual(a["state"], "open")
+        m.log_spray("Gala", "Spinosad", "2026-04-19")
+        self.assertIsNone(self._gala(m)["alert"])
+
+    def test_a_logged_trap_catch_restarts_the_count_at_250(self):
+        m = self._orchard(date(2026, 4, 10), 4)
+        m.set_biofix("Gala", "codling_moth", "2026-03-20")
+        st = self._gala(m)["pests"][0]["status"]
+        self.assertEqual(st["next_dd"], 250)
+        self.assertFalse(st["estimated_start"])

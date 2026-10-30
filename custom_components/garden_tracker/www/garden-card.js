@@ -48,7 +48,7 @@ label{display:block;font-size:12px;color:var(--mut);margin-bottom:4px}
 .sec{font-size:12px;color:var(--mut);margin:0 0 6px}
 .pdays{text-align:right;flex:none;align-self:flex-start}.pdays span{display:block;font-size:11px;color:var(--mut)}.pdays b{font-size:16px;font-weight:500}
 .tiles2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:12px}.tiles2 .tile{margin:0;display:flex;flex-direction:column;gap:6px;min-height:112px;padding:14px}.tiles2 .pic{width:36px;height:36px;border-radius:10px}.warn{border-radius:14px;background:color-mix(in srgb,var(--spray) 16%,var(--card-background-color));border:1px solid color-mix(in srgb,var(--spray) 55%,transparent);padding:12px 14px;margin-bottom:8px}.warn.bad{background:color-mix(in srgb,var(--hold) 12%,var(--card-background-color));border-color:color-mix(in srgb,var(--hold) 55%,transparent)}.warn .wt{font-size:15px;font-weight:700}.warn .wb{font-size:14px;line-height:1.4;margin-top:4px}.warn .wa{margin-top:8px;min-height:44px;border-radius:12px;border:1px solid currentColor;background:transparent;font-weight:600;padding:0 14px;color:inherit}.warn summary{font-size:14px;font-weight:600;min-height:44px;display:flex;align-items:center;cursor:pointer}.lgds{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}.lgd{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:0 10px;border-radius:16px;background:var(--secondary-background-color);font-size:13px}.lgd i{width:10px;height:10px;border-radius:5px;flex:none}.tile{cursor:pointer}.tile:hover{border-color:var(--primary-color)}
-.crow{padding:8px 12px;margin-bottom:6px}.crow .pic{width:36px;height:36px;border-radius:10px}.crow .cn{font-size:15px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.crow .sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.crow .pill{margin:0;max-width:44%;text-align:center}
+.acard{display:flex;gap:12px;align-items:center;border-radius:14px;padding:12px 14px;margin-bottom:8px;cursor:pointer;border:1px solid}.acard.soon{background:color-mix(in srgb,var(--spray) 14%,var(--card-background-color));border-color:color-mix(in srgb,var(--spray) 55%,transparent)}.acard.open{background:color-mix(in srgb,var(--hold) 12%,var(--card-background-color));border-color:color-mix(in srgb,var(--hold) 55%,transparent)}.acard .an{font-size:15px;font-weight:700}.acard .ar{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:84px;text-align:center}.acard .ab{font-size:24px;font-weight:700;line-height:1.1}.acard button{margin-top:6px;width:100%;min-height:44px}.sec.attn{color:var(--spray)}.lbox{border:1px solid var(--line);border-radius:14px;overflow:hidden;margin-bottom:8px}.lrow{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 14px;cursor:pointer}.lrow+.lrow{border-top:1px solid var(--line)}.lrow .sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}.lrow .small{white-space:nowrap}.crow{padding:8px 12px;margin-bottom:6px}.crow .pic{width:36px;height:36px;border-radius:10px}.crow .cn{font-size:15px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.crow .sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.crow .pill{margin:0;max-width:44%;text-align:center}
 .pic{width:56px;height:56px;border-radius:12px;flex:none;display:flex;align-items:center;justify-content:center}
 .pill{font-size:12px;padding:2px 10px;border-radius:8px;display:inline-block;margin-top:4px;color:var(--c);background:color-mix(in srgb,var(--c) 16%,transparent)}
 .ok{--c:var(--ok)}.spray,.warn{--c:var(--spray)}.hold,.bad,.low,.high{--c:var(--hold)}.info{--c:var(--info)}.none{--c:var(--mut)}
@@ -634,6 +634,23 @@ class GardenTrackerCard extends HTMLElement {
     if (!vs.length && !anyCover) h += `<div class="msg">No plants yet. Tap Add plant.</div>`;
     else if (!shown.length && !anyCover) h += `<div class="msg">${searching ? "No plants match your search." : "Nothing matches this filter."}</div>`;
     const ordered = [...gs].sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind]);
+    if (this._compact && shown.length) {
+      const attn = shown.filter((v) => v.status.level === "spray" || v.status.level === "hold"), rest = shown.filter((v) => !attn.includes(v));
+      if (attn.length) h += `<div class="sec attn">Needs attention · ${attn.length}</div>` + this._sortVars(attn, this._sort === "garden" ? "name" : this._sort).map((v) => this._attnCard(v)).join("");
+      if (rest.length) {
+        const list = this._sort === "garden" ? [...rest].sort((a, b) => (a.garden_name || "~").localeCompare(b.garden_name || "~") || a.name.localeCompare(b.name)) : this._sortVars(rest, this._sort);
+        h += `<div class="sec">${attn.length ? "Everything else" : "Plants"} · ${rest.length}</div><div class="lbox">${list.map((v) => this._lineRow(v, true)).join("")}</div>`;
+      }
+      for (const g of ordered) {
+        const cov = g.kind === "garden" ? covers(g) : [];
+        const place = g.kind !== "garden" && this._filter === "all" && !searching && this._tab !== "trees" && (vs.some((v) => v.garden === g.id) || (g.alarm && g.alarm.enabled && g.alarm.alerts.length > 0));
+        if (!cov.length && !place) continue;
+        if (!place) h += `<div class="sec">${esc(g.name)}</div>`;
+        if (place) h += this._placeSummary(g);
+        if (cov.length) h += this._coverTile(g, cov);
+      }
+      return h + this._microTile();
+    }
     const flat = this._sort !== "garden";
     if (flat) h += this._sortVars(shown, this._sort).map((v) => this._row(v, true)).join("");
     for (const g of ordered) {
@@ -833,11 +850,26 @@ class GardenTrackerCard extends HTMLElement {
     for (const m of v.moves) h += `<div class="small mut" style="margin-top:4px">${fmtDate(m.date)}: ${esc(m.from)} to ${esc(m.to)}, ${m.count} plant${m.count === 1 ? "" : "s"}</div>`;
     return h + `</div>`;
   }
-  _row(v, withGarden) {
-    if (!this._compact) return this._tile(v, withGarden);
+  _row(v, withGarden) { return this._tile(v, withGarden); }
+  _attnCard(v) {
+    const a = v.alert, lvl = v.status.level;
+    const kind = a ? (a.state === "open" ? "open" : "soon") : lvl === "hold" ? "open" : "soon";
+    const est = (a && a.state === "soon" && a.date_low && a.date_low !== a.date_high) ? `<div class="small" style="margin-top:2px">Likely ${fmtDate(a.date_low)} to ${fmtDate(a.date_high)}</div>` : "";
+    let mid;
+    if (a) {
+      const pct = Math.max(0, Math.min(100, (a.dd / a.target) * 100));
+      mid = `<div class="small">${esc(v.species_name)} · ${esc(a.pest)}</div><div class="small" style="margin-top:6px">${num(a.dd, 0)} of ${a.target} degree days${v.pests.some((p) => p.status && p.status.estimated_start) ? " since Jan 1" : ""}</div><div class="bar"><i style="width:${pct}%"></i></div>${est}`;
+    } else mid = `<div class="small">${esc(v.species_name)}</div><div class="small" style="margin-top:2px">${esc(v.status.text)}</div>`;
+    const big = a ? (a.state === "open" ? "Now" : `${a.days} day${a.days === 1 ? "" : "s"}`) : lvl === "hold" ? "Hold" : "Soon";
+    const small = a ? (a.state === "open" ? "spray window open" : `first spray about ${fmtDate(a.date)}`) : "";
+    return `<div class="acard ${kind}" data-act="open-v" data-v="${v.id}"><div class="grow" style="min-width:0"><div class="an">${esc(v.name)}</div>${mid}</div><div class="ar"><div class="ab">${esc(big)}</div><div class="small">${esc(small)}</div>${a ? `<button data-act="form-spray" data-v="${v.id}">Sprayed</button>` : ""}</div></div>`;
+  }
+  _lineRow(v, withGarden) {
     const tree = v.kind === "tree", inPlace = v.location_kind !== "garden";
-    const sub = [v.species_name, tree ? yrs(v.age_years) : `${v.alive} of ${v.count}`, inPlace ? v.container : null, withGarden ? (v.garden_name || "No garden") : null].filter(Boolean).join(" · ");
-    return `<div class="card tile crow" data-act="open-v" data-v="${v.id}"><div class="row">${this._picBox(v)}<div class="grow" style="min-width:0"><div class="cn">${esc(v.name)}</div><div class="sub">${esc(sub)}</div></div><span class="pill ${v.status.level}">${esc(v.status.text)}</span></div></div>`;
+    const sub = [v.species_name, tree ? null : `${v.alive} of ${v.count}`, inPlace ? v.container : null, withGarden ? (v.garden_name || "No garden") : null].filter(Boolean).join(" · ");
+    const hv = !tree ? this._stats(v).find((x) => x[0] === "Harvest in") : null;
+    const stat = tree ? yrs(v.age_years) : hv ? "harvest in " + hv[1] : v.status.text;
+    return `<div class="lrow" data-act="open-v" data-v="${v.id}"><b>${esc(v.name)}</b><span class="sub grow">${esc(sub)}</span><span class="small">${esc(stat)}</span></div>`;
   }
   _tile(v, withGarden) {
     const tree = v.kind === "tree";
@@ -879,7 +911,7 @@ class GardenTrackerCard extends HTMLElement {
   // ---- plant (variety) view -----------------------------------------------------------
   _varietyView(v) {
     const arch = v.archived, tree = v.kind === "tree", id = v.id;
-    let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="grow"><div class="ttl">${esc(v.name)}</div><div class="sub">${esc(v.species_name)}, ${esc(v.garden_name)}${tree ? "" : `, ${v.alive} of ${v.count} plants alive`}</div></div>${arch ? "" : this._btn("edit-v", "pencil", "", `data-v="${id}"`, "ic")}</div>`;
+    let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="grow"><div class="ttl">${esc(v.name)}</div><div class="sub">${esc([v.species_name, v.garden_name, tree ? "" : `${v.alive} of ${v.count} plants alive`].filter(Boolean).join(", "))}</div></div>${arch ? "" : this._btn("edit-v", "pencil", "", `data-v="${id}"`, "ic")}</div>`;
     if (arch) {
       h += `<div class="card"><span class="pill info">${esc(ARCH_TEXT[arch.reason])}, ${fmtDate(arch.date, true)}</span>${arch.notes ? `<p style="margin:8px 0 0">${esc(arch.notes)}</p>` : ""}<div class="row" style="margin-top:10px">${this._btn("form-again", "sprout", "Plant again", `data-v="${id}"`, "primary")}${this._btn("restore", "undo", "Restore", `data-v="${id}"`)}</div></div>`;
     } else {
@@ -956,7 +988,7 @@ class GardenTrackerCard extends HTMLElement {
     for (const p of v.pests) {
       if (p.status) {
         const st = p.status;
-        h += `<div style="margin-top:10px;font-size:12px" class="row"><span class="grow">${esc(p.name)} degree days</span><b>${st.dd}${st.next_dd ? ` / ${st.next_dd}` : ""}</b></div><div class="bar"><i style="width:${st.next_dd ? Math.min(100, (st.dd / st.next_dd) * 100) : 100}%"></i></div>${st.next_action ? `<div class="small mut" style="margin-top:4px">${esc(st.next_action)}${p.est_days ? `, in about ${p.est_days} days` : ""}</div>` : ""}`;
+        h += `<div style="margin-top:10px;font-size:12px" class="row"><span class="grow">${esc(p.name)} degree days</span><b>${st.dd}${st.next_dd ? ` / ${st.next_dd}` : ""}</b></div><div class="bar"><i style="width:${st.next_dd ? Math.min(100, (st.dd / st.next_dd) * 100) : 100}%"></i></div>${st.next_action ? `<div class="small mut" style="margin-top:4px">${esc(st.next_action)}${p.est_days ? `, about ${fmtDate(this._isoAdd(this._snap.today, p.est_days))} (in ${p.est_days} day${p.est_days === 1 ? "" : "s"}${p.est_low !== null && p.est_high !== null && p.est_low !== p.est_high ? `, likely ${fmtDate(this._isoAdd(this._snap.today, p.est_low))} to ${fmtDate(this._isoAdd(this._snap.today, p.est_high))}` : ""})` : ""}</div>` : ""}${st.estimated_start && !arch ? `<div class="row" style="margin-top:6px"><span class="small mut grow">Counted from Jan 1, no trap needed. If you trap, log the first catch and it replaces this.</span>${this._btn("form-biofix", "calendar", "Log first catch", `data-v="${id}" data-s="${p.key}"`)}</div>` : ""}`;
       } else if (p.trap) {
         const t = p.trap, id2 = v.id;
         const line = { early: `Hang traps high in the canopy by ${fmtDate(t.monitor_from, true)}.`, watch: `Check your traps. Spray within ${t.spray_within_days} days of a sharp rise in catches, usually ${t.usual}.`, spray: `Spray by ${fmtDate(t.spray_by, true)} (${t.days_left === 0 ? "today" : `${t.days_left} day${t.days_left === 1 ? "" : "s"} left`}).`, late: `Past the ${t.spray_within_days} days since the catches rose (${fmtDate(t.spray_by, true)}). Spray now.`, sprayed: `Sprayed ${fmtDate(t.sprayed)}. Bait is repeated every ${t.bait_every_days} days while flies are caught.` }[t.state];
