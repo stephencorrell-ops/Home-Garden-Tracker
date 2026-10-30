@@ -4,6 +4,12 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.31.1 - 2026-10-30
+
+- **Microclimate is a chip.** The card at the bottom of the home list is now one chip in the top row, with your hardiness zone on it.
+- **Microclimate page opens on a summary.** Zone, expected last and first frost, soil temperature and rain this week sit at the top. Frost by year, soil, high and low, rain, air quality, humidity and sun fold underneath, each with a one-line peek. The sections you open are remembered.
+- **Cover crops are one line** in the compact list instead of a full card.
+
 ## 0.31.0 - 2026-10-30
 
 - **Shorter plant list.** The home list has All, Trees and Plants tabs when you have both. In compact mode, plants with something due get a card under Needs attention, and everything else is one line each. View lets you switch back to full cards. Tree ages show in whole years.
