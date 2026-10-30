@@ -1,0 +1,2 @@
+# Home Assistant test instance for tests/ha. This version brings Home Assistant 2026.2.3.
+pytest-homeassistant-custom-component==0.13.316
