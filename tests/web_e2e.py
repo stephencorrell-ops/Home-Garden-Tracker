@@ -128,6 +128,12 @@ def main():
         snap = pg.evaluate("window.__garden.engine.snapshot()")
         z = snap["micro"]["zone"]
         check(z["zone"] is not None and snap["micro"]["frost"]["years"], f"weather filled in zone {z['zone']} and frost years")
+        check(card.locator(".foldhd").count() >= 4, "microclimate sections fold under a summary")
+        check(card.locator(".foldbody").count() == 1, "only the frost section starts open")
+        card.locator(".foldhd[data-s=soil]").click()
+        check(card.locator(".foldbody").count() == 2, "tapping a header opens its section")
+        card.locator(".foldhd[data-s=soil]").click()
+        check(card.locator(".foldbody").count() == 1, "tapping again folds it")
         if SHOTS:
             card.evaluate("el => el.scrollIntoView()")
             pg.screenshot(path=str(SHOTS / "micro.png"), full_page=True)

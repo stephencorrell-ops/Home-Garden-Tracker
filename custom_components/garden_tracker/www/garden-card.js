@@ -57,6 +57,7 @@ label{display:block;font-size:12px;color:var(--mut);margin-bottom:4px}
 .tbl{width:100%;border-collapse:collapse;font-size:13px}.tbl th{text-align:left;font-weight:500;color:var(--secondary-text-color);padding:4px 6px 4px 0}.tbl td{padding:5px 6px 5px 0;border-top:1px solid var(--divider-color)}
 .airleg{display:grid;grid-template-columns:repeat(auto-fit,minmax(62px,1fr));gap:6px;margin:10px 0}.airleg .stat{padding:6px 8px}.airleg .stat span{display:block;font-size:11px}.airleg .stat b{font-size:16px}
 .stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px}
+.fold{padding:0}.foldhd{width:100%;min-height:48px;display:flex;align-items:center;gap:10px;padding:0 12px;border:0;background:none;color:inherit;font:inherit;font-weight:600;text-align:left;cursor:pointer}.foldbody{padding:0 12px 12px}
 .stat{background:var(--secondary-background-color);border-radius:8px;padding:8px 10px}
 .stat span{display:block;font-size:11px;color:var(--mut)}.stat b{font-size:16px;font-weight:500}
 .bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden;margin-top:5px}.bar i{display:block;height:100%;background:var(--spray)}
@@ -322,6 +323,7 @@ class GardenTrackerCard extends HTMLElement {
     this._psort = this._pref("psort", "year");
     this._tab = this._pref("tab", "all");
     this._compact = this._pref("compact", true);
+    this._microOpen = this._pref("micro_open", ["frost"]);
     this._show = { water: true, micro: true, cover: true, chores: true, frost: true, ...this._pref("show", {}) };
     if (!this.shadowRoot) {
       this.attachShadow({ mode: "open" });
@@ -503,61 +505,57 @@ class GardenTrackerCard extends HTMLElement {
     let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="ttl grow">Microclimate</div>${this._web ? this._btn("web-location", "map-marker", m.settings.location && m.settings.location.name ? esc(m.settings.location.name) : "Location") : ""}${this._btn("form-micro", "cog", "Settings")}</div>`;
     if (this._web && !m.settings.location) h += `<div class="msg">Set where your garden is and the app fills in local weather: frost dates, your zone, temperatures and rain.<br><br>${this._btn("web-location", "map-marker", "Set location", "", "primary")}</div>`;
     else if (!this._web && !m.settings.outdoor_entity) h += `<div class="msg">Set an outside temperature sensor in the Garden Tracker integration options to start recording frost and temperatures here.</div>`;
-    // zone
-    const z = m.zone;
-    h += `<div class="card"><div class="sec">Hardiness zone</div>`;
-    if (z.zone) {
-      h += `<div class="row"><div class="grow"><div style="font-size:28px;font-weight:600">${esc(z.zone)}</div><div class="sub">From your sensors: average yearly low ${num(z.avg_min, 1)}°F over ${z.count} winter${z.count === 1 ? "" : "s"}</div></div></div>`;
-    } else {
-      h += `<div class="small mut">Needs one full winter of readings. Your sensors have not recorded enough yet${z.so_far ? `, lowest so far this winter is ${num(z.so_far.lowest, 1)}°F on ${fmtDate(z.so_far.date)}` : ""}.</div>`;
-    }
+    const z = m.zone, f = m.frost, s2 = m.soil, yrs = f.years;
+    const P = [["day", "Today"], ["week", "Week"], ["month", "Month"], ["year", "Year"]];
+    const open = this._microOpen;
+    const fold = (id, title, peek, body) => `<div class="card fold"><button class="foldhd" data-act="micro-fold" data-s="${id}"><span class="grow">${title}</span><span class="small mut">${peek}</span>${this._icon(open.includes(id) ? "chevron-up" : "chevron-down")}</button>${open.includes(id) ? `<div class="foldbody">${body}</div>` : ""}</div>`;
+    const dash = (v, u, d = 0) => (v === null || v === undefined ? "-" : num(v, d) + u);
+    // summary: zone and the four numbers checked most
+    h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">Hardiness zone</div>${z.zone ? `<div style="font-size:28px;font-weight:600">${esc(z.zone)}</div>` : ""}</div>`;
+    if (z.zone) h += `<div class="sub">From your sensors: average yearly low ${num(z.avg_min, 1)}°F over ${z.count} winter${z.count === 1 ? "" : "s"}</div>`;
+    else h += `<div class="small mut">Needs one full winter of readings. Your sensors have not recorded enough yet${z.so_far ? `, lowest so far this winter is ${num(z.so_far.lowest, 1)}°F on ${fmtDate(z.so_far.date)}` : ""}.</div>`;
     if (z.usda) h += `<div class="pill info" style="margin-top:8px">USDA map says ${esc(z.usda)}</div>`;
     if (z.winters.length) h += `<div class="small mut" style="margin-top:8px">${z.winters.map((w) => `${esc(w.label)}: ${num(w.lowest, 1)}°F${w.complete ? "" : " so far"}`).join(" · ")}</div>`;
-    h += `</div>`;
-    // frost
-    const f = m.frost;
-    h += `<div class="card"><div class="sec">Frost, ${f.threshold}°F or colder</div>`;
-    const yrs = f.years;
-    if (!yrs.length) h += `<div class="small mut">No readings yet.</div>`;
+    h += `<div style="margin-top:10px">${this._statGrid([["Last frost", f.expected_last ? fmtMd(f.expected_last) : "n/a"], ["First frost", f.expected_first ? fmtMd(f.expected_first) : "n/a"], ["Soil now", dash(s2.actual, "°F", 1)], ["Rain, week", m.rain.sensors.length ? num(m.rain.week, 2) + " in" : "n/a"]])}</div></div>`;
+    // frost by year
+    let b = "";
+    if (!yrs.length) b = `<div class="small mut">No readings yet.</div>`;
     else {
-      h += `<table class="tbl"><tr><th></th><th>Last spring</th><th>First fall</th><th>Lowest</th></tr>`;
-      h += `<tr><td>Expected</td><td>${fmtMd(f.expected_last)}</td><td>${fmtMd(f.expected_first)}</td><td></td></tr>`;
+      b = `<table class="tbl"><tr><th></th><th>Last spring</th><th>First fall</th><th>Lowest</th></tr>`;
+      b += `<tr><td>Expected</td><td>${fmtMd(f.expected_last)}</td><td>${fmtMd(f.expected_first)}</td><td></td></tr>`;
       for (const y of yrs) {
         const sp = y.last_spring ? fmtDate(y.last_spring) + (y.spring_partial ? "*" : y.spring_final ? "" : " so far") : y.spring_partial ? "no data" : "none";
-        h += `<tr><td>${y.year}</td><td>${sp}</td><td>${y.first_fall ? fmtDate(y.first_fall) : "none"}</td><td>${num(y.lowest, 0)}°F</td></tr>`;
+        b += `<tr><td>${y.year}</td><td>${sp}</td><td>${y.first_fall ? fmtDate(y.first_fall) : "none"}</td><td>${num(y.lowest, 0)}°F</td></tr>`;
       }
-      h += `</table>`;
-      if (yrs.some((y) => y.spring_partial)) h += `<div class="small mut">* Readings started after the winter, so an earlier frost may have been missed.</div>`;
+      b += `</table>`;
+      if (yrs.some((y) => y.spring_partial)) b += `<div class="small mut">* Readings started after the winter, so an earlier frost may have been missed.</div>`;
     }
-    h += `</div>`;
+    h += fold("frost", `Frost, ${f.threshold}°F or colder`, yrs.length ? `${yrs.length} year${yrs.length === 1 ? "" : "s"}` : "", b);
     // soil
-    const s2 = m.soil;
-    h += `<div class="card"><div class="sec">Soil temperature</div>`;
-    if (s2.expected === null && s2.actual === null) h += `<div class="small mut">Needs a few days of outside readings and a soil temperature sensor.</div>`;
+    if (s2.expected === null && s2.actual === null) b = `<div class="small mut">Needs a few days of outside readings and a soil temperature sensor.</div>`;
     else {
-      h += this._statGrid([["Expected", s2.expected === null ? "n/a" : `${num(s2.expected, 1)}°F`], ["Actual", s2.actual === null ? "n/a" : `${num(s2.actual, 1)}°F`], ["Last year", s2.last_year === null ? "n/a" : `${num(s2.last_year, 1)}°F`]]);
-      if (s2.diff !== null) h += `<div class="pill ${Math.abs(s2.diff) >= 5 ? "warn" : "ok"}" style="margin-top:8px">${s2.diff === 0 ? "Right on expected" : `${num(Math.abs(s2.diff), 1)}°F ${s2.diff > 0 ? "warmer" : "colder"} than expected`}</div>`;
-      h += `<div class="small mut" style="margin-top:6px">Expected is the average of the last 10 days of outside air temperature. Soil follows the air with a delay.</div>`;
+      b = this._statGrid([["Expected", s2.expected === null ? "n/a" : `${num(s2.expected, 1)}°F`], ["Actual", s2.actual === null ? "n/a" : `${num(s2.actual, 1)}°F`], ["Last year", s2.last_year === null ? "n/a" : `${num(s2.last_year, 1)}°F`]]);
+      if (s2.diff !== null) b += `<div class="pill ${Math.abs(s2.diff) >= 5 ? "warn" : "ok"}" style="margin-top:8px">${s2.diff === 0 ? "Right on expected" : `${num(Math.abs(s2.diff), 1)}°F ${s2.diff > 0 ? "warmer" : "colder"} than expected`}</div>`;
+      b += `<div class="small mut" style="margin-top:6px">Expected is the average of the last 10 days of outside air temperature. Soil follows the air with a delay.</div>`;
     }
-    h += `</div>`;
+    h += fold("soil", "Soil temperature", dash(s2.actual, "°F", 1), b);
     // temps and rain
-    const P = [["day", "Today"], ["week", "Week"], ["month", "Month"], ["year", "Year"]];
-    h += `<div class="card"><div class="sec">High and low</div><table class="tbl"><tr><th></th><th>High</th><th>Low</th></tr>${P.map(([k, n]) => { const t = m.temps[k]; return `<tr><td>${n}</td><td>${t.high === null ? "-" : num(t.high, 0) + "°F"}</td><td>${t.low === null ? "-" : num(t.low, 0) + "°F"}</td></tr>`; }).join("")}</table></div>`;
-    h += `<div class="card"><div class="sec">Rainfall</div>`;
-    if (!m.rain.sensors.length) h += `<div class="small mut">Pick rainfall total sensors in Settings to track rain.</div>`;
-    else h += `<table class="tbl"><tr><th></th><th>Rain</th></tr>${P.map(([k, n]) => `<tr><td>${n}</td><td>${num(m.rain[k], 2)} in</td></tr>`).join("")}</table>`;
-    h += `</div>`;
+    const t0 = m.temps.day;
+    h += fold("temps", "High and low", t0.high === null ? "" : `${num(t0.high, 0)} / ${num(t0.low, 0)}°F`, `<table class="tbl"><tr><th></th><th>High</th><th>Low</th></tr>${P.map(([k, n]) => { const t = m.temps[k]; return `<tr><td>${n}</td><td>${dash(t.high, "°F")}</td><td>${dash(t.low, "°F")}</td></tr>`; }).join("")}</table>`);
+    h += fold("rain", "Rainfall", m.rain.sensors.length ? `${num(m.rain.month, 2)} in this month` : "", !m.rain.sensors.length ? `<div class="small mut">Pick rainfall total sensors in Settings to track rain.</div>` : `<table class="tbl"><tr><th></th><th>Rain</th></tr>${P.map(([k, n]) => `<tr><td>${n}</td><td>${num(m.rain[k], 2)} in</td></tr>`).join("")}</table>`);
     const AIRC = { pm1: ["#4fc3f7", "l"], pm25: ["#ffb300", "l"], pm10: ["#ef5350", "l"], nox: ["#ba68c8", "r"], voc: ["#81c784", "r"] };
     const air = Object.entries(m.air.metrics).filter(([k]) => (m.air.sensors[k] || []).length);
     if (air.length) {
       const rng = this._airRange || "day", RN = { day: "Last 24 hours, 15 minute averages", week: "Last 7 days, hourly averages. Dashed lines are each hour's highest", month: "Last 30 days, daily averages. Dashed lines are each day's highest" };
-      h += `<div class="card"><div class="sec">Air quality</div><div class="seg" style="margin-bottom:6px">${[["day", "Day"], ["week", "Week"], ["month", "Month"]].map(([k, t]) => `<button data-act="air-range" data-s="${k}" class="${rng === k ? "on" : ""}">${t}</button>`).join("")}</div><div class="small">${RN[rng]}</div>`;
-      h += `<div class="airleg">${air.map(([k, a]) => `<div class="stat" style="border-left:4px solid ${AIRC[k][0]}"><span>${esc(a.name.replace(" index", ""))}</span><b>${a.current === null ? "-" : num(a.current, 0)}</b><span class="small">high ${a.max.today === null ? "-" : num(a.max.today, 0)}</span></div>`).join("")}</div>`;
-      h += airChart(air.map(([k, a]) => [k, a[rng], AIRC[k][0], AIRC[k][1]]), "Air quality");
-      h += `<div class="small mut" style="margin-top:6px">Highest this week ${air.map(([k, a]) => `${a.name} ${a.max.week === null ? "-" : num(a.max.week, 1)}`).join(", ")}.</div></div>`;
+      b = `<div class="seg" style="margin-bottom:6px">${[["day", "Day"], ["week", "Week"], ["month", "Month"]].map(([k, t]) => `<button data-act="air-range" data-s="${k}" class="${rng === k ? "on" : ""}">${t}</button>`).join("")}</div><div class="small">${RN[rng]}</div>`;
+      b += `<div class="airleg">${air.map(([k, a]) => `<div class="stat" style="border-left:4px solid ${AIRC[k][0]}"><span>${esc(a.name.replace(" index", ""))}</span><b>${a.current === null ? "-" : num(a.current, 0)}</b><span class="small">high ${a.max.today === null ? "-" : num(a.max.today, 0)}</span></div>`).join("")}</div>`;
+      b += airChart(air.map(([k, a]) => [k, a[rng], AIRC[k][0], AIRC[k][1]]), "Air quality");
+      b += `<div class="small mut" style="margin-top:6px">Highest this week ${air.map(([k, a]) => `${a.name} ${a.max.week === null ? "-" : num(a.max.week, 1)}`).join(", ")}.</div>`;
+      const a0 = air.find(([k]) => k === "pm25") || air[0];
+      h += fold("air", "Air quality", a0[1].current === null ? "" : `${esc(a0[1].name.replace(" index", ""))} ${num(a0[1].current, 0)}`, b);
     }
-    if (m.humidity.sensors.length) h += `<div class="card"><div class="sec">Humidity</div><table class="tbl"><tr><th></th><th>High</th><th>Low</th></tr>${P.map(([k, n]) => { const t = m.humidity[k]; return `<tr><td>${n}</td><td>${t.high === null ? "-" : num(t.high, 0) + "%"}</td><td>${t.low === null ? "-" : num(t.low, 0) + "%"}</td></tr>`; }).join("")}</table></div>`;
-    if (m.solar.sensors.length) h += `<div class="card"><div class="sec">Sun</div><table class="tbl"><tr><th></th><th>Average</th><th>Energy</th></tr>${P.map(([k, n]) => { const t = m.solar[k]; return `<tr><td>${n}</td><td>${t.avg === null ? "-" : num(t.avg, 0) + " W/m²"}</td><td>${t.days ? num(t.kwh, 1) + " kWh/m²" : "-"}</td></tr>`; }).join("")}</table><div class="small mut" style="margin-top:6px">Average is over the whole 24 hours, night included. Energy is the sunlight that landed on each square metre. A clear summer day is about 7 to 8 kWh/m².</div></div>`;
+    if (m.humidity.sensors.length) { const t = m.humidity.day; h += fold("hum", "Humidity", t.high === null ? "" : `${num(t.low, 0)}–${num(t.high, 0)}%`, `<table class="tbl"><tr><th></th><th>High</th><th>Low</th></tr>${P.map(([k, n]) => { const x = m.humidity[k]; return `<tr><td>${n}</td><td>${dash(x.high, "%")}</td><td>${dash(x.low, "%")}</td></tr>`; }).join("")}</table>`); }
+    if (m.solar.sensors.length) h += fold("sun", "Sun", m.solar.week && m.solar.week.days ? `${num(m.solar.week.kwh, 1)} kWh/m² this week` : "", `<table class="tbl"><tr><th></th><th>Average</th><th>Energy</th></tr>${P.map(([k, n]) => { const t = m.solar[k]; return `<tr><td>${n}</td><td>${t.avg === null ? "-" : num(t.avg, 0) + " W/m²"}</td><td>${t.days ? num(t.kwh, 1) + " kWh/m²" : "-"}</td></tr>`; }).join("")}</table><div class="small mut" style="margin-top:6px">Average is over the whole 24 hours, night included. Energy is the sunlight that landed on each square metre. A clear summer day is about 7 to 8 kWh/m².</div>`);
     return h;
   }
   _weatherCandidates(selected, test) {
@@ -1259,6 +1257,7 @@ class GardenTrackerCard extends HTMLElement {
       case "brush-pick": this._brush = d.k; this._bq = null; return this._act("set_layout_draft", { garden: d.g, crop: d.k });
       case "find-pick": { const f = this._form; f.values[d.f] = d.val; if (f.search) delete f.search[d.f]; return this._render(); }
       case "form-view": return this._open(this._fView());
+      case "micro-fold": this._microOpen = this._microOpen.includes(d.s) ? this._microOpen.filter((x) => x !== d.s) : [...this._microOpen, d.s]; this._setPref("micro_open", this._microOpen); return this._render();
       case "air-range": this._airRange = d.s; return this._render();
       case "temp-range": this._tempRange = d.s; return this._render();
       case "toggle-log": this._showLog = !this._showLog; return this._render();
