@@ -16,7 +16,7 @@ from .manager import GardenManager
 from .core.model import GardenError
 
 _ACTION = {"heating": HVACAction.HEATING, "cooling": HVACAction.COOLING, "idle": HVACAction.IDLE,
-           "no_sensor": HVACAction.IDLE, "off": HVACAction.OFF}
+           "resting": HVACAction.IDLE, "no_sensor": HVACAction.IDLE, "off": HVACAction.OFF}
 
 
 class GreenhouseThermostat(ClimateEntity):

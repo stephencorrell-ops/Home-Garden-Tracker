@@ -687,6 +687,16 @@ class Layout(unittest.TestCase):
         m._touch()
         self.assertEqual(next(x for x in m.snapshot()["gardens"] if x["id"] == gid)["cover"]["items"][0]["methods"], ["tarped"])
 
+    def test_rejected_edit_changes_nothing(self):
+        m, gid = self.garden()
+        vid = m.add_variety(gid, "tomato", "Sungold", 2)
+        m.log_harvest(vid, 2.0, "2026-07-01")
+        eid = m.find_variety(vid)["harvests"][0]["id"]
+        with self.assertRaises(GardenError):
+            m.edit_entry("harvest", vid, eid, {"date": "2026-06-01", "lbs": -1})
+        h = m.find_variety(vid)["harvests"][0]
+        self.assertEqual((h["date"], h["lbs"]), ("2026-07-01", 2.0))
+
     def test_more_trees_and_custom_types(self):
         m, gid = self.garden()
         for k in ("pear", "asian_pear", "apricot", "hazelnut", "english_walnut", "black_walnut", "plum", "quince", "fig", "persimmon", "mulberry", "chestnut"):

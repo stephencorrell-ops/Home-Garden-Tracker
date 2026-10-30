@@ -20,9 +20,11 @@ class TemperatureAlarm(BinarySensorEntity):
     _attr_name = "Temperature alarm"
     _attr_device_class = BinarySensorDeviceClass.PROBLEM
 
+    _uid = "temp_alarm"
+
     def __init__(self, mgr: GardenManager, known: set, gid: str, g: dict) -> None:
         self._mgr, self._known, self._gid = mgr, known, gid
-        self._attr_unique_id = f"{gid}_temp_alarm"
+        self._attr_unique_id = f"{gid}_{self._uid}"
         self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, f"garden:{gid}")}, name=g["name"],
                                             model=g["kind_name"], manufacturer="Garden Tracker")
         known.add(self._attr_unique_id)
@@ -63,11 +65,7 @@ class SensorAlarm(TemperatureAlarm):
     """On while a sensor that is in use has reported nothing for over an hour and nobody has acknowledged it."""
 
     _attr_name = "Sensor offline alarm"
-
-    def __init__(self, mgr: GardenManager, known: set, gid: str, g: dict) -> None:
-        super().__init__(mgr, known, gid, g)
-        self._attr_unique_id = f"{gid}_sensor_alarm"
-        known.add(self._attr_unique_id)
+    _uid = "sensor_alarm"
 
     def _a(self) -> dict | None:
         g = self._mgr.index()["g"].get(self._gid)

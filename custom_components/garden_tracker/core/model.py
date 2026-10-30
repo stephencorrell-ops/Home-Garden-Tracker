@@ -2173,45 +2173,48 @@ class GardenModel:
         owner = self._parent(kind, parent)
         _, e = self._entry(owner[KINDS[kind][1]], entry_id)
         backup = dict(e)
-        for key, val in fields.items():
-            if key not in EDITABLE[kind] or val is None:
-                continue
-            if key == "date":
-                e["date"] = iso(val)
-            elif key == "lbs":
-                if val <= 0:
-                    raise GardenError("Pounds must be above zero")
-                ids = list(e["shares"])
-                e["lbs"], e["shares"] = round(val, 3), calc.split_even(val, ids)
-            elif kind == "cover" and key in ("sown", "terminated"):
-                e[key] = iso(val)
-            elif kind == "cover" and key == "method":
-                e["methods"] = cover_methods(val)
-                e.pop("method", None)
-            elif kind == "cover" and key == "wait_days":
-                e[key] = int(val)
-            elif kind == "cover" and key == "amount_lbs":
-                if val < 0:
-                    raise GardenError("Seed amount can't be negative")
-                e[key] = round(val, 2) if val else None
-            elif key == "value" and kind in METRICS:
-                spec = METRICS[kind]
-                if not spec["lo"] <= val <= spec["hi"]:
-                    raise GardenError(f"{spec['name']} must be between {spec['lo']} and {spec['hi']} {spec['unit']}")
-                e["value"], e["source"] = round(val, 2), "manual"
-                e.pop("min", None), e.pop("max", None), e.pop("last", None)
-            elif key == "value":
-                if not 0 < val < 14:
-                    raise GardenError("pH must be between 0 and 14")
-                e["value"], e["source"] = round(val, 2), "manual"
-            elif key == "type":
-                e["type"] = self._adjunct_key(owner, val)
-            else:
-                e[key] = val
-        if kind == "cover" and e.get("terminated") and e["terminated"] < e["sown"]:
+        try:  # a rejected value leaves the entry as it was
+            for key, val in fields.items():
+                if key not in EDITABLE[kind] or val is None:
+                    continue
+                if key == "date":
+                    e["date"] = iso(val)
+                elif key == "lbs":
+                    if val <= 0:
+                        raise GardenError("Pounds must be above zero")
+                    ids = list(e["shares"])
+                    e["lbs"], e["shares"] = round(val, 3), calc.split_even(val, ids)
+                elif kind == "cover" and key in ("sown", "terminated"):
+                    e[key] = iso(val)
+                elif kind == "cover" and key == "method":
+                    e["methods"] = cover_methods(val)
+                    e.pop("method", None)
+                elif kind == "cover" and key == "wait_days":
+                    e[key] = int(val)
+                elif kind == "cover" and key == "amount_lbs":
+                    if val < 0:
+                        raise GardenError("Seed amount can't be negative")
+                    e[key] = round(val, 2) if val else None
+                elif key == "value" and kind in METRICS:
+                    spec = METRICS[kind]
+                    if not spec["lo"] <= val <= spec["hi"]:
+                        raise GardenError(f"{spec['name']} must be between {spec['lo']} and {spec['hi']} {spec['unit']}")
+                    e["value"], e["source"] = round(val, 2), "manual"
+                    e.pop("min", None), e.pop("max", None), e.pop("last", None)
+                elif key == "value":
+                    if not 0 < val < 14:
+                        raise GardenError("pH must be between 0 and 14")
+                    e["value"], e["source"] = round(val, 2), "manual"
+                elif key == "type":
+                    e["type"] = self._adjunct_key(owner, val)
+                else:
+                    e[key] = val
+            if kind == "cover" and e.get("terminated") and e["terminated"] < e["sown"]:
+                raise GardenError("Termination can't be before it was sown")
+        except Exception:
             e.clear()
             e.update(backup)
-            raise GardenError("Termination can't be before it was sown")
+            raise
         self._touch()
 
     # ---- archive / next year ----------------------------------------------------

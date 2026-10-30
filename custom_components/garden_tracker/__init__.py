@@ -55,7 +55,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     def _sync_devices() -> None:
         """Remove devices for plants that were archived or deleted, and for deleted gardens."""
         snap = mgr.snapshot()
-        keep = {f"garden:{g['id']}" for g in snap["gardens"]}
+        keep = {"microclimate"} | {f"garden:{g['id']}" for g in snap["gardens"]}
         keep |= {f"variety:{v['id']}" for v in snap["varieties"] if not v["archived"]}
         reg = dr.async_get(hass)
         for dev in dr.async_entries_for_config_entry(reg, entry.entry_id):
