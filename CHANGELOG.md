@@ -4,6 +4,10 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.31.3 - 2026-10-30
+
+- **Frost info moved to Microclimate.** The frost banners no longer appear on the home list or the garden pages. The next frost, or what your sensors recorded this year, is one line at the top of the Microclimate page, since every garden at your address shares the same frost dates. The "Frost dates" option in View is gone.
+
 ## 0.31.2 - 2026-10-30
 
 - **Clearer zone card.** Microclimate shows "Your zone", based on N winters of readings with the average yearly low, above the "Official USDA zone". A line says whether your garden runs warmer or colder than the USDA map. The frost year table now sits inside the same card, and the other sections start folded.
