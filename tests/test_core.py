@@ -1239,3 +1239,122 @@ class TreeNames(unittest.TestCase):
         self.assertEqual(names["cherry"] if "cherry" in names else "Cherry tree", "Cherry tree")
         for k, n in names.items():
             self.assertIn("tree", n.lower(), k)
+
+
+class SprayAttention(unittest.TestCase):
+    def _orchard(self, today, per_day):
+        """A tree with daily temperatures that give `per_day` degree days a day from Jan 1 to today."""
+        m = make(today)
+        m.add_variety("", "apple", "Gala")
+        d = date(today.year, 1, 1)
+        while d < today:
+            m.data["daily"][d.isoformat()] = [50.0, 50.0 + 2 * per_day]
+            d += timedelta(days=1)
+        return m
+
+    def _gala(self, m):
+        return next(v for v in m.snapshot()["varieties"] if v["name"] == "Gala")
+
+    def test_codling_moth_counts_from_jan_1_with_no_trap(self):
+        m = self._orchard(date(2026, 3, 1), 2)  # 59 days at 2 degree days
+        p = self._gala(m)["pests"][0]
+        self.assertEqual(p["status"]["biofix"], "2026-01-01")
+        self.assertEqual(p["status"]["next_dd"], 425)
+        self.assertTrue(p["status"]["estimated_start"])
+        self.assertFalse(p["needs_biofix"])
+
+    def test_a_spray_within_seven_days_is_flagged_with_a_range(self):
+        m = self._orchard(date(2026, 4, 11), 4)  # 100 days at 4 dd = 400, so 25 to go: 7 days
+        v = self._gala(m)
+        a = v["alert"]
+        self.assertEqual(a["state"], "soon")
+        self.assertEqual(a["days"], 7)
+        self.assertEqual(a["date"], "2026-04-18")
+        self.assertLessEqual(a["low"], a["days"])
+        self.assertGreaterEqual(a["high"], a["days"])
+        self.assertEqual(v["status"]["level"], "spray")
+
+    def test_nothing_is_flagged_when_the_spray_is_weeks_away(self):
+        m = self._orchard(date(2026, 3, 1), 2)
+        self.assertIsNone(self._gala(m)["alert"])
+        self.assertNotEqual(self._gala(m)["status"]["level"], "spray")
+
+    def test_window_open_until_a_spray_is_logged(self):
+        m = self._orchard(date(2026, 4, 20), 4)  # 425 passed on Apr 17
+        a = self._gala(m)["alert"]
+        self.assertEqual(a["state"], "open")
+        self.assertEqual(a["target"], 425)
+        m.log_spray("Gala", "Spinosad", "2026-04-19")
+        self.assertIsNone(self._gala(m)["alert"])  # the follow-up is 10 days on, more than a week away
+
+    def test_the_second_spray_comes_ten_days_after_the_first(self):
+        m = self._orchard(date(2026, 4, 25), 4)
+        m.log_spray("Gala", "Spinosad", "2026-04-18")
+        a = self._gala(m)["alert"]
+        self.assertEqual((a["state"], a["days"], a["date"], a.get("second")), ("soon", 3, "2026-04-28", True))
+        m2 = self._orchard(date(2026, 4, 29), 4)
+        m2.log_spray("Gala", "Spinosad", "2026-04-18")
+        self.assertEqual(self._gala(m2)["alert"]["state"], "open")
+        m2.log_spray("Gala", "Spinosad", "2026-04-28")
+        self.assertIsNone(self._gala(m2)["alert"])
+
+    def test_the_gap_window_says_do_not_spray(self):
+        m = self._orchard(date(2026, 7, 1), 6)  # 181 days at 6 = 1086, between 925 and 1400
+        st = self._gala(m)["pests"][0]["status"]
+        self.assertTrue(st["in_gap"])
+        self.assertIn("do not spray", st["gap_note"].lower())
+        self.assertEqual(st["next_dd"], 1400)
+        self.assertIsNone(self._gala(m)["alert"])
+
+    def test_a_logged_trap_catch_restarts_the_count_at_250(self):
+        m = self._orchard(date(2026, 4, 10), 4)
+        m.set_biofix("Gala", "codling_moth", "2026-03-20")
+        st = self._gala(m)["pests"][0]["status"]
+        self.assertEqual(st["next_dd"], 250)
+        self.assertFalse(st["estimated_start"])
+
+
+class CalendarSprays(unittest.TestCase):
+    def _peach(self, today):
+        m = make(today)
+        m.add_variety("", "peach", "Redhaven")
+        return m
+
+    def _pests(self, m):
+        v = next(x for x in m.snapshot()["varieties"] if x["name"] == "Redhaven")
+        return v, {p["key"]: p for p in v["pests"]}
+
+    def test_peaches_and_nectarines_get_leaf_curl_and_twig_borer_apricots_only_the_borer(self):
+        for sp, keys in [("peach", ["leaf_curl", "twig_borer"]), ("nectarine", ["leaf_curl", "twig_borer"]), ("apricot", ["twig_borer"])]:
+            m = make()
+            self.assertEqual([p["key"] for p in m.get_species(sp)["pests"]], keys, sp)
+
+    def test_leaf_curl_window_alert_opens_a_week_ahead_and_clears_on_a_copper_spray(self):
+        m = self._peach(date(2026, 11, 14))
+        v, p = self._pests(m)
+        self.assertEqual((p["leaf_curl"]["alert"]["state"], p["leaf_curl"]["alert"]["days"]), ("soon", 6))
+        self.assertEqual(v["status"]["level"], "spray")
+        m2 = self._peach(date(2026, 11, 25))
+        v, p = self._pests(m2)
+        self.assertEqual(p["leaf_curl"]["alert"]["state"], "open")
+        m2.log_spray("Redhaven", "Copper fungicide", "2026-11-26")
+        v, p = self._pests(m2)
+        self.assertIsNone(p["leaf_curl"]["alert"])
+        self.assertEqual(p["leaf_curl"]["calendar"][0]["state"], "done")
+        self.assertEqual(p["leaf_curl"]["calendar"][1]["state"], "upcoming")
+        self.assertEqual(p["leaf_curl"]["calendar"][1]["from"], "2027-02-01")
+
+    def test_a_spinosad_spray_clears_the_dormant_window_not_leaf_curl_or_bloom(self):
+        m = self._peach(date(2026, 4, 1))
+        m.log_spray("Redhaven", "Spinosad", "2026-03-10")
+        v, p = self._pests(m)
+        self.assertEqual(p["twig_borer"]["calendar"][0]["state"], "done")
+        self.assertEqual(p["twig_borer"]["calendar"][1]["state"], "open")
+        self.assertEqual(p["leaf_curl"]["calendar"][1]["state"], "upcoming")  # this February is over: next year's shows
+
+    def test_nothing_is_flagged_in_summer(self):
+        m = self._peach(date(2026, 7, 15))
+        v, p = self._pests(m)
+        self.assertIsNone(p["leaf_curl"]["alert"])
+        self.assertIsNone(p["twig_borer"]["alert"])
+        self.assertIsNone(v["alert"])

@@ -4,6 +4,14 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.31.0 - 2026-10-30
+
+- **Shorter plant list.** The home list has All, Trees and Plants tabs when you have both. In compact mode, plants with something due get a card under Needs attention, and everything else is one line each. View lets you switch back to full cards. Tree ages show in whole years.
+- **Spray countdown.** A spray 7 days or less away shows its countdown, the likely date and a range, built from the last 3, 7 and 14 days of warmth. Once the window opens the card says Now until you log a spray. The plant page shows the same projection.
+- **Codling moth without traps** (apple, pear, Asian pear). Degree days count from January 1. Spray at 425 and again 10 days later, no spraying from 925 to 1,400, then spray at 1,400 and again 10 days later. If you log a first trap catch, the count restarts from it.
+- **Peaches, nectarines and apricots.** Peach leaf curl alerts for peaches and nectarines (Nov 20 to Dec 15, and Feb 1 to Feb 28). Peach twig borer alerts for all three (delayed dormant Mar 1 to Mar 24, bloom Mar 25 to Apr 20). A matching logged spray clears a window. Each pest gets its own Home Assistant sensor.
+- **Searchable plant and crop pickers.** The Type field when adding a plant and the layout planner's crop picker both search as you type. Built-in trees are named "X tree", and the walnuts are "Walnut tree, black" and "Walnut tree, English".
+
 ## 0.30.1 - 2026-10-29
 
 - **Dates can always be picked.** Date fields (expected harvest, planting date and the rest) are now Month, Day and Year dropdowns. Before, some phones only let you change the month and year, so the day stayed on today's date.

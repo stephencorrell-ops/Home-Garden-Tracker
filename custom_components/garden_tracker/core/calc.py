@@ -76,24 +76,41 @@ def recent_dd_rate(daily: dict, today: date, n: int, lower: float, upper: float)
 
 
 def pest_status(v: dict, pest: dict, daily: dict, today: date) -> dict[str, Any] | None:
-    biofix = None
+    biofix, logged = None, False
     stored = v.get("biofix", {}).get(pest["key"])
     if stored and date.fromisoformat(stored).year == today.year:
-        biofix = date.fromisoformat(stored)
+        biofix, logged = date.fromisoformat(stored), True
     elif pest.get("default_biofix"):
         m, dd = pest["default_biofix"].split("-")
         biofix = date(today.year, int(m), int(dd))
     if biofix is None or biofix > today:
         return None
+    # Targets are counted from the default start (Jan 1). A logged trap catch restarts the count, so the part
+    # of each target that stood for "waiting for first moths" comes off.
+    cut = pest.get("no_biofix_dd", 0) if logged else 0
     total = degree_days(daily, biofix, today, pest["lower_f"], pest["upper_f"])
-    ms = sorted(pest.get("milestones", []), key=lambda m: m["dd"])
-    nxt = next((m for m in ms if m["dd"] > total), None)
+    ms = sorted(({**m, "dd": m["dd"] - cut} for m in pest.get("milestones", [])), key=lambda m: m["dd"])
+    nxt = next((m for m in ms if m["dd"] > total and not m.get("gap")), None)
+    reached = [m for m in ms if m["dd"] <= total]
+    act = next((m for m in reversed(reached) if not m.get("gap")), None)  # the latest spray window that has opened
+    in_gap = bool(reached and reached[-1].get("gap"))
+    open_since = None
+    if act:  # the day that window opened, so the card can say a spray is due
+        run, day = 0.0, biofix
+        while day <= today:
+            run += degree_days(daily, day, day, pest["lower_f"], pest["upper_f"])
+            if run >= act["dd"]:
+                open_since = day.isoformat()
+                break
+            day += timedelta(days=1)
     return {
-        "dd": round(total, 1), "biofix": biofix.isoformat(),
+        "dd": round(total, 1), "biofix": biofix.isoformat(), "estimated_start": not logged and bool(pest.get("no_biofix_dd")),
         "next_dd": nxt["dd"] if nxt else None,
         "next_action": nxt["note"] if nxt else None,
         "dd_to_next": round(nxt["dd"] - total, 1) if nxt else None,
-        "reached": [m for m in ms if m["dd"] <= total],
+        "reached": reached, "open_since": open_since,
+        "open_note": act["note"] if act else None, "open_dd": act["dd"] if act else None, "repeat_days": act.get("repeat_days") if act else None,
+        "in_gap": in_gap, "gap_note": reached[-1]["note"] if in_gap else None,
     }
 
 

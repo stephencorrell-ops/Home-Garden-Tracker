@@ -25,7 +25,7 @@ const fmtDur = (ms) => {
 const fmtClock = (iso) => new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 const dAgo = (n) => (n === null || n === undefined ? "–" : `${n} d`);
 const dIn = (n) => (n === null || n === undefined ? "–" : n < 0 ? `${-n} d late` : n === 0 ? "today" : `${n} d`);
-const yrs = (y) => (y < 1 ? "<1 yr" : `${Math.floor(y)} yr${Math.floor(y) === 1 ? "" : "s"}`);
+const yrs = (y) => `${Math.floor(y || 0)} yr${Math.floor(y || 0) === 1 ? "" : "s"}`;
 
 const CSS = `
 :host{display:block;width:100%;--ok:var(--success-color,#43a047);--spray:var(--warning-color,#ffa000);--hold:var(--error-color,#db4437);--info:var(--info-color,#039be5);--mut:var(--secondary-text-color);--line:var(--divider-color)}
@@ -48,6 +48,7 @@ label{display:block;font-size:12px;color:var(--mut);margin-bottom:4px}
 .sec{font-size:12px;color:var(--mut);margin:0 0 6px}
 .pdays{text-align:right;flex:none;align-self:flex-start}.pdays span{display:block;font-size:11px;color:var(--mut)}.pdays b{font-size:16px;font-weight:500}
 .tiles2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:12px}.tiles2 .tile{margin:0;display:flex;flex-direction:column;gap:6px;min-height:112px;padding:14px}.tiles2 .pic{width:36px;height:36px;border-radius:10px}.warn{border-radius:14px;background:color-mix(in srgb,var(--spray) 16%,var(--card-background-color));border:1px solid color-mix(in srgb,var(--spray) 55%,transparent);padding:12px 14px;margin-bottom:8px}.warn.bad{background:color-mix(in srgb,var(--hold) 12%,var(--card-background-color));border-color:color-mix(in srgb,var(--hold) 55%,transparent)}.warn .wt{font-size:15px;font-weight:700}.warn .wb{font-size:14px;line-height:1.4;margin-top:4px}.warn .wa{margin-top:8px;min-height:44px;border-radius:12px;border:1px solid currentColor;background:transparent;font-weight:600;padding:0 14px;color:inherit}.warn summary{font-size:14px;font-weight:600;min-height:44px;display:flex;align-items:center;cursor:pointer}.lgds{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}.lgd{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:0 10px;border-radius:16px;background:var(--secondary-background-color);font-size:13px}.lgd i{width:10px;height:10px;border-radius:5px;flex:none}.tile{cursor:pointer}.tile:hover{border-color:var(--primary-color)}
+.acard{display:flex;gap:12px;align-items:center;border-radius:14px;padding:12px 14px;margin-bottom:8px;cursor:pointer;border:1px solid}.acard.soon{background:color-mix(in srgb,var(--spray) 14%,var(--card-background-color));border-color:color-mix(in srgb,var(--spray) 55%,transparent)}.acard.open{background:color-mix(in srgb,var(--hold) 12%,var(--card-background-color));border-color:color-mix(in srgb,var(--hold) 55%,transparent)}.acard .an{font-size:15px;font-weight:700}.acard .ar{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:84px;text-align:center}.acard .ab{font-size:24px;font-weight:700;line-height:1.1}.acard button{margin-top:6px;width:100%;min-height:44px}.sec.attn{color:var(--spray)}.lbox{border:1px solid var(--line);border-radius:14px;overflow:hidden;margin-bottom:8px}.lrow{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 14px;cursor:pointer}.lrow+.lrow{border-top:1px solid var(--line)}.lrow .sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}.lrow .small{white-space:nowrap}.crow{padding:8px 12px;margin-bottom:6px}.crow .pic{width:36px;height:36px;border-radius:10px}.crow .cn{font-size:15px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.crow .sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.crow .pill{margin:0;max-width:44%;text-align:center}
 .pic{width:56px;height:56px;border-radius:12px;flex:none;display:flex;align-items:center;justify-content:center}
 .pill{font-size:12px;padding:2px 10px;border-radius:8px;display:inline-block;margin-top:4px;color:var(--c);background:color-mix(in srgb,var(--c) 16%,transparent)}
 .ok{--c:var(--ok)}.spray,.warn{--c:var(--spray)}.hold,.bad,.low,.high{--c:var(--hold)}.info{--c:var(--info)}.none{--c:var(--mut)}
@@ -319,6 +320,8 @@ class GardenTrackerCard extends HTMLElement {
     this._setPref = (k, v) => { try { localStorage.setItem("gt_" + k, JSON.stringify(v)); } catch (e) { /* no storage */ } };
     this._sort = this._pref("sort", "garden");
     this._psort = this._pref("psort", "year");
+    this._tab = this._pref("tab", "all");
+    this._compact = this._pref("compact", true);
     this._show = { water: true, micro: true, cover: true, chores: true, frost: true, ...this._pref("show", {}) };
     if (!this.shadowRoot) {
       this.attachShadow({ mode: "open" });
@@ -602,10 +605,14 @@ class GardenTrackerCard extends HTMLElement {
     };
   }
   _homeView() {
-    const gs = this._gardens(), vs = this._vars();
+    const gs = this._gardens(), every = this._vars();
+    const nTrees = every.filter((v) => v.kind === "tree").length, nPlants = every.length - nTrees;
+    if (this._tab === "trees" && !nTrees) this._tab = "all";
+    if (this._tab === "plants" && !nPlants) this._tab = "all";
+    const vs = this._tab === "trees" ? every.filter((v) => v.kind === "tree") : this._tab === "plants" ? every.filter((v) => v.kind !== "tree") : every;
     const pastN = this._vars(true).length + (this._snap.past_gardens || []).length;
     let h = `<div class="hd"><div class="ttl grow">Garden</div>${this._btn("form-view", "tune", "View")}${this._btn("form-variety", "plus", "Add plant", "", "primary")}</div>`;
-    if (!gs.length && !vs.length) {
+    if (!gs.length && !every.length) {
       return h + `<div class="msg">${pastN ? "Add a garden to start adding plants." : "Create your first garden to start adding plants."} Trees can be added without a garden.<br><br>${this._btn("form-garden", "plus", "Add garden", "", "primary")}</div>` + (pastN ? `<button style="width:100%" data-act="open-archive">${this._icon("history")} History (${pastN})</button>` : "");
     }
     h += `<div class="chips">${gs.map((g) => `<button class="chip" data-act="open-g" data-g="${g.id}">${g.kind === "garden" ? "" : this._icon(KIND_ICON[g.kind]) + " "}${esc(g.name)}</button>`).join("")}${pastN ? `<button class="chip" data-act="open-archive">${this._icon("history")} History</button>` : ""}${this._config.garden ? "" : `<button class="chip" data-act="form-garden">${this._icon("plus")} Add</button>`}</div>`;
@@ -614,6 +621,7 @@ class GardenTrackerCard extends HTMLElement {
     if (frost) h += `<div>${frost}</div>`;
     const cnt = (l) => vs.filter((v) => v.status.level === l).length;
     const filters = [["all", `All ${vs.length}`], ["spray", `Spray due ${cnt("spray")}`], ["hold", `Harvest hold ${cnt("hold")}`], ["ok", `On track ${cnt("ok")}`]];
+    if (nTrees && nPlants) h += `<div class="chips tabs">${[["all", `All ${every.length}`], ["trees", `Trees ${nTrees}`], ["plants", `Plants ${nPlants}`]].map(([k, t]) => `<button class="chip ${this._tab === k ? "on" : ""}" data-act="tab" data-s="${k}">${t}</button>`).join("")}</div>`;
     if (vs.length) {
       h += this._searchBox("home", "Search plants");
       h += `<div class="chips">${filters.map(([k, t]) => `<button class="chip ${this._filter === k ? "on" : ""}" data-act="filter" data-s="${k}">${t}</button>`).join("")}</div>`;
@@ -621,24 +629,41 @@ class GardenTrackerCard extends HTMLElement {
     }
     const searching = !!String(this._q.home || "").trim();
     const shown = vs.filter((v) => (this._filter === "all" || v.status.level === this._filter) && this._matches(v, "home"));
-    const covers = (g) => (this._filter === "all" && !searching && this._show.cover && g.kind === "garden" ? g.cover.items.filter((i) => i.state !== "done") : []);
+    const covers = (g) => (this._filter === "all" && !searching && this._show.cover && g.kind === "garden" && this._tab !== "trees" ? g.cover.items.filter((i) => i.state !== "done") : []);
     const anyCover = gs.some((g) => covers(g).length);
     if (!vs.length && !anyCover) h += `<div class="msg">No plants yet. Tap Add plant.</div>`;
     else if (!shown.length && !anyCover) h += `<div class="msg">${searching ? "No plants match your search." : "Nothing matches this filter."}</div>`;
     const ordered = [...gs].sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind]);
+    if (this._compact && shown.length) {
+      const attn = shown.filter((v) => v.status.level === "spray" || v.status.level === "hold"), rest = shown.filter((v) => !attn.includes(v));
+      if (attn.length) h += `<div class="sec attn">Needs attention · ${attn.length}</div>` + this._sortVars(attn, this._sort === "garden" ? "name" : this._sort).map((v) => this._attnCard(v)).join("");
+      if (rest.length) {
+        const list = this._sort === "garden" ? [...rest].sort((a, b) => (a.garden_name || "~").localeCompare(b.garden_name || "~") || a.name.localeCompare(b.name)) : this._sortVars(rest, this._sort);
+        h += `<div class="sec">${attn.length ? "Everything else" : "Plants"} · ${rest.length}</div><div class="lbox">${list.map((v) => this._lineRow(v, true)).join("")}</div>`;
+      }
+      for (const g of ordered) {
+        const cov = g.kind === "garden" ? covers(g) : [];
+        const place = g.kind !== "garden" && this._filter === "all" && !searching && this._tab !== "trees" && (vs.some((v) => v.garden === g.id) || (g.alarm && g.alarm.enabled && g.alarm.alerts.length > 0));
+        if (!cov.length && !place) continue;
+        if (!place) h += `<div class="sec">${esc(g.name)}</div>`;
+        if (place) h += this._placeSummary(g);
+        if (cov.length) h += this._coverTile(g, cov);
+      }
+      return h + this._microTile();
+    }
     const flat = this._sort !== "garden";
-    if (flat) h += this._sortVars(shown, this._sort).map((v) => this._tile(v, true)).join("");
+    if (flat) h += this._sortVars(shown, this._sort).map((v) => this._row(v, true)).join("");
     for (const g of ordered) {
       const mine = flat ? [] : shown.filter((v) => v.garden === g.id), cov = g.kind === "garden" ? covers(g) : [];
-      const place = !flat && g.kind !== "garden" && this._filter === "all" && !searching && (vs.some((v) => v.garden === g.id) || (g.alarm && g.alarm.enabled && g.alarm.alerts.length > 0));  // empty racks and greenhouses stay off the landing page (still in the chips)
+      const place = !flat && g.kind !== "garden" && this._filter === "all" && !searching && this._tab !== "trees" && (vs.some((v) => v.garden === g.id) || (g.alarm && g.alarm.enabled && g.alarm.alerts.length > 0));  // empty racks and greenhouses stay off the landing page (still in the chips)
       if (!mine.length && !cov.length && !place) continue;
       if ((gs.length > 1 || shown.some((v) => !v.garden)) && !place) h += `<div class="sec">${esc(g.name)}</div>`;
       if (place) h += this._placeSummary(g);
-      h += mine.map((v) => this._tile(v)).join("");
+      h += mine.map((v) => this._row(v)).join("");
       if (cov.length) h += this._coverTile(g, cov);
     }
     const loose = flat ? [] : shown.filter((v) => !v.garden);
-    if (loose.length) h += `<div class="sec">Trees, no garden</div>` + loose.map((v) => this._tile(v)).join("");
+    if (loose.length) h += `<div class="sec">Trees, no garden</div>` + loose.map((v) => this._row(v)).join("");
     h += this._microTile();
     return h;
   }
@@ -825,6 +850,29 @@ class GardenTrackerCard extends HTMLElement {
     for (const m of v.moves) h += `<div class="small mut" style="margin-top:4px">${fmtDate(m.date)}: ${esc(m.from)} to ${esc(m.to)}, ${m.count} plant${m.count === 1 ? "" : "s"}</div>`;
     return h + `</div>`;
   }
+  _row(v, withGarden) { return this._tile(v, withGarden); }
+  _attnCard(v) {
+    const a = v.alert, lvl = v.status.level;
+    const kind = a ? (a.state === "open" ? "open" : "soon") : lvl === "hold" ? "open" : "soon";
+    const est = (a && a.state === "soon" && a.date_low && a.date_low !== a.date_high) ? `<div class="small" style="margin-top:2px">Likely ${fmtDate(a.date_low)} to ${fmtDate(a.date_high)}</div>` : "";
+    let mid;
+    if (a && a.calendar) {
+      mid = `<div class="small">${esc(v.species_name)} · ${esc(a.pest)}</div><div class="small" style="margin-top:6px">${esc(a.note)}</div>`;
+    } else if (a) {
+      const pct = Math.max(0, Math.min(100, (a.dd / a.target) * 100));
+      mid = `<div class="small">${esc(v.species_name)} · ${esc(a.pest)}</div><div class="small" style="margin-top:6px">${num(a.dd, 0)} of ${a.target} degree days${v.pests.some((p) => p.status && p.status.estimated_start) ? " since Jan 1" : ""}</div><div class="bar"><i style="width:${pct}%"></i></div>${est}`;
+    } else mid = `<div class="small">${esc(v.species_name)}</div><div class="small" style="margin-top:2px">${esc(v.status.text)}</div>`;
+    const big = a ? (a.state === "open" ? "Now" : `${a.days} day${a.days === 1 ? "" : "s"}`) : lvl === "hold" ? "Hold" : "Soon";
+    const small = a ? (a.calendar ? (a.state === "open" ? `open until ${fmtDate(a.until)}` : `window opens ${fmtDate(a.date)}`) : a.state === "open" ? (a.second ? "second spray due" : "spray window open") : `${a.second ? "second" : "first"} spray about ${fmtDate(a.date)}`) : "";
+    return `<div class="acard ${kind}" data-act="open-v" data-v="${v.id}"><div class="grow" style="min-width:0"><div class="an">${esc(v.name)}</div>${mid}</div><div class="ar"><div class="ab">${esc(big)}</div><div class="small">${esc(small)}</div>${a ? `<button data-act="form-spray" data-v="${v.id}">Sprayed</button>` : ""}</div></div>`;
+  }
+  _lineRow(v, withGarden) {
+    const tree = v.kind === "tree", inPlace = v.location_kind !== "garden";
+    const sub = [v.species_name, tree ? null : `${v.alive} of ${v.count}`, inPlace ? v.container : null, withGarden ? (v.garden_name || "No garden") : null].filter(Boolean).join(" · ");
+    const hv = !tree ? this._stats(v).find((x) => x[0] === "Harvest in") : null;
+    const stat = tree ? yrs(v.age_years) : hv ? "harvest in " + hv[1] : v.status.text;
+    return `<div class="lrow" data-act="open-v" data-v="${v.id}"><b>${esc(v.name)}</b><span class="sub grow">${esc(sub)}</span><span class="small">${esc(stat)}</span></div>`;
+  }
   _tile(v, withGarden) {
     const tree = v.kind === "tree";
     const inPlace = v.location_kind !== "garden";
@@ -865,7 +913,7 @@ class GardenTrackerCard extends HTMLElement {
   // ---- plant (variety) view -----------------------------------------------------------
   _varietyView(v) {
     const arch = v.archived, tree = v.kind === "tree", id = v.id;
-    let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="grow"><div class="ttl">${esc(v.name)}</div><div class="sub">${esc(v.species_name)}, ${esc(v.garden_name)}${tree ? "" : `, ${v.alive} of ${v.count} plants alive`}</div></div>${arch ? "" : this._btn("edit-v", "pencil", "", `data-v="${id}"`, "ic")}</div>`;
+    let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="grow"><div class="ttl">${esc(v.name)}</div><div class="sub">${esc([v.species_name, v.garden_name, tree ? "" : `${v.alive} of ${v.count} plants alive`].filter(Boolean).join(", "))}</div></div>${arch ? "" : this._btn("edit-v", "pencil", "", `data-v="${id}"`, "ic")}</div>`;
     if (arch) {
       h += `<div class="card"><span class="pill info">${esc(ARCH_TEXT[arch.reason])}, ${fmtDate(arch.date, true)}</span>${arch.notes ? `<p style="margin:8px 0 0">${esc(arch.notes)}</p>` : ""}<div class="row" style="margin-top:10px">${this._btn("form-again", "sprout", "Plant again", `data-v="${id}"`, "primary")}${this._btn("restore", "undo", "Restore", `data-v="${id}"`)}</div></div>`;
     } else {
@@ -942,11 +990,14 @@ class GardenTrackerCard extends HTMLElement {
     for (const p of v.pests) {
       if (p.status) {
         const st = p.status;
-        h += `<div style="margin-top:10px;font-size:12px" class="row"><span class="grow">${esc(p.name)} degree days</span><b>${st.dd}${st.next_dd ? ` / ${st.next_dd}` : ""}</b></div><div class="bar"><i style="width:${st.next_dd ? Math.min(100, (st.dd / st.next_dd) * 100) : 100}%"></i></div>${st.next_action ? `<div class="small mut" style="margin-top:4px">${esc(st.next_action)}${p.est_days ? `, in about ${p.est_days} days` : ""}</div>` : ""}`;
+        h += `<div style="margin-top:10px;font-size:12px" class="row"><span class="grow">${esc(p.name)} degree days</span><b>${st.dd}${st.next_dd ? ` / ${st.next_dd}` : ""}</b></div><div class="bar"><i style="width:${st.next_dd ? Math.min(100, (st.dd / st.next_dd) * 100) : 100}%"></i></div>${st.in_gap ? `<div class="small" style="margin-top:4px"><b>${esc(st.gap_note)}</b></div>` : ""}${st.next_action ? `<div class="small mut" style="margin-top:4px">${esc(st.next_action)}${p.est_days ? `, about ${fmtDate(this._isoAdd(this._snap.today, p.est_days))} (in ${p.est_days} day${p.est_days === 1 ? "" : "s"}${p.est_low !== null && p.est_high !== null && p.est_low !== p.est_high ? `, likely ${fmtDate(this._isoAdd(this._snap.today, p.est_low))} to ${fmtDate(this._isoAdd(this._snap.today, p.est_high))}` : ""})` : ""}</div>` : ""}${st.estimated_start && !arch ? `<div class="row" style="margin-top:6px"><span class="small mut grow">Counted from Jan 1, no trap needed. If you trap, log the first catch and it replaces this.</span>${this._btn("form-biofix", "calendar", "Log first catch", `data-v="${id}" data-s="${p.key}"`)}</div>` : ""}`;
       } else if (p.trap) {
         const t = p.trap, id2 = v.id;
         const line = { early: `Hang traps high in the canopy by ${fmtDate(t.monitor_from, true)}.`, watch: `Check your traps. Spray within ${t.spray_within_days} days of a sharp rise in catches, usually ${t.usual}.`, spray: `Spray by ${fmtDate(t.spray_by, true)} (${t.days_left === 0 ? "today" : `${t.days_left} day${t.days_left === 1 ? "" : "s"} left`}).`, late: `Past the ${t.spray_within_days} days since the catches rose (${fmtDate(t.spray_by, true)}). Spray now.`, sprayed: `Sprayed ${fmtDate(t.sprayed)}. Bait is repeated every ${t.bait_every_days} days while flies are caught.` }[t.state];
         h += `<div style="margin-top:10px"><div class="row"><b class="grow" style="font-weight:500">${esc(p.name)}</b><span class="pill ${t.state === "spray" || t.state === "late" ? "spray" : "info"}" style="margin:0">${{ early: "Not yet", watch: "Watching", spray: "Spray due", late: "Overdue", sprayed: "Sprayed" }[t.state]}</span></div><div class="small" style="margin-top:4px">${esc(line)}</div><div class="small mut" style="margin-top:4px">No degree-day model. Timing comes from trap catches. ${esc(t.products)}</div>${arch ? "" : `<div class="row" style="margin-top:6px">${this._btn("form-biofix", "calendar", t.catch ? `Catches rose ${fmtDate(t.catch, true)}` : "Log the rise in catches", `data-v="${id2}" data-s="${p.key}"`)}</div>`}</div>`;
+      } else if (p.calendar) {
+        const lab = { done: ["ok", "Sprayed"], open: ["spray", "Spray now"], upcoming: ["info", "Coming up"], past: ["info", "Not sprayed"] };
+        h += `<div style="margin-top:10px"><b style="font-weight:500">${esc(p.name)}</b>${p.calendar.map((w) => { const [c, t] = lab[w.state]; return `<div class="row" style="margin-top:6px;align-items:flex-start"><div class="grow"><div class="small"><b>${fmtDate(w.from)} to ${fmtDate(w.to)}</b></div><div class="small mut">${esc(w.note)}</div></div><span class="pill ${c}" style="margin:0">${w.state === "done" ? `Sprayed ${fmtDate(w.done)}` : w.state === "upcoming" ? `In ${w.days} day${w.days === 1 ? "" : "s"}` : t}</span></div>`; }).join("")}<div class="small mut" style="margin-top:4px">Log a spray with the product and it clears the window. Check the label for days to harvest.</div></div>`;
       } else if (p.needs_biofix && !arch) {
         h += `<div style="margin-top:10px" class="row"><span class="small grow">${esc(p.name)}: set the biofix date to start counting</span>${this._btn("form-biofix", "calendar", "Set biofix", `data-v="${id}" data-s="${p.key}"`)}</div>`;
       }
@@ -1199,6 +1250,7 @@ class GardenTrackerCard extends HTMLElement {
       case "form-micro": return this._open(this._fMicro());
       case "web-location": return this.dispatchEvent(new CustomEvent("garden-location", { bubbles: true, composed: true }));
       case "filter": this._filter = d.s; return this._render();
+      case "tab": this._tab = d.s; this._filter = "all"; this._setPref("tab", d.s); return this._render();
       case "sort": this._sort = d.s; this._setPref("sort", d.s); return this._render();
       case "psort": this._psort = d.s; this._setPref("psort", d.s); return this._render();
       case "lay-plant": return this._open(this._fPlantLayout(this._garden(d.g)));
@@ -1440,6 +1492,7 @@ class GardenTrackerCard extends HTMLElement {
       title: "What to show", submitLabel: "Save",
       fields: [
         { name: "sort", label: "Sort plants by", type: "seg", options: [["garden", "Garden"], ["name", "Name"], ["harvest", "Harvest"]], value: this._sort },
+        { name: "compact", label: "Plant list", type: "seg", options: [["1", "Compact rows"], ["0", "Cards"]], value: this._compact ? "1" : "0" },
         { name: "water", label: "Watering", type: "seg", options: seg, value: on("water") },
         { name: "chores", label: "To do list", type: "seg", options: seg, value: on("chores") },
         { name: "cover", label: "Cover crops", type: "seg", options: seg, value: on("cover") },
@@ -1449,6 +1502,7 @@ class GardenTrackerCard extends HTMLElement {
       note: "Saved on this device only. Hiding something only hides it from view; nothing is deleted.",
       submit: (x) => {
         for (const k of ["water", "chores", "cover", "frost", "micro"]) if (x[k] !== undefined) this._show[k] = x[k] === "1";
+        if (x.compact !== undefined) { this._compact = x.compact === "1"; this._setPref("compact", this._compact); }
         if (x.sort) { this._sort = x.sort; this._setPref("sort", x.sort); }
         this._setPref("show", this._show);
       },

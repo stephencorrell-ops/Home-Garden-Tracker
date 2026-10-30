@@ -2689,13 +2689,40 @@ class GardenModel:
                 pests.append({"key": pest["key"], "name": pest["name"], "status": None, "est_days": None, "needs_biofix": False,
                               "trap": self._trap_view(v, pest, today)})
                 continue
+            if pest.get("calendar"):  # sprayed in set windows of the year, no degree-day model (leaf curl, twig borer)
+                wins, alert = self._calendar_view(v, pest, today)
+                pests.append({"key": pest["key"], "name": pest["name"], "status": None, "est_days": None, "needs_biofix": False,
+                              "alert": alert, "calendar": wins})
+                continue
             st = calc.pest_status(v, pest, daily, today)
-            rate = calc.recent_dd_rate(daily, today, 7, pest["lower_f"], pest["upper_f"])
-            est = None
+            lo, up = pest["lower_f"], pest["upper_f"]
+            rate = calc.recent_dd_rate(daily, today, 7, lo, up)
+            est, est_low, est_high, alert = None, None, None, None
             if st and st["dd_to_next"] and rate > 0.5:
-                est = int(-(-st["dd_to_next"] // rate))
-            pests.append({"key": pest["key"], "name": pest["name"], "status": st, "est_days": est,
-                          "needs_biofix": st is None and not pest.get("default_biofix")})
+                need = st["dd_to_next"]
+                est = int(-(-need // rate))
+                rates = [r for r in (rate, calc.recent_dd_rate(daily, today, 3, lo, up), calc.recent_dd_rate(daily, today, 14, lo, up)) if r > 0.5]
+                est_low, est_high = int(-(-need // max(rates))), int(-(-need // min(rates)))
+            if st:
+                since, rep = st["open_since"], st["repeat_days"]
+                done = sorted(x["date"] for x in v["sprays"] if since and x["date"] >= since)
+                base = {"pest": pest["name"], "dd": st["dd"]}
+                if since and not done and (today - date.fromisoformat(since)).days <= 21:
+                    alert = {**base, "state": "open", "target": st["open_dd"], "since": since, "note": st["open_note"], "days": 0, "date": since}
+                elif since and done and rep and len(done) < 2 and (today - date.fromisoformat(done[0])).days <= rep + 14:
+                    due = date.fromisoformat(done[0]) + timedelta(days=rep)  # the follow-up spray, a set number of days after the first
+                    left = (due - today).days
+                    if left <= 0:
+                        alert = {**base, "state": "open", "target": st["open_dd"], "since": due.isoformat(), "note": f"Second spray due, {rep} days after the first", "days": 0, "date": due.isoformat(), "second": True}
+                    elif left <= 7:
+                        alert = {**base, "state": "soon", "target": st["open_dd"], "note": f"Second spray, {rep} days after the first", "days": left, "low": left, "high": left,
+                                 "date": due.isoformat(), "date_low": due.isoformat(), "date_high": due.isoformat(), "second": True}
+                elif est is not None and est <= 7:
+                    alert = {**base, "state": "soon", "target": st["next_dd"], "note": st["next_action"],
+                             "days": est, "low": est_low, "high": est_high, "date": (today + timedelta(days=est)).isoformat(),
+                             "date_low": (today + timedelta(days=est_low)).isoformat(), "date_high": (today + timedelta(days=est_high)).isoformat()}
+            pests.append({"key": pest["key"], "name": pest["name"], "status": st, "est_days": est, "est_low": est_low, "est_high": est_high,
+                          "alert": alert, "needs_biofix": st is None and not pest.get("default_biofix")})
         feeding, g = None, self.data["gardens"].get(v["garden"])
         feeding_off = bool(g and g.get("kind", "garden") == "garden" and self._feeding_off(g, today))
         plan = sp.get("feeding_plan")
@@ -2727,11 +2754,40 @@ class GardenModel:
             "fertilizations": sorted(v["fertilizations"], key=lambda e: (e["date"], e["id"]), reverse=True),
             "last_fert": last_f, "feeding": feeding, "feeding_off": feeding_off,
             "sprays": sorted(v["sprays"], key=lambda e: (e["date"], e["id"]), reverse=True),
-            "spray": spray, "pests": pests,
+            "spray": spray, "pests": pests, "alert": next(iter(sorted((p["alert"] for p in pests if p.get("alert")), key=lambda a: a["days"])), None),
             "pruning": pruning,
             "reviews": sorted(v["reviews"], key=lambda e: (e["year"], e["id"]), reverse=True),
             "projection": proj, "seasons": seasons, "status": status, "archived": v.get("archived"),
         }
+
+    @staticmethod
+    def _calendar_view(v: dict, pest: dict, today: date) -> tuple[list, dict | None]:
+        """Spray windows that fall on the same dates every year. A spray logged inside a window that matches its
+        products (or names the pest) counts as done. The alert is the window open now, or the next one 7 days or less away."""
+        wins, alert = [], None
+        for w in pest["calendar"]:
+            fm, fd = w["from"].split("-")
+            tm, td = w["to"].split("-")
+            start, end = date(today.year, int(fm), int(fd)), date(today.year, int(tm), int(td))
+            words = [x.lower() for x in w.get("match", [])] + [pest["name"].lower()]
+            done = next((x["date"] for x in sorted(v["sprays"], key=lambda e: e["date"])
+                         if start.isoformat() <= x["date"] <= end.isoformat()
+                         and any(k in f"{x.get('product') or ''} {x.get('target') or ''}".lower() for k in words)), None)
+            if done:
+                state = "done"
+            elif today < start:
+                state = "upcoming"
+            elif today <= end:
+                state = "open"
+            else:  # this year's window has gone by: show next year's
+                start, end = start.replace(year=start.year + 1), end.replace(year=end.year + 1)
+                state = "upcoming"
+            days = (start - today).days if state == "upcoming" else 0
+            wins.append({"id": w["id"], "from": start.isoformat(), "to": end.isoformat(), "note": w["note"], "state": state, "done": done, "days": days})
+            if alert is None and (state == "open" or (state == "upcoming" and days <= 7)):
+                alert = {"state": "open" if state == "open" else "soon", "pest": pest["name"], "note": w["note"], "calendar": True,
+                         "days": days, "date": start.isoformat(), "until": end.isoformat(), "dd": None, "target": None}
+        return wins, alert
 
     @staticmethod
     def _trap_view(v: dict, pest: dict, today: date) -> dict:
@@ -2785,12 +2841,10 @@ class GardenModel:
                 if tr and tr["state"] in ("spray", "late"):
                     return {"level": "spray", "text": f"Spray {p['name'].lower()} by {date.fromisoformat(tr['spray_by']).strftime('%b %-d')}" if tr["state"] == "spray"
                             else f"Spray {p['name'].lower()}: past the {tr['spray_within_days']} days"}
-            near = [(p["status"]["dd_to_next"], p) for p in pests
-                    if p["status"] and p["status"]["dd_to_next"] is not None and p["status"]["dd_to_next"] <= 40]
-            if near:
-                dd, p = min(near, key=lambda x: x[0])
-                est = p["est_days"]
-                return {"level": "spray", "text": f"Spray window in about {est} days" if est else "Spray window near"}
+            al = sorted((p["alert"] for p in pests if p.get("alert")), key=lambda a: a["days"])
+            if al:
+                a = al[0]
+                return {"level": "spray", "text": f"Spray {a['pest'].lower()}: window open" if a["state"] == "open" else f"Spray {a['pest'].lower()} in about {a['days']} day{'' if a['days'] == 1 else 's'}"}
             if spray["next_in"] is not None and spray["next_in"] <= 3:
                 n = spray["next_in"]
                 return {"level": "spray", "text": "Reapply spray due" if n <= 0 else f"Reapply spray in {n} days"}
