@@ -727,7 +727,10 @@ class Layout(unittest.TestCase):
         v = {"prunings": [], "prune_month": None}
         self.assertEqual(view(v, date(2026, 1, 20))["state"], "waiting")
         self.assertEqual(view(v, date(2026, 2, 1))["state"], "due")  # starts on the first of the month
-        self.assertEqual(view(v, date(2026, 10, 25))["state"], "due")  # and stays until it is marked
+        self.assertEqual(view(v, date(2026, 4, 30))["state"], "due")  # and stays until it is marked, through April
+        late = view(v, date(2026, 10, 25))
+        self.assertEqual(late["state"], "waiting")  # trees in full leaf in the fall are not nagged
+        self.assertEqual(late["start"], "2027-02-01")  # the next reminder is next February
         v["prune_month"] = 8
         self.assertEqual(view(v, date(2026, 7, 31))["state"], "waiting")
         self.assertEqual(view(v, date(2026, 8, 1))["state"], "due")

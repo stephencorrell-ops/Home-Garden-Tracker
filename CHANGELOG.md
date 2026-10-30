@@ -4,6 +4,10 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.31.4 - 2026-10-30
+
+- **Pruning reminder no longer runs all year.** It was due from February until you logged a pruning, so trees in full leaf still said "Due now" in the fall. It now runs from the prune month through two months after it (February to April, or March to May for walnuts), then waits for next year and shows the next reminder date. Logging "Pruned" or "No pruning needed" still clears it for the year.
+
 ## 0.31.3 - 2026-10-30
 
 - **Frost info moved to Microclimate.** The frost banners no longer appear on the home list or the garden pages. The next frost, or what your sensors recorded this year, is one line at the top of the Microclimate page, since every garden at your address shares the same frost dates. The "Frost dates" option in View is gone.
