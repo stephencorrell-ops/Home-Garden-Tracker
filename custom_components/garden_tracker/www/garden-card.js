@@ -48,6 +48,7 @@ label{display:block;font-size:12px;color:var(--mut);margin-bottom:4px}
 .sec{font-size:12px;color:var(--mut);margin:0 0 6px}
 .pdays{text-align:right;flex:none;align-self:flex-start}.pdays span{display:block;font-size:11px;color:var(--mut)}.pdays b{font-size:16px;font-weight:500}
 .tiles2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:12px}.tiles2 .tile{margin:0;display:flex;flex-direction:column;gap:6px;min-height:112px;padding:14px}.tiles2 .pic{width:36px;height:36px;border-radius:10px}.warn{border-radius:14px;background:color-mix(in srgb,var(--spray) 16%,var(--card-background-color));border:1px solid color-mix(in srgb,var(--spray) 55%,transparent);padding:12px 14px;margin-bottom:8px}.warn.bad{background:color-mix(in srgb,var(--hold) 12%,var(--card-background-color));border-color:color-mix(in srgb,var(--hold) 55%,transparent)}.warn .wt{font-size:15px;font-weight:700}.warn .wb{font-size:14px;line-height:1.4;margin-top:4px}.warn .wa{margin-top:8px;min-height:44px;border-radius:12px;border:1px solid currentColor;background:transparent;font-weight:600;padding:0 14px;color:inherit}.warn summary{font-size:14px;font-weight:600;min-height:44px;display:flex;align-items:center;cursor:pointer}.lgds{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}.lgd{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:0 10px;border-radius:16px;background:var(--secondary-background-color);font-size:13px}.lgd i{width:10px;height:10px;border-radius:5px;flex:none}.tile{cursor:pointer}.tile:hover{border-color:var(--primary-color)}
+.crow{padding:8px 12px;margin-bottom:6px}.crow .pic{width:36px;height:36px;border-radius:10px}.crow .cn{font-size:15px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.crow .sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.crow .pill{margin:0;max-width:44%;text-align:center}
 .pic{width:56px;height:56px;border-radius:12px;flex:none;display:flex;align-items:center;justify-content:center}
 .pill{font-size:12px;padding:2px 10px;border-radius:8px;display:inline-block;margin-top:4px;color:var(--c);background:color-mix(in srgb,var(--c) 16%,transparent)}
 .ok{--c:var(--ok)}.spray,.warn{--c:var(--spray)}.hold,.bad,.low,.high{--c:var(--hold)}.info{--c:var(--info)}.none{--c:var(--mut)}
@@ -319,6 +320,8 @@ class GardenTrackerCard extends HTMLElement {
     this._setPref = (k, v) => { try { localStorage.setItem("gt_" + k, JSON.stringify(v)); } catch (e) { /* no storage */ } };
     this._sort = this._pref("sort", "garden");
     this._psort = this._pref("psort", "year");
+    this._tab = this._pref("tab", "all");
+    this._compact = this._pref("compact", true);
     this._show = { water: true, micro: true, cover: true, chores: true, frost: true, ...this._pref("show", {}) };
     if (!this.shadowRoot) {
       this.attachShadow({ mode: "open" });
@@ -602,10 +605,14 @@ class GardenTrackerCard extends HTMLElement {
     };
   }
   _homeView() {
-    const gs = this._gardens(), vs = this._vars();
+    const gs = this._gardens(), every = this._vars();
+    const nTrees = every.filter((v) => v.kind === "tree").length, nPlants = every.length - nTrees;
+    if (this._tab === "trees" && !nTrees) this._tab = "all";
+    if (this._tab === "plants" && !nPlants) this._tab = "all";
+    const vs = this._tab === "trees" ? every.filter((v) => v.kind === "tree") : this._tab === "plants" ? every.filter((v) => v.kind !== "tree") : every;
     const pastN = this._vars(true).length + (this._snap.past_gardens || []).length;
     let h = `<div class="hd"><div class="ttl grow">Garden</div>${this._btn("form-view", "tune", "View")}${this._btn("form-variety", "plus", "Add plant", "", "primary")}</div>`;
-    if (!gs.length && !vs.length) {
+    if (!gs.length && !every.length) {
       return h + `<div class="msg">${pastN ? "Add a garden to start adding plants." : "Create your first garden to start adding plants."} Trees can be added without a garden.<br><br>${this._btn("form-garden", "plus", "Add garden", "", "primary")}</div>` + (pastN ? `<button style="width:100%" data-act="open-archive">${this._icon("history")} History (${pastN})</button>` : "");
     }
     h += `<div class="chips">${gs.map((g) => `<button class="chip" data-act="open-g" data-g="${g.id}">${g.kind === "garden" ? "" : this._icon(KIND_ICON[g.kind]) + " "}${esc(g.name)}</button>`).join("")}${pastN ? `<button class="chip" data-act="open-archive">${this._icon("history")} History</button>` : ""}${this._config.garden ? "" : `<button class="chip" data-act="form-garden">${this._icon("plus")} Add</button>`}</div>`;
@@ -614,6 +621,7 @@ class GardenTrackerCard extends HTMLElement {
     if (frost) h += `<div>${frost}</div>`;
     const cnt = (l) => vs.filter((v) => v.status.level === l).length;
     const filters = [["all", `All ${vs.length}`], ["spray", `Spray due ${cnt("spray")}`], ["hold", `Harvest hold ${cnt("hold")}`], ["ok", `On track ${cnt("ok")}`]];
+    if (nTrees && nPlants) h += `<div class="chips tabs">${[["all", `All ${every.length}`], ["trees", `Trees ${nTrees}`], ["plants", `Plants ${nPlants}`]].map(([k, t]) => `<button class="chip ${this._tab === k ? "on" : ""}" data-act="tab" data-s="${k}">${t}</button>`).join("")}</div>`;
     if (vs.length) {
       h += this._searchBox("home", "Search plants");
       h += `<div class="chips">${filters.map(([k, t]) => `<button class="chip ${this._filter === k ? "on" : ""}" data-act="filter" data-s="${k}">${t}</button>`).join("")}</div>`;
@@ -621,24 +629,24 @@ class GardenTrackerCard extends HTMLElement {
     }
     const searching = !!String(this._q.home || "").trim();
     const shown = vs.filter((v) => (this._filter === "all" || v.status.level === this._filter) && this._matches(v, "home"));
-    const covers = (g) => (this._filter === "all" && !searching && this._show.cover && g.kind === "garden" ? g.cover.items.filter((i) => i.state !== "done") : []);
+    const covers = (g) => (this._filter === "all" && !searching && this._show.cover && g.kind === "garden" && this._tab !== "trees" ? g.cover.items.filter((i) => i.state !== "done") : []);
     const anyCover = gs.some((g) => covers(g).length);
     if (!vs.length && !anyCover) h += `<div class="msg">No plants yet. Tap Add plant.</div>`;
     else if (!shown.length && !anyCover) h += `<div class="msg">${searching ? "No plants match your search." : "Nothing matches this filter."}</div>`;
     const ordered = [...gs].sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind]);
     const flat = this._sort !== "garden";
-    if (flat) h += this._sortVars(shown, this._sort).map((v) => this._tile(v, true)).join("");
+    if (flat) h += this._sortVars(shown, this._sort).map((v) => this._row(v, true)).join("");
     for (const g of ordered) {
       const mine = flat ? [] : shown.filter((v) => v.garden === g.id), cov = g.kind === "garden" ? covers(g) : [];
-      const place = !flat && g.kind !== "garden" && this._filter === "all" && !searching && (vs.some((v) => v.garden === g.id) || (g.alarm && g.alarm.enabled && g.alarm.alerts.length > 0));  // empty racks and greenhouses stay off the landing page (still in the chips)
+      const place = !flat && g.kind !== "garden" && this._filter === "all" && !searching && this._tab !== "trees" && (vs.some((v) => v.garden === g.id) || (g.alarm && g.alarm.enabled && g.alarm.alerts.length > 0));  // empty racks and greenhouses stay off the landing page (still in the chips)
       if (!mine.length && !cov.length && !place) continue;
       if ((gs.length > 1 || shown.some((v) => !v.garden)) && !place) h += `<div class="sec">${esc(g.name)}</div>`;
       if (place) h += this._placeSummary(g);
-      h += mine.map((v) => this._tile(v)).join("");
+      h += mine.map((v) => this._row(v)).join("");
       if (cov.length) h += this._coverTile(g, cov);
     }
     const loose = flat ? [] : shown.filter((v) => !v.garden);
-    if (loose.length) h += `<div class="sec">Trees, no garden</div>` + loose.map((v) => this._tile(v)).join("");
+    if (loose.length) h += `<div class="sec">Trees, no garden</div>` + loose.map((v) => this._row(v)).join("");
     h += this._microTile();
     return h;
   }
@@ -824,6 +832,12 @@ class GardenTrackerCard extends HTMLElement {
     let h = `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon(KIND_ICON[v.location_kind] || "map-marker")} ${esc(v.garden_name)}${place && v.container ? `, ${esc(v.container)}` : ""}</div>${place && !v.archived ? `${this._btn("form-move", "arrow-right-bold", "Move", `data-v="${v.id}"`)}${this._btn("form-upot", "arrow-up-bold-box-outline", "Up-pot", `data-v="${v.id}"`)}` : ""}</div>`;
     for (const m of v.moves) h += `<div class="small mut" style="margin-top:4px">${fmtDate(m.date)}: ${esc(m.from)} to ${esc(m.to)}, ${m.count} plant${m.count === 1 ? "" : "s"}</div>`;
     return h + `</div>`;
+  }
+  _row(v, withGarden) {
+    if (!this._compact) return this._tile(v, withGarden);
+    const tree = v.kind === "tree", inPlace = v.location_kind !== "garden";
+    const sub = [v.species_name, tree ? yrs(v.age_years) : `${v.alive} of ${v.count}`, inPlace ? v.container : null, withGarden ? (v.garden_name || "No garden") : null].filter(Boolean).join(" · ");
+    return `<div class="card tile crow" data-act="open-v" data-v="${v.id}"><div class="row">${this._picBox(v)}<div class="grow" style="min-width:0"><div class="cn">${esc(v.name)}</div><div class="sub">${esc(sub)}</div></div><span class="pill ${v.status.level}">${esc(v.status.text)}</span></div></div>`;
   }
   _tile(v, withGarden) {
     const tree = v.kind === "tree";
@@ -1199,6 +1213,7 @@ class GardenTrackerCard extends HTMLElement {
       case "form-micro": return this._open(this._fMicro());
       case "web-location": return this.dispatchEvent(new CustomEvent("garden-location", { bubbles: true, composed: true }));
       case "filter": this._filter = d.s; return this._render();
+      case "tab": this._tab = d.s; this._filter = "all"; this._setPref("tab", d.s); return this._render();
       case "sort": this._sort = d.s; this._setPref("sort", d.s); return this._render();
       case "psort": this._psort = d.s; this._setPref("psort", d.s); return this._render();
       case "lay-plant": return this._open(this._fPlantLayout(this._garden(d.g)));
@@ -1440,6 +1455,7 @@ class GardenTrackerCard extends HTMLElement {
       title: "What to show", submitLabel: "Save",
       fields: [
         { name: "sort", label: "Sort plants by", type: "seg", options: [["garden", "Garden"], ["name", "Name"], ["harvest", "Harvest"]], value: this._sort },
+        { name: "compact", label: "Plant list", type: "seg", options: [["1", "Compact rows"], ["0", "Cards"]], value: this._compact ? "1" : "0" },
         { name: "water", label: "Watering", type: "seg", options: seg, value: on("water") },
         { name: "chores", label: "To do list", type: "seg", options: seg, value: on("chores") },
         { name: "cover", label: "Cover crops", type: "seg", options: seg, value: on("cover") },
@@ -1449,6 +1465,7 @@ class GardenTrackerCard extends HTMLElement {
       note: "Saved on this device only. Hiding something only hides it from view; nothing is deleted.",
       submit: (x) => {
         for (const k of ["water", "chores", "cover", "frost", "micro"]) if (x[k] !== undefined) this._show[k] = x[k] === "1";
+        if (x.compact !== undefined) { this._compact = x.compact === "1"; this._setPref("compact", this._compact); }
         if (x.sort) { this._sort = x.sort; this._setPref("sort", x.sort); }
         this._setPref("show", this._show);
       },
