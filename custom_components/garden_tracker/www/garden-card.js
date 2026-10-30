@@ -42,7 +42,7 @@ input,select,textarea{font:inherit;width:100%;color:var(--primary-text-color);ba
 textarea{resize:vertical}
 label{display:block;font-size:12px;color:var(--mut);margin-bottom:4px}
 .row{display:flex;gap:8px;align-items:center}.grow{flex:1;min-width:0}.wrap{flex-wrap:wrap}
-.hd{display:flex;gap:8px;align-items:center;margin-bottom:12px}
+.hd{display:flex;gap:8px;align-items:center;margin-bottom:12px}.hd button{flex:none;white-space:nowrap}.hd .ttl{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.hd .locn{display:inline-block;max-width:56px;overflow:hidden;text-overflow:ellipsis;vertical-align:bottom}
 .ttl{font-size:18px;font-weight:500}.sub{font-size:12px;color:var(--mut)}.mut{color:var(--mut)}.small{font-size:12px}
 .card{background:var(--ha-card-background,var(--card-background-color));border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
 .sec{font-size:12px;color:var(--mut);margin:0 0 6px}
@@ -323,7 +323,7 @@ class GardenTrackerCard extends HTMLElement {
     this._psort = this._pref("psort", "year");
     this._tab = this._pref("tab", "all");
     this._compact = this._pref("compact", true);
-    this._microOpen = this._pref("micro_open", ["frost"]);
+    this._microOpen = this._pref("micro_open", []);
     this._show = { water: true, micro: true, cover: true, chores: true, frost: true, ...this._pref("show", {}) };
     if (!this.shadowRoot) {
       this.attachShadow({ mode: "open" });
@@ -502,7 +502,7 @@ class GardenTrackerCard extends HTMLElement {
   }
   _microView() {
     const m = this._snap.micro;
-    let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="ttl grow">Microclimate</div>${this._web ? this._btn("web-location", "map-marker", m.settings.location && m.settings.location.name ? esc(m.settings.location.name) : "Location") : ""}${this._btn("form-micro", "cog", "Settings")}</div>`;
+    let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="ttl grow">Microclimate</div>${this._web ? this._btn("web-location", "map-marker", m.settings.location && m.settings.location.name ? `<span class="locn">${esc(m.settings.location.name)}</span>` : "Location") : ""}${this._btn("form-micro", "cog", "Settings")}</div>`;
     if (this._web && !m.settings.location) h += `<div class="msg">Set where your garden is and the app fills in local weather: frost dates, your zone, temperatures and rain.<br><br>${this._btn("web-location", "map-marker", "Set location", "", "primary")}</div>`;
     else if (!this._web && !m.settings.outdoor_entity) h += `<div class="msg">Set an outside temperature sensor in the Garden Tracker integration options to start recording frost and temperatures here.</div>`;
     const z = m.zone, f = m.frost, s2 = m.soil, yrs = f.years;
@@ -511,13 +511,20 @@ class GardenTrackerCard extends HTMLElement {
     const fold = (id, title, peek, body) => `<div class="card fold"><button class="foldhd" data-act="micro-fold" data-s="${id}"><span class="grow">${title}</span><span class="small mut">${peek}</span>${this._icon(open.includes(id) ? "chevron-up" : "chevron-down")}</button>${open.includes(id) ? `<div class="foldbody">${body}</div>` : ""}</div>`;
     const dash = (v, u, d = 0) => (v === null || v === undefined ? "-" : num(v, d) + u);
     // summary: zone and the four numbers checked most
-    h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">Hardiness zone</div>${z.zone ? `<div style="font-size:28px;font-weight:600">${esc(z.zone)}</div>` : ""}</div>`;
-    if (z.zone) h += `<div class="sub">From your sensors: average yearly low ${num(z.avg_min, 1)}°F over ${z.count} winter${z.count === 1 ? "" : "s"}</div>`;
-    else h += `<div class="small mut">Needs one full winter of readings. Your sensors have not recorded enough yet${z.so_far ? `, lowest so far this winter is ${num(z.so_far.lowest, 1)}°F on ${fmtDate(z.so_far.date)}` : ""}.</div>`;
-    if (z.usda) h += `<div class="pill info" style="margin-top:8px">USDA map says ${esc(z.usda)}</div>`;
+    const zrow = (val, label, sub, dim) => `<div class="row" style="gap:12px;align-items:center"><div style="font-size:34px;font-weight:600;min-width:56px${dim ? ";opacity:.75" : ""}">${val}</div><div class="grow" style="min-width:0"><div style="font-weight:600">${label}</div><div class="small mut">${sub}</div></div></div>`;
+    const usdaM = z.usda ? /^\s*([0-9]+[ab]?)\s*(?:\((.*)\))?\s*$/i.exec(String(z.usda)) : null;
+    const half = (s) => { const q = /^(\d+)([ab])$/i.exec(String(s || "").trim()); return q ? Number(q[1]) * 2 + (q[2].toLowerCase() === "b" ? 1 : 0) : null; };
+    const hd = half(z.zone) !== null && usdaM ? half(z.zone) - half(usdaM[1]) : null;
+    const zoneWords = (n) => { const w = Math.floor(n / 2); return `${w ? w + (n % 2 ? " and a half" : "") : "half a"} zone${w > 1 || (w === 1 && n % 2) ? "s" : ""}`; };
+    h += `<div class="card">`;
+    if (z.zone) h += zrow(esc(z.zone), "Your zone", `Based on ${z.count} winter${z.count === 1 ? "" : "s"} of readings. Average yearly low is ${num(z.avg_min, 1)}°F.`);
+    else h += `<div class="small mut">Needs one full winter of readings to work out your own zone. Your sensors have not recorded enough yet${z.so_far ? `, lowest so far this winter is ${num(z.so_far.lowest, 1)}°F on ${fmtDate(z.so_far.date)}` : ""}.</div>`;
+    if (z.usda) h += `<div style="border-top:1px solid var(--divider-color);margin-top:10px;padding-top:10px">${zrow(esc(usdaM ? usdaM[1] : z.usda), "Official USDA zone", usdaM && usdaM[2] ? esc(usdaM[2]) : "Your zone from the USDA map", true)}</div>`;
+    if (hd !== null) h += `<div class="pill ${hd === 0 ? "info" : "ok"}" style="margin-top:10px">${hd === 0 ? "Your garden matches the USDA map." : `Your garden runs ${zoneWords(Math.abs(hd))} ${hd > 0 ? "warmer" : "colder"} than the USDA map.`}</div>`;
     if (z.winters.length) h += `<div class="small mut" style="margin-top:8px">${z.winters.map((w) => `${esc(w.label)}: ${num(w.lowest, 1)}°F${w.complete ? "" : " so far"}`).join(" · ")}</div>`;
-    h += `<div style="margin-top:10px">${this._statGrid([["Last frost", f.expected_last ? fmtMd(f.expected_last) : "n/a"], ["First frost", f.expected_first ? fmtMd(f.expected_first) : "n/a"], ["Soil now", dash(s2.actual, "°F", 1)], ["Rain, week", m.rain.sensors.length ? num(m.rain.week, 2) + " in" : "n/a"]])}</div></div>`;
-    // frost by year
+    h += `<div style="margin-top:10px">${this._statGrid([["Last frost", f.expected_last ? fmtMd(f.expected_last) : "n/a"], ["First frost", f.expected_first ? fmtMd(f.expected_first) : "n/a"], ["Soil now", dash(s2.actual, "°F", 1)], ["Rain, week", m.rain.sensors.length ? num(m.rain.week, 2) + " in" : "n/a"]])}</div>`;
+    // frost by year, open under the summary
+    h += `<div class="sec" style="margin:12px 0 4px">Frost, ${f.threshold}°F or colder</div>`;
     let b = "";
     if (!yrs.length) b = `<div class="small mut">No readings yet.</div>`;
     else {
@@ -530,7 +537,7 @@ class GardenTrackerCard extends HTMLElement {
       b += `</table>`;
       if (yrs.some((y) => y.spring_partial)) b += `<div class="small mut">* Readings started after the winter, so an earlier frost may have been missed.</div>`;
     }
-    h += fold("frost", `Frost, ${f.threshold}°F or colder`, yrs.length ? `${yrs.length} year${yrs.length === 1 ? "" : "s"}` : "", b);
+    h += b + `</div>`;
     // soil
     if (s2.expected === null && s2.actual === null) b = `<div class="small mut">Needs a few days of outside readings and a soil temperature sensor.</div>`;
     else {

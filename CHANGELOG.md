@@ -4,6 +4,11 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.31.2 - 2026-10-30
+
+- **Clearer zone card.** Microclimate shows "Your zone", based on N winters of readings with the average yearly low, above the "Official USDA zone". A line says whether your garden runs warmer or colder than the USDA map. The frost year table now sits inside the same card, and the other sections start folded.
+- **Fixed the Microclimate header** overlapping on narrow screens in the web app.
+
 ## 0.31.1 - 2026-10-30
 
 - **Microclimate is a chip.** The card at the bottom of the home list is now one chip in the top row, with your hardiness zone on it.
