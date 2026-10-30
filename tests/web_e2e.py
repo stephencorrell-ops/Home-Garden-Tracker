@@ -309,6 +309,12 @@ def main():
         pg.wait_for_timeout(200)
         card.evaluate("el => { delete el._vars; el._render(); }")
         pg.wait_for_timeout(200)
+        # a cover crop is one line in the list too, with its own Terminate button
+        pg.evaluate("() => { const e = window.__garden.engine, g = e.snapshot().gardens[0].id; e.call('add_cover_crop', { garden: g, crop: 'Winter rye', sown_date: e.snapshot().today }); }")
+        pg.evaluate("window.__garden.refreshWeather(true)")
+        pg.wait_for_timeout(500)
+        check(card.locator(".lrow", has_text="Winter rye").count() == 1 and card.locator(".tile", has_text="Winter rye").count() == 0, "a cover crop shows as one line, not a full card")
+        check(card.locator(".lrow [data-act=form-terminate]").count() == 1, "the cover crop line has a Terminate button")
         if SHOTS: pg.screenshot(path=str(SHOTS / "compact.png"), full_page=True)
         check(card.locator(".lrow").count() >= 3, "plants show as one-line rows by default")
         card.locator("[data-act=tab][data-s=trees]").click()
@@ -332,7 +338,8 @@ def main():
         pg.wait_for_timeout(200)
         card.locator("[data-act=sort][data-s=name]").click()
         names = card.evaluate("el => [...el.shadowRoot.querySelectorAll('.tile[data-act=open-v], .lrow')].map((t) => (t.querySelector('b') || t.querySelector('[style*=\"font-size:15px\"]')).innerText)")
-        check(names == sorted(names, key=str.lower) and len(names) == 5, f"sorted by name: {names}")
+        names = [n for n in names if n != "Winter rye"]  # the cover crop line sits after the plants
+        check(names == sorted(names, key=str.lower) and len(names) >= 5, f"sorted by name: {names}")
         if SHOTS:
             pg.screenshot(path=str(SHOTS / "lists.png"), full_page=True)
         card.locator("[data-act=form-view]").click()

@@ -645,9 +645,8 @@ class GardenTrackerCard extends HTMLElement {
         const cov = g.kind === "garden" ? covers(g) : [];
         const place = g.kind !== "garden" && this._filter === "all" && !searching && this._tab !== "trees" && (vs.some((v) => v.garden === g.id) || (g.alarm && g.alarm.enabled && g.alarm.alerts.length > 0));
         if (!cov.length && !place) continue;
-        if (!place) h += `<div class="sec">${esc(g.name)}</div>`;
         if (place) h += this._placeSummary(g);
-        if (cov.length) h += this._coverTile(g, cov);
+        if (cov.length) h += `<div class="lbox">${this._coverLine(g, cov)}</div>`;
       }
       return h + this._microTile();
     }
@@ -670,6 +669,13 @@ class GardenTrackerCard extends HTMLElement {
   _mixText(g) {
     const m = g.cover.mix;
     return m ? `${m.parts.map((p) => `${num(p.lbs, 2)} lb ${esc(p.crop)} (${p.pct}%)`).join(", ")}` : "";
+  }
+  _coverLine(g, list) {
+    const growing = list.some((i) => i.state === "growing"), gr = list.filter((i) => i.state === "growing"), wt = list.filter((i) => i.state === "waiting");
+    const names = list.map((i) => i.crop).join(" + ");
+    const days = Math.max(...list.map((x) => x.days_since_term || 0)), wait = Math.max(...list.map((x) => x.wait_days));
+    const stat = growing ? (wt.length ? "growing, some terminated" : `growing ${Math.max(...list.map((x) => x.days_in_ground))} d`) : `waiting, day ${days} of ${wait}`;
+    return `<div class="lrow" data-act="open-g" data-g="${g.id}"><b>${esc(names)}</b><span class="sub grow">Cover crop · ${esc(stat)}</span>${growing ? this._btn("form-terminate", "scissors-cutting", "Terminate", `data-g="${g.id}" data-e="${gr.length > 1 ? "__all__" : gr[0].id}"`) : ""}</div>`;
   }
   _coverTile(g, list) {
     const growing = list.some((i) => i.state === "growing");
