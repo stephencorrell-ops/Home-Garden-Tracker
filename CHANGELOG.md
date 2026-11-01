@@ -4,6 +4,10 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.31.10 - 2026-11-01
+
+- **Generic variety name.** The variety box in Add plant now fills with the plant's generic name, such as Apricot or Peach, instead of a leftover name like Sungold. It updates when you change the type, and a name you typed yourself is kept.
+
 ## 0.31.9 - 2026-11-01
 
 - **Usual harvest window, no year.** Trees and fruiting bushes (blueberries, raspberries, blackberries, strawberries, hops) take a usual harvest like "late July to early August" in the Add and Edit forms, set by month and early, mid or late. It repeats every year on its own. The plant page shows it in words with the countdown to when it opens, then "in season now". The list reads "harvest in 8 mo 1 d", then "harvest now". Plants that already have an exact date keep it until you set a window. The services accept it as `harvest_window`.
