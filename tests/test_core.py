@@ -1373,6 +1373,39 @@ class CalendarSprays(unittest.TestCase):
         self.assertIsNone(v["alert"])
 
 
+class PlantNames(unittest.TestCase):
+    def labels(self, m, vid):
+        return [p["label"] for p in m.data["varieties"][vid]["plants"]]
+
+    def test_trees_and_bushes_can_be_named_by_side_or_row(self):
+        m = make(date(2026, 5, 1))
+        gid = m.add_garden("Big")
+        t = m.add_variety(gid, "peach", "Red Haven", 3, planted="2024-03-01", label_style="compass")
+        self.assertEqual(self.labels(m, t), ["North", "South", "East"])
+        m.update_variety(t, add_plants=2, label_style="compass")
+        self.assertEqual(self.labels(m, t), ["North", "South", "East", "West", "Plant 1"])  # sides run out
+        b = m.add_variety(gid, "blueberry", "Duke", 2, planted="2024-03-01", label_style="row")
+        self.assertEqual(self.labels(m, b), ["Row 1", "Row 2"])
+        one = m.add_variety(gid, "peach", "Solo", 1, planted="2024-03-01", label_style="compass")
+        self.assertEqual(self.labels(m, one), ["Solo"])  # a lone tree keeps its own name
+        tom = m.add_variety(gid, "tomato", "Sungold", 2, planted="2026-04-20", label_style="compass")
+        self.assertEqual(self.labels(m, tom), ["Plant 1", "Plant 2"])  # annuals keep the numbered names
+
+    def test_rename_one_plant(self):
+        m = make(date(2026, 5, 1))
+        gid = m.add_garden("Big")
+        t = m.add_variety(gid, "peach", "Red Haven", 2, planted="2024-03-01")
+        pid = m.data["varieties"][t]["plants"][0]["id"]
+        m.rename_plant(t, pid, "Row 2, Plant 3")
+        self.assertEqual(self.labels(m, t), ["Row 2, Plant 3", "Plant 2"])
+        with self.assertRaises(GardenError):
+            m.rename_plant(t, pid, "plant 2")
+        with self.assertRaises(GardenError):
+            m.rename_plant(t, pid, "   ")
+        m.update_variety(t, add_plants=1)
+        self.assertEqual(self.labels(m, t)[-1], "Plant 1")  # the first free number
+
+
 class YearlyHarvest(unittest.TestCase):
     def test_roll_expected(self):
         d = date
