@@ -296,6 +296,7 @@ def main():
         pg.wait_for_timeout(400)
         tx = card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText")
         check("Jul 24 to Aug 2" in tx and "3 years" in tx, "three or more years show a range")
+        check("Degree days, Jan 1 to first pick" in tx, "the plant page shows the degree days at past first picks")
         if SHOTS: pg.screenshot(path=str(SHOTS / "first-harvests.png"), full_page=True)
         card.evaluate(f"el => el._call('log_harvest', {{ plant: '{rid}', lbs: 5, date: '{yr0}-01-05' }})")
         pg.wait_for_timeout(400)

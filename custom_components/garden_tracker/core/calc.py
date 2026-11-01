@@ -143,10 +143,12 @@ def _season(year: int, first: date, lbs: float, plants: int, daily: dict,
     return s
 
 
-def seasons_for(v: dict, varieties: dict, daily: dict, today: date) -> list[dict]:
-    """Past seasons for this variety. Trees use their own earlier years; annuals use earlier records of the same variety."""
+def seasons_for(v: dict, varieties: dict, daily: dict, today: date, perennial: bool | None = None) -> list[dict]:
+    """Past seasons for this variety. Trees and bushes use their own earlier years; annuals use earlier records of the same variety."""
     out: list[dict] = []
-    if v["kind"] == "tree":
+    if perennial is None:
+        perennial = v["kind"] == "tree"
+    if perennial:
         by_year: dict[int, list] = {}
         for h in v["harvests"]:
             by_year.setdefault(int(h["date"][:4]), []).append(h)
@@ -180,6 +182,19 @@ def first_harvests(v: dict, today: date) -> list[dict]:
         if y < today.year and (y not in firsts or h["date"] < firsts[y]):
             firsts[y] = h["date"]
     return [{"year": y, "date": firsts[y]} for y in sorted(firsts, reverse=True)]
+
+
+def harvest_dd(v: dict, seasons: list[dict], daily: dict, today: date) -> dict | None:
+    """Degree days (50 F) from Jan 1 to the first pick of each earlier year, and where this year stands against them."""
+    years = [{"year": s["year"], "dd": round(s["dd_first"])} for s in seasons if s.get("dd_first")]
+    if not years or not _full_year_data(daily, today.year):
+        return None
+    usual = round(mean([y["dd"] for y in years]))
+    mine = [h["date"] for h in v.get("harvests", []) if h["date"].startswith(str(today.year))]
+    this_pick = round(degree_days(daily, date(today.year, 1, 1), date.fromisoformat(min(mine)), 50, 86)) if mine else None
+    now = round(degree_days(daily, date(today.year, 1, 1), today - timedelta(days=1), 50, 86))
+    return {"years": sorted(years, key=lambda y: -y["year"]), "usual": usual, "now": now,
+            "to_go": None if this_pick is not None else max(0, usual - now), "this_pick": this_pick}
 
 
 def add_year(d: date, years: int = 1) -> date:
@@ -266,7 +281,7 @@ def project(v: dict, seasons: list[dict], daily: dict, today: date, alive: int, 
         perennial = v["kind"] == "tree"
     ypp = mean([s["yield_per_plant"] for s in seasons])
     method, proj = "", None
-    if v["kind"] != "tree":
+    if not perennial:
         days = [s["days_to_first"] for s in seasons if s["days_to_first"] is not None]
         if days:
             proj = date.fromisoformat(v["planted"]) + timedelta(days=round(mean(days)))

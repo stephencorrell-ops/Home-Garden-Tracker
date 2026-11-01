@@ -2760,7 +2760,9 @@ class GardenModel:
             age = (today - ref_day).days
             cur = max((i for i, ph in enumerate(plan) if ph["from_day"] <= age), default=0)
             feeding = {"phases": plan, "current": cur}
-        seasons = calc.seasons_for(v, self.data["varieties"], daily, today)
+        perennial = self._perennial(v)
+        seasons = calc.seasons_for(v, self.data["varieties"], daily, today, perennial)
+        harvest_dd = calc.harvest_dd(v, seasons, daily, today) if perennial and not v.get("archived") else None
         proj = None if v.get("archived") else calc.project(v, seasons, daily, today, len(alive) or len(allp), self._perennial(v))
         pruning = self._pruning_view(v, today, sp) if kind == "tree" else None
         status = self._status(kind, dh, spray, pests, proj, pruning)
@@ -2786,7 +2788,7 @@ class GardenModel:
             "spray": spray, "pests": pests, "alert": next(iter(sorted((p["alert"] for p in pests if p.get("alert")), key=lambda a: a["days"])), None),
             "pruning": pruning,
             "reviews": sorted(v["reviews"], key=lambda e: (e["year"], e["id"]), reverse=True),
-            "projection": proj, "seasons": seasons, "status": status, "archived": v.get("archived"),
+            "projection": proj, "harvest_dd": harvest_dd, "seasons": seasons, "status": status, "archived": v.get("archived"),
         }
 
     @staticmethod

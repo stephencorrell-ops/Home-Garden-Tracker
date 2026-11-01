@@ -1405,6 +1405,36 @@ class YearlyHarvest(unittest.TestCase):
         self.assertEqual(early["date"][:4], "2026")
 
 
+class HarvestDegreeDays(unittest.TestCase):
+    def _daily(self):
+        out, d0 = {}, date(2025, 1, 1)
+        for i in range(0, 640):
+            out[(d0 + timedelta(days=i)).isoformat()] = [60.0, 80.0]  # 20 degree days a day above 50 F
+        return out
+
+    def test_degree_days_at_first_pick_and_where_this_year_stands(self):
+        v = {"harvests": [{"date": "2025-03-01"}]}
+        seasons = [{"year": 2025, "dd_first": 1000.0}, {"year": 2024, "dd_first": 1200.0}]
+        g = calc.harvest_dd(v, seasons, self._daily(), date(2026, 1, 31))
+        self.assertEqual(g["usual"], 1100)
+        self.assertEqual(g["years"][0]["year"], 2025)
+        self.assertEqual(g["now"], 30 * 20)
+        self.assertEqual(g["to_go"], 500)
+        self.assertIsNone(g["this_pick"])
+        v2 = {"harvests": [{"date": "2026-01-11"}]}
+        g2 = calc.harvest_dd(v2, seasons, self._daily(), date(2026, 1, 31))
+        self.assertEqual(g2["this_pick"], 220)
+        self.assertIsNone(g2["to_go"])
+        self.assertIsNone(calc.harvest_dd(v, [], self._daily(), date(2026, 1, 31)))
+
+    def test_bushes_use_their_own_earlier_years(self):
+        v = {"id": "a", "kind": "plant", "species": "blueberry", "name": "Duke", "plants": [{}],
+             "harvests": [{"date": "2025-03-01", "lbs": 4}]}
+        s = calc.seasons_for(v, {"a": v}, self._daily(), date(2026, 5, 1), True)
+        self.assertEqual(s[0]["year"], 2025)
+        self.assertEqual(s[0]["dd_first"], 1200.0)
+
+
 class HarvestWindow(unittest.TestCase):
     W = {"fm": 7, "fp": "late", "tm": 8, "tp": "early"}
 

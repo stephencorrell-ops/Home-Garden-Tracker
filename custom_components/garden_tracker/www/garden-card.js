@@ -976,11 +976,20 @@ class GardenTrackerCard extends HTMLElement {
       h += `<div class="row" style="align-items:baseline"><span class="big">${fmtDate(p.date, true)}</span><span class="small mut">${cmp}</span></div><div class="small mut">${p.yield_total ? `About ${num(p.yield_total, 1)} lb total (${num(p.yield_per_plant, 1)} lb per plant). ` : ""}Based on ${p.basis_seasons} season${p.basis_seasons === 1 ? "" : "s"}, using ${esc(p.method)}.</div>`;
       if (v.harvest_window) h += `<div class="small mut" style="margin-top:4px">Your usual window: ${esc(v.harvest_window.text)}</div>`;
       else if (v.expected_harvest) h += `<div class="small mut" style="margin-top:4px">Your entered date: ${fmtDate(v.expected_harvest, true)}</div>`;
+      h += this._harvestDd(v);
     } else {
       const hw = v.harvest_window;
       h += `<div class="row" style="align-items:baseline"><span class="big">${hw ? esc(hw.text) : fmtDate(v.expected_harvest, true)}</span><span class="small mut">${hw && hw.state === "now" ? "in season now" : v.countdown ? esc(v.countdown) : dIn(v.days_to_expected)}${v.expected_yield ? `, about ${num(v.expected_yield * v.alive, 1)} lb expected` : ""}</span></div>`;
     }
     return h + `</div>`;
+  }
+  _harvestDd(v) {
+    const g = v.harvest_dd;
+    if (!g) return "";
+    const n = (x) => Number(x).toLocaleString();
+    const past = g.years.slice(0, 3).map((y) => `${n(y.dd)} (${y.year})`).join(", ");
+    const now = g.this_pick != null ? `This year's first pick came at ${n(g.this_pick)}.` : g.to_go ? `${n(g.now)} so far this year, about ${n(g.to_go)} to go.` : "";
+    return `<div class="small mut" style="margin-top:4px" data-t="harvest-dd">Degree days, Jan 1 to first pick: usually about ${n(g.usual)} (${past}). ${now}</div>`;
   }
   _harvestCard(v, arch) {
     const id = v.id;
