@@ -4,6 +4,11 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.31.7 - 2026-11-01
+
+- **Trees and fruiting bushes are harvested every year.** Once this year's expected harvest date has passed, the plant expects the same date next year. It moves on when the date is more than 45 days past, or two weeks after your last logged pick. The projected harvest also looks ahead to next year once the season is over, instead of saying "today". Blueberries, raspberries, blackberries, strawberries and hops are treated like trees.
+- **Harvest dates show the year.** The projected harvest, your entered date and the expected harvest on the plant page always show the year, so "Jul 17" is no longer ambiguous.
+
 ## 0.31.6 - 2026-10-30
 
 - **Fix a plant in the wrong garden.** The Edit form has a "Where it is" field listing every garden, rack and greenhouse (trees also get "No garden"). It only corrects where the plant shows. It adds nothing to its move history and does not split the planting. The Move button is still there for a real move.
