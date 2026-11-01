@@ -133,20 +133,34 @@ def _full_year_data(daily: dict, year: int) -> bool:
     return bool(keys) and min(keys) <= f"{year}-02-01"
 
 
+def bloom_dates(v: dict) -> dict[int, date]:
+    """Full bloom for each year: the earliest date logged."""
+    out: dict[int, date] = {}
+    for b in v.get("blooms", []):
+        day = date.fromisoformat(b["date"])
+        if day.year not in out or day < out[day.year]:
+            out[day.year] = day
+    return out
+
+
 def _season(year: int, first: date, lbs: float, plants: int, daily: dict,
-            planted: date | None, tree: bool) -> dict:
+            planted: date | None, tree: bool, bloom: date | None = None) -> dict:
     s = {"year": year, "first_harvest": first.isoformat(), "doy": first.timetuple().tm_yday,
          "total": round(lbs, 2), "yield_per_plant": round(lbs / max(1, plants), 2),
-         "days_to_first": (first - planted).days if planted else None, "dd_first": None}
+         "days_to_first": (first - planted).days if planted else None, "dd_first": None, "dd_bloom": None}
     if tree and _full_year_data(daily, year):
         s["dd_first"] = round(degree_days(daily, date(year, 1, 1), first, 50, 86), 1)
+    if tree and bloom and bloom < first and bloom.isoformat() in daily:
+        s["dd_bloom"] = round(degree_days(daily, bloom, first, 50, 86), 1)
     return s
 
 
-def seasons_for(v: dict, varieties: dict, daily: dict, today: date) -> list[dict]:
-    """Past seasons for this variety. Trees use their own earlier years; annuals use earlier records of the same variety."""
+def seasons_for(v: dict, varieties: dict, daily: dict, today: date, perennial: bool | None = None) -> list[dict]:
+    """Past seasons for this variety. Trees and bushes use their own earlier years; annuals use earlier records of the same variety."""
     out: list[dict] = []
-    if v["kind"] == "tree":
+    if perennial is None:
+        perennial = v["kind"] == "tree"
+    if perennial:
         by_year: dict[int, list] = {}
         for h in v["harvests"]:
             by_year.setdefault(int(h["date"][:4]), []).append(h)
@@ -154,7 +168,7 @@ def seasons_for(v: dict, varieties: dict, daily: dict, today: date) -> list[dict
             if y >= today.year:
                 continue
             first = date.fromisoformat(min(h["date"] for h in hs))
-            out.append(_season(y, first, sum(h["lbs"] for h in hs), len(v["plants"]), daily, None, True))
+            out.append(_season(y, first, sum(h["lbs"] for h in hs), len(v["plants"]), daily, None, True, bloom_dates(v).get(y)))
     else:
         key = (v["species"], v["name"].strip().lower())
         for o in varieties.values():
@@ -180,6 +194,29 @@ def first_harvests(v: dict, today: date) -> list[dict]:
         if y < today.year and (y not in firsts or h["date"] < firsts[y]):
             firsts[y] = h["date"]
     return [{"year": y, "date": firsts[y]} for y in sorted(firsts, reverse=True)]
+
+
+def dd_basis(v: dict, seasons: list[dict], today: date) -> tuple[str, date, str]:
+    """Where the degree days start: this year's full bloom when it is logged and an earlier year has one too, else Jan 1."""
+    bloom = bloom_dates(v).get(today.year)
+    if bloom and bloom <= today and any(s.get("dd_bloom") for s in seasons):
+        return "bloom", bloom, "dd_bloom"
+    return "jan1", date(today.year, 1, 1), "dd_first"
+
+
+def harvest_dd(v: dict, seasons: list[dict], daily: dict, today: date) -> dict | None:
+    """Experimental. Degree days (50 F) to the first pick of each earlier year, counted from full bloom when logged
+    (else Jan 1), and where this year stands against them."""
+    basis, start, key = dd_basis(v, seasons, today)
+    years = [{"year": s["year"], "dd": round(s[key])} for s in seasons if s.get(key)]
+    if not years or (basis == "jan1" and not _full_year_data(daily, today.year)):
+        return None
+    usual = round(mean([y["dd"] for y in years]))
+    mine = [h["date"] for h in v.get("harvests", []) if h["date"].startswith(str(today.year))]
+    this_pick = round(degree_days(daily, start, date.fromisoformat(min(mine)), 50, 86)) if mine else None
+    now = round(degree_days(daily, start, today - timedelta(days=1), 50, 86))
+    return {"basis": basis, "from": start.isoformat(), "years": sorted(years, key=lambda y: -y["year"]), "usual": usual, "now": now,
+            "to_go": None if this_pick is not None else max(0, usual - now), "this_pick": this_pick}
 
 
 def add_year(d: date, years: int = 1) -> date:
@@ -266,21 +303,22 @@ def project(v: dict, seasons: list[dict], daily: dict, today: date, alive: int, 
         perennial = v["kind"] == "tree"
     ypp = mean([s["yield_per_plant"] for s in seasons])
     method, proj = "", None
-    if v["kind"] != "tree":
+    if not perennial:
         days = [s["days_to_first"] for s in seasons if s["days_to_first"] is not None]
         if days:
             proj = date.fromisoformat(v["planted"]) + timedelta(days=round(mean(days)))
             method = "days from planting"
     else:
-        dds = [s["dd_first"] for s in seasons if s["dd_first"]]
-        if dds and _full_year_data(daily, today.year):
+        basis, start, key = dd_basis(v, seasons, today)
+        dds = [s[key] for s in seasons if s.get(key)]
+        if dds and (basis == "bloom" or _full_year_data(daily, today.year)):
             target = mean(dds)
-            now = degree_days(daily, date(today.year, 1, 1), today - timedelta(days=1), 50, 86)
+            now = degree_days(daily, start, today - timedelta(days=1), 50, 86)
             rate = recent_dd_rate(daily, today, 14, 50, 86)
             if now >= target:
-                proj, method = today, "degree days"
+                proj, method = today, "degree days" + (" from bloom" if basis == "bloom" else "")
             elif rate > 0.5:
-                proj, method = today + timedelta(days=math.ceil((target - now) / rate)), "degree days"
+                proj, method = today + timedelta(days=math.ceil((target - now) / rate)), "degree days" + (" from bloom" if basis == "bloom" else "")
     if proj is None:
         doy = round(mean([s["doy"] for s in seasons]))
         proj, method = date(today.year, 1, 1) + timedelta(days=doy - 1), "calendar date"

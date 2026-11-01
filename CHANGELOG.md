@@ -4,6 +4,13 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.31.11 - 2026-11-01
+
+- **Experimental: harvest degree days.** A tree or bush's plant page shows the degree days (base 50 F) from the start of the year to the first pick of each earlier year, and how many are left this year. It now covers fruiting bushes as well as trees, and uses them in the projected harvest date.
+- **Full bloom date.** Log the day your tree is in full bloom. Once this year and an earlier year both have one, degree days count from bloom instead of Jan 1, which is more accurate. The form explains how to tell when full bloom is. The services accept it as `log_bloom`.
+- **Show or hide.** "What to show" has a Degree days for harvest (experimental) switch. Hiding only hides it from view; your bloom dates are kept.
+- Fixed: editing a pruning log entry opened a blank form.
+
 ## 0.31.10 - 2026-11-01
 
 - **Generic variety name.** The variety box in Add plant now fills with the plant's generic name, such as Apricot or Peach, instead of a leftover name like Sungold. It updates when you change the type, and a name you typed yourself is kept.

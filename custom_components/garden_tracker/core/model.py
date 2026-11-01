@@ -130,7 +130,7 @@ PLANTING_TEMPS = [  # (crops, minimum soil °F, days from planting to harvest)
 ]
 KINDS = {  # entry kind -> (parent type, list key)
     "harvest": ("v", "harvests"), "fertilizer": ("v", "fertilizations"), "spray": ("v", "sprays"),
-    "review": ("v", "reviews"), "upotted": ("v", "upotted"), "prune": ("v", "prunings"),
+    "review": ("v", "reviews"), "upotted": ("v", "upotted"), "prune": ("v", "prunings"), "bloom": ("v", "blooms"),
     "adjunct": ("g", "adjuncts"), "ph": ("g", "ph_readings"),
     "moisture": ("g", "moisture"), "ec": ("g", "ec"), "soil_temp": ("g", "soil_temp"),
     "cover": ("g", "cover_crops"), "water": ("g", "watering"), "acid": ("g", "acid_log"),
@@ -140,7 +140,7 @@ EDITABLE = {
     "harvest": ("lbs", "date", "notes"),
     "fertilizer": ("product", "n", "p", "k", "date", "notes"),
     "spray": ("product", "target", "phi_days", "reapply_days", "date"),
-    "review": ("notes", "year"), "upotted": ("date",), "prune": ("date", "outcome", "notes"),
+    "review": ("notes", "year"), "upotted": ("date",), "prune": ("date", "outcome", "notes"), "bloom": ("date", "notes"),
     "adjunct": ("type", "product", "amount", "date", "notes"), "ph": ("value", "date"),
     "moisture": ("value", "date"), "ec": ("value", "date"), "soil_temp": ("value", "date"),
     "air_temp": ("value", "date"), "par": ("value", "date"), "out_temp": ("value", "date"), "water": ("date", "notes"),
@@ -1761,7 +1761,7 @@ class GardenModel:
             ids = {p["id"] for p in moving}
             nid = self._unique(slug(v["name"]), self.data["varieties"])
             clone = copy.deepcopy(v)
-            clone.update(id=nid, plants=moving, harvests=[], fertilizations=[], sprays=[], reviews=[], prunings=[],
+            clone.update(id=nid, plants=moving, harvests=[], fertilizations=[], sprays=[], reviews=[], prunings=[], blooms=[],
                          upotted=copy.deepcopy(v["upotted"]), moves=copy.deepcopy(v.get("moves", [])))
             v["plants"] = [p for p in v["plants"] if p["id"] not in ids]
             self.data["varieties"][nid] = clone
@@ -1882,7 +1882,7 @@ class GardenModel:
             "plants": [{"id": new_id(), "label": f"Plant {i + 1}" if count > 1 or vkind != "tree" else variety or species,
                         "status": "alive", "reason": "", "note": "", "status_date": None}
                        for i in range(count)],
-            "harvests": [], "fertilizations": [], "sprays": [], "biofix": {}, "reviews": [], "prunings": [], "prune_month": None,
+            "harvests": [], "fertilizations": [], "sprays": [], "biofix": {}, "reviews": [], "prunings": [], "blooms": [], "prune_month": None,
             "harvest_window": self._window(harvest_window),
             "archived": None}
         self._touch(True)
@@ -1984,6 +1984,12 @@ class GardenModel:
             raise GardenError("Outcome must be pruned or skipped")
         v.setdefault("prunings", []).append({"id": new_id(), "date": iso(when) or self.today().isoformat(),
                                              "outcome": outcome, "notes": notes or ""})
+        self._touch()
+
+    def log_bloom(self, ref: str, when: Any = None, notes: str | None = None) -> None:
+        """The date a tree or bush was in full bloom. Experimental degree days count from it instead of Jan 1."""
+        v = self.find_variety(ref)
+        v.setdefault("blooms", []).append({"id": new_id(), "date": iso(when) or self.today().isoformat(), "notes": notes or ""})
         self._touch()
 
     def set_prune_month(self, ref: str, month: Any = None) -> None:
@@ -2760,7 +2766,9 @@ class GardenModel:
             age = (today - ref_day).days
             cur = max((i for i, ph in enumerate(plan) if ph["from_day"] <= age), default=0)
             feeding = {"phases": plan, "current": cur}
-        seasons = calc.seasons_for(v, self.data["varieties"], daily, today)
+        perennial = self._perennial(v)
+        seasons = calc.seasons_for(v, self.data["varieties"], daily, today, perennial)
+        harvest_dd = calc.harvest_dd(v, seasons, daily, today) if perennial and not v.get("archived") else None
         proj = None if v.get("archived") else calc.project(v, seasons, daily, today, len(alive) or len(allp), self._perennial(v))
         pruning = self._pruning_view(v, today, sp) if kind == "tree" else None
         status = self._status(kind, dh, spray, pests, proj, pruning)
@@ -2784,9 +2792,10 @@ class GardenModel:
             "last_fert": last_f, "feeding": feeding, "feeding_off": feeding_off,
             "sprays": sorted(v["sprays"], key=lambda e: (e["date"], e["id"]), reverse=True),
             "spray": spray, "pests": pests, "alert": next(iter(sorted((p["alert"] for p in pests if p.get("alert")), key=lambda a: a["days"])), None),
-            "pruning": pruning,
+            "pruning": pruning, "perennial": perennial,
+            "blooms": sorted(v.get("blooms", []), key=lambda e: (e["date"], e["id"]), reverse=True),
             "reviews": sorted(v["reviews"], key=lambda e: (e["year"], e["id"]), reverse=True),
-            "projection": proj, "seasons": seasons, "status": status, "archived": v.get("archived"),
+            "projection": proj, "harvest_dd": harvest_dd, "seasons": seasons, "status": status, "archived": v.get("archived"),
         }
 
     @staticmethod
