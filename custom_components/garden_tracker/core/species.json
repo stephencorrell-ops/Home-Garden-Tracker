@@ -512,7 +512,8 @@
  "hops": {
   "name": "Hops",
   "kind": "plant",
-  "pests": []
+  "pests": [],
+  "perennial": true
  },
  "broccoli": {
   "name": "Broccoli",
@@ -607,7 +608,8 @@
  "strawberry": {
   "name": "Strawberries",
   "kind": "plant",
-  "pests": []
+  "pests": [],
+  "perennial": true
  },
  "sweet_potato": {
   "name": "Sweet potatoes",
@@ -617,17 +619,20 @@
  "blueberry": {
   "name": "Blueberries",
   "kind": "plant",
-  "pests": []
+  "pests": [],
+  "perennial": true
  },
  "raspberry": {
   "name": "Raspberries",
   "kind": "plant",
-  "pests": []
+  "pests": [],
+  "perennial": true
  },
  "blackberry": {
   "name": "Blackberries",
   "kind": "plant",
-  "pests": []
+  "pests": [],
+  "perennial": true
  },
  "apricot": {
   "name": "Apricot tree",
