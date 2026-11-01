@@ -170,9 +170,36 @@ def seasons_for(v: dict, varieties: dict, daily: dict, today: date) -> list[dict
     return out
 
 
-def project(v: dict, seasons: list[dict], daily: dict, today: date, alive: int) -> dict | None:
+def add_year(d: date, years: int = 1) -> date:
+    try:
+        return d.replace(year=d.year + years)
+    except ValueError:  # Feb 29
+        return d.replace(year=d.year + years, day=28)
+
+
+def roll_expected(exp: date | None, today: date, harvests: list[dict]) -> date | None:
+    """A tree or bush is picked every year: once this year's harvest has come and gone, expect next year's.
+
+    The date rolls on when it is more than 45 days past, or when a pick was logged around it and the picking has
+    been over for two weeks."""
+    if exp is None:
+        return None
+    picks = sorted(h["date"] for h in harvests)
+    while exp < today:
+        near = [x for x in picks if x[:4] == str(exp.year) and x >= (exp - timedelta(days=45)).isoformat()]
+        over = bool(near) and today > date.fromisoformat(near[-1]) + timedelta(days=14)
+        if today > exp + timedelta(days=45) or over:
+            exp = add_year(exp)
+        else:
+            break
+    return exp
+
+
+def project(v: dict, seasons: list[dict], daily: dict, today: date, alive: int, perennial: bool | None = None) -> dict | None:
     if not seasons:
         return None
+    if perennial is None:
+        perennial = v["kind"] == "tree"
     ypp = mean([s["yield_per_plant"] for s in seasons])
     method, proj = "", None
     if v["kind"] != "tree":
@@ -193,6 +220,11 @@ def project(v: dict, seasons: list[dict], daily: dict, today: date, alive: int) 
     if proj is None:
         doy = round(mean([s["doy"] for s in seasons]))
         proj, method = date(today.year, 1, 1) + timedelta(days=doy - 1), "calendar date"
+    if perennial:
+        # the season is over once the usual date is well past: look ahead to next year's
+        usual = date(today.year, 1, 1) + timedelta(days=round(mean([s["doy"] for s in seasons])) - 1)
+        if today > usual + timedelta(days=45):
+            proj, method = date(today.year + 1, 1, 1) + timedelta(days=round(mean([s["doy"] for s in seasons])) - 1), "calendar date"
     vs_last = proj.timetuple().tm_yday - seasons[-1]["doy"]
     return {"date": proj.isoformat(), "days_until": (proj - today).days,
             "basis_seasons": len(seasons), "method": method, "vs_last_days": vs_last,

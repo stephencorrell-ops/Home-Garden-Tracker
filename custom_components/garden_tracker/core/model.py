@@ -2090,6 +2090,10 @@ class GardenModel:
             v["expected_harvest"] = calc.rule_harvest_date(
                 rule, date.fromisoformat(v["planted"]), self._first_frost(g)).isoformat()
 
+    def _perennial(self, v: dict) -> bool:
+        """Trees and fruiting bushes are picked every year once they bear."""
+        return v["kind"] == "tree" or bool((self.get_species(v["species"]) or {}).get("perennial"))
+
     def _multi(self, v: dict) -> bool:
         """True for slow crops (horseradish) whose countdown reads in years, months and days."""
         if v["kind"] == "tree":
@@ -2679,7 +2683,10 @@ class GardenModel:
         days = {"planted": (today - planted_d).days, "upotted": calc.days_since(last_up and last_up["date"], today),
                 "in_ground": calc.days_since(v.get("in_ground"), today),
                 "fertilized": calc.days_since(last_f and last_f["date"], today)}
-        dh = calc.days_until(calc.d(v.get("expected_harvest")), today)
+        exp_eff = calc.d(v.get("expected_harvest"))
+        if self._perennial(v) and not v.get("archived"):
+            exp_eff = calc.roll_expected(exp_eff, today, v.get("harvests", []))
+        dh = calc.days_until(exp_eff, today)
         nxt, safe, cut = calc.next_spray_date(v), calc.safe_harvest_date(v), calc.spray_cutoff_date(v)
         spray = {"days_since": calc.days_since(last_s and last_s["date"], today),
                  "next_in": calc.days_until(nxt, today), "next_date": nxt and nxt.isoformat(),
@@ -2735,7 +2742,7 @@ class GardenModel:
             cur = max((i for i, ph in enumerate(plan) if ph["from_day"] <= age), default=0)
             feeding = {"phases": plan, "current": cur}
         seasons = calc.seasons_for(v, self.data["varieties"], daily, today)
-        proj = None if v.get("archived") else calc.project(v, seasons, daily, today, len(alive) or len(allp))
+        proj = None if v.get("archived") else calc.project(v, seasons, daily, today, len(alive) or len(allp), self._perennial(v))
         pruning = self._pruning_view(v, today, sp) if kind == "tree" else None
         status = self._status(kind, dh, spray, pests, proj, pruning)
         return {
@@ -2746,7 +2753,7 @@ class GardenModel:
             "upotted": sorted(v["upotted"], key=lambda u: u["date"], reverse=True),
             "container": v.get("container"), "moves": sorted(v.get("moves", []), key=lambda m: (m["date"], m["id"]), reverse=True),
             "location_kind": (g or {}).get("kind", "garden"),
-            "days_to_harvest": v.get("days_to_harvest"), "expected_harvest": v.get("expected_harvest"),
+            "days_to_harvest": v.get("days_to_harvest"), "expected_harvest": exp_eff.isoformat() if exp_eff else None,
             "expected_yield": v.get("expected_yield"), "notes": v["notes"],
             "age_years": round((today - planted_d).days / 365.25, 1), "days": days, "days_to_expected": dh, "multi_year": self._multi(v),
             "countdown": self._countdown(v, today, False), "countdown_short": self._countdown(v, today, True),

@@ -1371,3 +1371,35 @@ class CalendarSprays(unittest.TestCase):
         self.assertIsNone(p["leaf_curl"]["alert"])
         self.assertIsNone(p["twig_borer"]["alert"])
         self.assertIsNone(v["alert"])
+
+
+class YearlyHarvest(unittest.TestCase):
+    def test_roll_expected(self):
+        d = date
+        self.assertEqual(calc.roll_expected(d(2026, 7, 17), d(2026, 6, 1), []), d(2026, 7, 17))  # still ahead
+        self.assertEqual(calc.roll_expected(d(2026, 7, 17), d(2026, 7, 25), []), d(2026, 7, 17))  # picking may be under way
+        self.assertEqual(calc.roll_expected(d(2026, 7, 17), d(2026, 9, 5), []), d(2027, 7, 17))  # over 45 days past
+        self.assertEqual(calc.roll_expected(d(2026, 7, 17), d(2026, 8, 5), [{"date": "2026-07-20"}]), d(2027, 7, 17))  # picked, then done
+        self.assertEqual(calc.roll_expected(d(2026, 7, 17), d(2026, 7, 25), [{"date": "2026-07-20"}]), d(2026, 7, 17))  # still picking
+        self.assertEqual(calc.roll_expected(d(2024, 2, 29), d(2025, 3, 1), []), d(2025, 2, 28))
+        self.assertIsNone(calc.roll_expected(None, d(2026, 6, 1), []))
+
+    def test_trees_and_bushes_expect_next_year(self):
+        m = make(date(2026, 11, 10))
+        gid = m.add_garden("Big")
+        tree = m.add_variety(gid, "apple", "Gala", planted="2020-03-01", expected_harvest="2026-09-20")
+        bush = m.add_variety(gid, "blueberry", "Duke", planted="2020-03-01", expected_harvest="2026-07-10")
+        veg = m.add_variety(gid, "tomato", "Sungold", planted="2026-05-01", expected_harvest="2026-07-10")
+        by = {v["id"]: v for v in m.snapshot()["varieties"]}
+        self.assertEqual(by[tree]["expected_harvest"], "2027-09-20")
+        self.assertEqual(by[bush]["expected_harvest"], "2027-07-10")
+        self.assertEqual(by[veg]["expected_harvest"], "2026-07-10")  # a plant that is pulled each year is not rolled
+        self.assertGreater(by[tree]["days_to_expected"], 300)
+
+    def test_projection_looks_to_next_year(self):
+        seasons = [{"doy": 262, "yield_per_plant": 40, "days_to_first": None, "dd_first": None}]
+        v = {"kind": "tree", "planted": "2020-03-01"}
+        late = calc.project(v, seasons, {}, date(2026, 12, 1), 1)
+        self.assertEqual(late["date"][:4], "2027")
+        early = calc.project(v, seasons, {}, date(2026, 6, 1), 1)
+        self.assertEqual(early["date"][:4], "2026")
