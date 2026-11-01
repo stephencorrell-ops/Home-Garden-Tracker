@@ -1699,7 +1699,7 @@ class GardenTrackerCard extends HTMLElement {
     return {
       title: `Full bloom: ${v.name}`, submitLabel: "Log bloom",
       fields: [{ name: "date", label: "Date of full bloom", type: "date", value: this._snap.today }, { name: "notes", label: "Notes", type: "text" }],
-      note: "Experimental. Once this year and an earlier year both have a bloom date, harvest degree days count from bloom instead of Jan 1.",
+      note: "Full bloom is when most of the flowers on the tree are open, about 80 percent, and the first petals have not started to fall. Check the tree every day or two in spring and log the day you see it. Experimental. Once this year and an earlier year both have a bloom date, harvest degree days count from bloom instead of Jan 1.",
       submit: (x) => this._call("log_bloom", { plant: v.id, ...x }),
     };
   }
