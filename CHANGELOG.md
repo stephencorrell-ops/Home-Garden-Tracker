@@ -4,6 +4,10 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.31.8 - 2026-11-01
+
+- **The plant list shows time to harvest.** Trees with an expected harvest date no longer show their age. Every row reads "harvest in" followed by days when it is under 60 days away, then months and days, then years and months (for example "8 mo 1 d"). Trees with no harvest date yet still show their age. The Harvest sort puts the soonest harvest first.
+
 ## 0.31.7 - 2026-11-01
 
 - **Trees and fruiting bushes are harvested every year.** Once this year's expected harvest date has passed, the plant expects the same date next year. It moves on when the date is more than 45 days past, or two weeks after your last logged pick. The projected harvest also looks ahead to next year once the season is over, instead of saying "today". Blueberries, raspberries, blackberries, strawberries and hops are treated like trees.
