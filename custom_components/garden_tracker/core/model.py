@@ -2772,7 +2772,7 @@ class GardenModel:
             "upotted": sorted(v["upotted"], key=lambda u: u["date"], reverse=True),
             "container": v.get("container"), "moves": sorted(v.get("moves", []), key=lambda m: (m["date"], m["id"]), reverse=True),
             "location_kind": (g or {}).get("kind", "garden"),
-            "days_to_harvest": v.get("days_to_harvest"), "expected_harvest": exp_eff.isoformat() if exp_eff else None, "harvest_window": hw, "harvest_window_raw": v.get("harvest_window"),
+            "days_to_harvest": v.get("days_to_harvest"), "expected_harvest": exp_eff.isoformat() if exp_eff else None, "harvest_window": hw, "harvest_window_raw": v.get("harvest_window"), "first_harvests": calc.first_harvests(v, today) if self._perennial(v) else [],
             "expected_yield": v.get("expected_yield"), "notes": v["notes"],
             "age_years": round((today - planted_d).days / 365.25, 1), "days": days, "days_to_expected": dh, "multi_year": self._multi(v),
             "countdown": self._countdown(v, today, False), "countdown_short": self._countdown(v, today, True),

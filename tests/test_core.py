@@ -1439,3 +1439,16 @@ class HarvestWindow(unittest.TestCase):
         self.assertIsNone(next(v for v in m.snapshot()["varieties"] if v["id"] == tree)["harvest_window"])
         with self.assertRaises(GardenError):
             m.update_variety(tree, harvest_window={"fm": 7})
+class FirstHarvests(unittest.TestCase):
+    def test_first_pick_of_each_earlier_year(self):
+        v = {"harvests": [{"date": "2025-07-29"}, {"date": "2025-08-10"}, {"date": "2026-07-24"}, {"date": "2024-08-02"}]}
+        got = calc.first_harvests(v, date(2027, 3, 1))
+        self.assertEqual([(x["year"], x["date"]) for x in got], [(2026, "2026-07-24"), (2025, "2025-07-29"), (2024, "2024-08-02")])
+        self.assertEqual(calc.first_harvests(v, date(2026, 11, 1)), [])  # a 2026 pick is logged
+        self.assertEqual(calc.first_harvests({"harvests": []}, date(2027, 3, 1)), [])
+
+    def test_hidden_once_this_years_first_pick_is_logged(self):
+        v = {"harvests": [{"date": "2026-07-24"}]}
+        self.assertEqual(len(calc.first_harvests(v, date(2027, 3, 1))), 1)
+        v["harvests"].append({"date": "2027-07-20"})
+        self.assertEqual(calc.first_harvests(v, date(2027, 8, 1)), [])

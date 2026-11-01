@@ -170,6 +170,18 @@ def seasons_for(v: dict, varieties: dict, daily: dict, today: date) -> list[dict
     return out
 
 
+def first_harvests(v: dict, today: date) -> list[dict]:
+    """The date of the first pick in each earlier year, newest first. Empty once this year's first pick is logged."""
+    firsts: dict[int, str] = {}
+    for h in v.get("harvests", []):
+        y = int(h["date"][:4])
+        if y == today.year:
+            return []
+        if y < today.year and (y not in firsts or h["date"] < firsts[y]):
+            firsts[y] = h["date"]
+    return [{"year": y, "date": firsts[y]} for y in sorted(firsts, reverse=True)]
+
+
 def add_year(d: date, years: int = 1) -> date:
     try:
         return d.replace(year=d.year + years)

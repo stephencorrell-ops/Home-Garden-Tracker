@@ -941,6 +941,7 @@ class GardenTrackerCard extends HTMLElement {
     }
     h += this._whereCard(v);
     h += this._projection(v);
+    h += this._firstHarvests(v);
     h += this._harvestCard(v, arch);
     if (tree) h += this._pruneCard(v, arch) + this._sprayCard(v, arch);
     h += this._feedCard(v, arch, tree);
@@ -951,6 +952,19 @@ class GardenTrackerCard extends HTMLElement {
       else h += `<div class="card">${this._btn("form-pull", "archive", "Pull plant", `data-v="${id}"`, "danger")}<div class="small mut" style="margin-top:6px">Moves it to Past plants. Harvests, fertilizer, and notes are kept for next year.</div></div>`;
     }
     return h;
+  }
+  _firstHarvests(v) {
+    const f = v.first_harvests || [];
+    if (!f.length || v.archived) return "";
+    const md = (x) => fmtMd(x.date.slice(5));
+    let body;
+    if (f.length === 1) body = `<div class="row" style="align-items:baseline"><span class="big">${md(f[0])}</span><span class="small mut">${f[0].year === new Date().getFullYear() - 1 ? "last year's first harvest" : `first harvest in ${f[0].year}`}</span></div>`;
+    else if (f.length === 2) body = f.map((x) => `<div class="row" style="align-items:baseline"><span class="big">${md(x)}</span><span class="small mut">${x.year}</span></div>`).join("");
+    else {
+      const days = f.map((x) => x.date.slice(5)).sort();
+      body = `<div class="row" style="align-items:baseline"><span class="big">${fmtMd(days[0])} to ${fmtMd(days[days.length - 1])}</span><span class="small mut">first harvest, ${f.length} years (${f[f.length - 1].year} to ${f[0].year})</span></div>`;
+    }
+    return `<div class="card"><div class="sec">First harvest in past years</div>${body}<div class="small mut" style="margin-top:4px">Shown until this year's first harvest is logged.</div></div>`;
   }
   _projection(v) {
     const p = v.projection;
