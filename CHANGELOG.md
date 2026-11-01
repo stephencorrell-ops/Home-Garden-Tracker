@@ -4,6 +4,12 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.31.9 - 2026-11-01
+
+- **Usual harvest window, no year.** Trees and fruiting bushes (blueberries, raspberries, blackberries, strawberries, hops) take a usual harvest like "late July to early August" in the Add and Edit forms, set by month and early, mid or late. It repeats every year on its own. The plant page shows it in words with the countdown to when it opens, then "in season now". The list reads "harvest in 8 mo 1 d", then "harvest now". Plants that already have an exact date keep it until you set a window. The services accept it as `harvest_window`.
+- **First harvest in past years.** A tree or bush's page shows the date of its first pick in earlier years until you log this year's first pick: one year as "last year's first harvest", two years with both dates, three or more as a range such as "Jul 24 to Aug 2".
+- **Year lists reach further back.** Planted and in-ground dates list the last 80 years, so older trees can be entered. Other dates go back 10 years.
+
 ## 0.31.8 - 2026-11-01
 
 - **The plant list shows time to harvest.** Trees with an expected harvest date no longer show their age. Every row reads "harvest in" followed by days when it is under 60 days away, then months and days, then years and months (for example "8 mo 1 d"). Trees with no harvest date yet still show their age. The Harvest sort puts the soonest harvest first.
