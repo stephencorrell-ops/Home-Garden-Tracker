@@ -337,7 +337,7 @@ class GardenTrackerCard extends HTMLElement {
     this._tab = this._pref("tab", "all");
     this._compact = this._pref("compact", true);
     this._microOpen = this._pref("micro_open", []);
-    this._show = { water: true, micro: true, cover: true, chores: true, frost: true, ...this._pref("show", {}) };
+    this._show = { water: true, micro: true, cover: true, chores: true, frost: true, dd: true, ...this._pref("show", {}) };
     if (!this.shadowRoot) {
       this.attachShadow({ mode: "open" });
       this.shadowRoot.addEventListener("click", (e) => this._onClick(e));
@@ -968,28 +968,37 @@ class GardenTrackerCard extends HTMLElement {
   }
   _projection(v) {
     const p = v.projection;
-    if (!p && !v.expected_harvest) return "";
+    const dd = v.perennial && !v.archived && this._show.dd;
+    if (!p && !v.expected_harvest && !dd) return "";
     let h = `<div class="card"><div class="sec">${p ? "Projected harvest, from your past seasons" : "Expected harvest"}</div>`;
     if (p) {
       const d = p.vs_last_days;
       const cmp = d === 0 ? "same day as last season" : `${Math.abs(d)} day${Math.abs(d) === 1 ? "" : "s"} ${d < 0 ? "earlier" : "later"} than last season`;
-      h += `<div class="row" style="align-items:baseline"><span class="big">${fmtDate(p.date, true)}</span><span class="small mut">${cmp}</span></div><div class="small mut">${p.yield_total ? `About ${num(p.yield_total, 1)} lb total (${num(p.yield_per_plant, 1)} lb per plant). ` : ""}Based on ${p.basis_seasons} season${p.basis_seasons === 1 ? "" : "s"}, using ${esc(p.method)}.</div>`;
+      h += `<div class="row" style="align-items:baseline"><span class="big">${fmtDate(p.date, true)}</span><span class="small mut">${cmp}</span></div><div class="small mut">${p.yield_total ? `About ${num(p.yield_total, 1)} lb total (${num(p.yield_per_plant, 1)} lb per plant). ` : ""}Based on ${p.basis_seasons} season${p.basis_seasons === 1 ? "" : "s"}, using ${esc(!this._show.dd && /^degree/.test(p.method) ? "past seasons" : p.method)}.</div>`;
       if (v.harvest_window) h += `<div class="small mut" style="margin-top:4px">Your usual window: ${esc(v.harvest_window.text)}</div>`;
       else if (v.expected_harvest) h += `<div class="small mut" style="margin-top:4px">Your entered date: ${fmtDate(v.expected_harvest, true)}</div>`;
-      h += this._harvestDd(v);
-    } else {
+    } else if (v.expected_harvest) {
       const hw = v.harvest_window;
       h += `<div class="row" style="align-items:baseline"><span class="big">${hw ? esc(hw.text) : fmtDate(v.expected_harvest, true)}</span><span class="small mut">${hw && hw.state === "now" ? "in season now" : v.countdown ? esc(v.countdown) : dIn(v.days_to_expected)}${v.expected_yield ? `, about ${num(v.expected_yield * v.alive, 1)} lb expected` : ""}</span></div>`;
     }
-    return h + `</div>`;
+    return h + (dd ? this._harvestDd(v) : "") + `</div>`;
   }
   _harvestDd(v) {
     const g = v.harvest_dd;
-    if (!g) return "";
+    if (!this._show.dd || v.archived) return "";
     const n = (x) => Number(x).toLocaleString();
-    const past = g.years.slice(0, 3).map((y) => `${n(y.dd)} (${y.year})`).join(", ");
-    const now = g.this_pick != null ? `This year's first pick came at ${n(g.this_pick)}.` : g.to_go ? `${n(g.now)} so far this year, about ${n(g.to_go)} to go.` : "";
-    return `<div class="small mut" style="margin-top:4px" data-t="harvest-dd">Degree days, Jan 1 to first pick: usually about ${n(g.usual)} (${past}). ${now}</div>`;
+    const tag = `<span class="pill info" style="margin:0 0 0 6px;font-size:10px;padding:1px 6px">Experimental</span>`;
+    const bl = v.blooms || [];
+    const blooms = bl.slice(0, 3).map((b) => this._logRow("bloom", v.id, b.id, "Full bloom", fmtDate(b.date, true) + (b.notes ? " · " + esc(b.notes) : ""))).join("");
+    const btn = this._btn("form-bloom", "flower", "Log full bloom", `data-v="${v.id}"`);
+    let line = "";
+    if (g) {
+      const past = g.years.slice(0, 3).map((y) => `${n(y.dd)} (${y.year})`).join(", ");
+      const from = g.basis === "bloom" ? "full bloom" : "Jan 1";
+      const now = g.this_pick != null ? `This year's first pick came at ${n(g.this_pick)}.` : g.to_go ? `${n(g.now)} so far this year, about ${n(g.to_go)} to go.` : "";
+      line = `<div class="small mut" style="margin-top:4px" data-t="harvest-dd">Degree days, ${from} to first pick: usually about ${n(g.usual)} (${past}). ${now}</div>`;
+    }
+    return `<div style="margin-top:8px;border-top:1px solid var(--line,#e4e9e1);padding-top:6px"><div class="small mut">Degree days${tag}</div>${line}${blooms}<div class="row" style="margin-top:6px">${btn}</div>${g ? "" : `<div class="small mut" style="margin-top:4px">Needs a first pick logged in an earlier year, with weather history for it. Logging full bloom each spring makes it more accurate.</div>`}</div>`;
   }
   _harvestCard(v, arch) {
     const id = v.id;
@@ -1332,6 +1341,7 @@ class GardenTrackerCard extends HTMLElement {
       case "edit-g": return this._open(this._fGarden(this._garden(d.g)));
       case "edit-v": return this._open(this._fEditVariety(this._variety(d.v)));
       case "form-harvest": return this._open(this._fHarvest(this._variety(d.v)));
+      case "form-bloom": return this._open(this._fBloom(this._variety(d.v)));
       case "form-prune": return this._open(this._fPrune(this._variety(d.v)));
       case "form-prune-month": return this._open(this._fPruneMonth(this._variety(d.v)));
       case "prune-skip": return this._call("log_pruning", { plant: d.v, outcome: "skipped" });
@@ -1549,10 +1559,11 @@ class GardenTrackerCard extends HTMLElement {
         { name: "chores", label: "To do list", type: "seg", options: seg, value: on("chores") },
         { name: "cover", label: "Cover crops", type: "seg", options: seg, value: on("cover") },
         { name: "micro", label: "Weather and microclimate", type: "seg", options: seg, value: on("micro") },
+        { name: "dd", label: "Degree days for harvest (experimental)", type: "seg", options: seg, value: on("dd") },
       ],
       note: "Saved on this device only. Hiding something only hides it from view; nothing is deleted.",
       submit: (x) => {
-        for (const k of ["water", "chores", "cover", "micro"]) if (x[k] !== undefined) this._show[k] = x[k] === "1";
+        for (const k of ["water", "chores", "cover", "micro", "dd"]) if (x[k] !== undefined) this._show[k] = x[k] === "1";
         if (x.compact !== undefined) { this._compact = x.compact === "1"; this._setPref("compact", this._compact); }
         if (x.sort) { this._sort = x.sort; this._setPref("sort", x.sort); }
         this._setPref("show", this._show);
@@ -1682,6 +1693,14 @@ class GardenTrackerCard extends HTMLElement {
       title: `Pruned: ${v.name}`, submitLabel: "Log pruning",
       fields: [{ name: "date", label: "Date", type: "date", value: this._snap.today }, { name: "notes", label: "Notes", type: "text" }],
       submit: (x) => this._call("log_pruning", { plant: v.id, outcome: "pruned", ...x }),
+    };
+  }
+  _fBloom(v) {
+    return {
+      title: `Full bloom: ${v.name}`, submitLabel: "Log bloom",
+      fields: [{ name: "date", label: "Date of full bloom", type: "date", value: this._snap.today }, { name: "notes", label: "Notes", type: "text" }],
+      note: "Experimental. Once this year and an earlier year both have a bloom date, harvest degree days count from bloom instead of Jan 1.",
+      submit: (x) => this._call("log_bloom", { plant: v.id, ...x }),
     };
   }
   _fPruneMonth(v) {
@@ -2756,7 +2775,7 @@ class GardenTrackerCard extends HTMLElement {
   _findEntry(kind, parent, id) {
     const v = this._variety(parent), g = this._garden(parent);
     const mh = (k) => (g && g.metrics[k] ? g.metrics[k].history : undefined);
-    const list = { acid: g && g.irrigation && g.irrigation.acid_log.entries, harvest: v && v.harvests, fertilizer: v && v.fertilizations, spray: v && v.sprays, review: v && v.reviews, upotted: v && v.upotted, adjunct: g && g.adjunct_log, ph: g && g.ph.history, moisture: mh("moisture"), ec: mh("ec"), soil_temp: mh("soil_temp"), air_temp: mh("air_temp"), par: mh("par"), water: g && g.water.log, cover: g && g.cover.items }[kind];
+    const list = { acid: g && g.irrigation && g.irrigation.acid_log.entries, harvest: v && v.harvests, fertilizer: v && v.fertilizations, spray: v && v.sprays, review: v && v.reviews, upotted: v && v.upotted, prune: v && v.pruning && v.pruning.log, bloom: v && v.blooms, adjunct: g && g.adjunct_log, ph: g && g.ph.history, moisture: mh("moisture"), ec: mh("ec"), soil_temp: mh("soil_temp"), air_temp: mh("air_temp"), par: mh("par"), water: g && g.water.log, cover: g && g.cover.items }[kind];
     return (list || []).find((e) => e.id === id) || {};
   }
   _fEntry(kind, parent, id) {
@@ -2768,6 +2787,7 @@ class GardenTrackerCard extends HTMLElement {
       spray: [{ name: "product", label: "Product", type: "text", value: e.product, req: true }, { name: "target", label: "Target pest", type: "text", value: e.target }, { name: "date", label: "Date", type: "date", value: e.date }, { name: "phi_days", label: "Days before harvest", type: "number", step: "1", value: e.phi_days, span: 3 }, { name: "reapply_days", label: "Reapply after days", type: "number", step: "1", value: e.reapply_days, span: 3 }],
       review: [{ name: "notes", label: "Note", type: "textarea", value: e.notes, req: true }, { name: "year", label: "Season", type: "number", step: "1", value: e.year }],
       upotted: [{ name: "date", label: "Date", type: "date", value: e.date }],
+      bloom: [{ name: "date", label: "Date of full bloom", type: "date", value: e.date }, { name: "notes", label: "Notes", type: "text", value: e.notes }],
       adjunct: [{ name: "type", label: "Adjunct", type: "select", options: g ? g.adjuncts.map((a) => [a.key, a.name]) : [], value: e.type }, { name: "date", label: "Date", type: "date", value: e.date, span: 3 }, { name: "amount", label: "Amount", type: "text", value: e.amount, span: 3 }, { name: "product", label: "Product", type: "text", value: e.product }, { name: "notes", label: "Notes", type: "text", value: e.notes }],
       ph: [{ name: "value", label: "pH", type: "number", step: "0.1", value: e.value, req: true, span: 3 }, { name: "date", label: "Date", type: "date", value: e.date, span: 3 }],
       cover: [{ name: "crop", label: "Cover crop", type: "text", value: e.crop, req: true }, { name: "amount_lbs", label: "Seed (lb)", type: "number", step: "0.1", value: e.amount_lbs }, { name: "sown", label: "Sown", type: "date", value: e.sown, span: 3 }, { name: "terminated", label: "Terminated", type: "date", value: e.terminated, span: 3 }, { name: "method", label: "How terminated (tap in the order done)", type: "multi", options: Object.entries(COVER_TEXT), value: (e.methods || []).join(",") }, { name: "wait_days", label: "Wait after terminating (days)", type: "number", step: "1", value: e.wait_days, span: 3 }, { name: "notes", label: "Notes", type: "text", value: e.notes }],
