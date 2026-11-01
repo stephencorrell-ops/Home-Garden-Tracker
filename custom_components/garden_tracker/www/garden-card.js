@@ -946,10 +946,10 @@ class GardenTrackerCard extends HTMLElement {
     if (p) {
       const d = p.vs_last_days;
       const cmp = d === 0 ? "same day as last season" : `${Math.abs(d)} day${Math.abs(d) === 1 ? "" : "s"} ${d < 0 ? "earlier" : "later"} than last season`;
-      h += `<div class="row" style="align-items:baseline"><span class="big">${fmtDate(p.date)}</span><span class="small mut">${cmp}</span></div><div class="small mut">${p.yield_total ? `About ${num(p.yield_total, 1)} lb total (${num(p.yield_per_plant, 1)} lb per plant). ` : ""}Based on ${p.basis_seasons} season${p.basis_seasons === 1 ? "" : "s"}, using ${esc(p.method)}.</div>`;
-      if (v.expected_harvest) h += `<div class="small mut" style="margin-top:4px">Your entered date: ${fmtDate(v.expected_harvest)}</div>`;
+      h += `<div class="row" style="align-items:baseline"><span class="big">${fmtDate(p.date, true)}</span><span class="small mut">${cmp}</span></div><div class="small mut">${p.yield_total ? `About ${num(p.yield_total, 1)} lb total (${num(p.yield_per_plant, 1)} lb per plant). ` : ""}Based on ${p.basis_seasons} season${p.basis_seasons === 1 ? "" : "s"}, using ${esc(p.method)}.</div>`;
+      if (v.expected_harvest) h += `<div class="small mut" style="margin-top:4px">Your entered date: ${fmtDate(v.expected_harvest, true)}</div>`;
     } else {
-      h += `<div class="row" style="align-items:baseline"><span class="big">${fmtDate(v.expected_harvest)}</span><span class="small mut">${v.countdown ? esc(v.countdown) : dIn(v.days_to_expected)}${v.expected_yield ? `, about ${num(v.expected_yield * v.alive, 1)} lb expected` : ""}</span></div>`;
+      h += `<div class="row" style="align-items:baseline"><span class="big">${fmtDate(v.expected_harvest, true)}</span><span class="small mut">${v.countdown ? esc(v.countdown) : dIn(v.days_to_expected)}${v.expected_yield ? `, about ${num(v.expected_yield * v.alive, 1)} lb expected` : ""}</span></div>`;
     }
     return h + `</div>`;
   }
