@@ -268,6 +268,8 @@ def main():
         check(gsel.count() == 1, "the edit form has a Where it is field")
         gid = pg.evaluate("window.__garden.engine.snapshot().gardens.find((g) => g.kind === 'garden').id")
         gsel.select_option(gid)
+        yrs_opts = card.evaluate("el => [...el.shadowRoot.querySelectorAll(\"select[data-fd='planted_date:y'] option\")].map((o) => o.value)")
+        check("2015" in yrs_opts and "2021" in yrs_opts, f"the planted year list reaches back past 2 years: {yrs_opts[:4]}")
         if SHOTS: pg.screenshot(path=str(SHOTS / "edit-where.png"))
         card.locator("[data-act=form-submit]").click()
         pg.wait_for_timeout(500)

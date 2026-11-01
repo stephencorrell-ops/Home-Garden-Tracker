@@ -1411,7 +1411,8 @@ class GardenTrackerCard extends HTMLElement {
   _dateField(x, val) {
     const f = this._form, c = (f.dp && f.dp[x.name]) || this._dateParts(val);
     const yr = new Date().getFullYear(), years = [];
-    for (let y = yr - 2; y <= yr + 8; y++) years.push(y);
+    const back = /planted|in_ground|planting/.test(x.name || "") ? 80 : 10;  // trees can be decades old
+    for (let y = yr - back; y <= yr + 10; y++) years.push(y);
     if (c.y && !years.includes(Number(c.y))) years.push(Number(c.y));
     years.sort((a, b) => a - b);
     const mons = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
