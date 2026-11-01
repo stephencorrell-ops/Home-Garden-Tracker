@@ -343,6 +343,8 @@ def main():
         check(card.locator(".lrow [data-act=form-terminate]").count() == 1, "the cover crop line has a Terminate button")
         if SHOTS: pg.screenshot(path=str(SHOTS / "compact.png"), full_page=True)
         check(card.locator(".lrow").count() >= 3, "plants show as one-line rows by default")
+        rr = card.locator(".lrow", has_text="Rainier").first.inner_text()
+        check("harvest in" in rr and " mo" in rr, f"a tree with an expected harvest shows time left in months and days: {rr!r}")
         card.locator("[data-act=tab][data-s=trees]").click()
         pg.wait_for_timeout(200)
         names = card.evaluate("el => [...el.shadowRoot.querySelectorAll('.lrow b')].map((n) => n.innerText)")
