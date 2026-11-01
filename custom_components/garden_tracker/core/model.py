@@ -1844,7 +1844,8 @@ class GardenModel:
                     days_to_harvest: int | None = None, expected_harvest: Any = None,
                     expected_yield: float | None = None, notes: str = "",
                     kind: str | None = None, single_harvest: bool | None = None,
-                    multi_year: bool | None = None, container: str | None = None) -> str:
+                    multi_year: bool | None = None, container: str | None = None,
+                    harvest_window: Any = None) -> str:
         skey = slug(species)
         sp = self.get_species(skey)
         g = self._place(garden, bool(sp["kind"] == "tree" if sp else kind == "tree"))
@@ -1882,6 +1883,7 @@ class GardenModel:
                         "status": "alive", "reason": "", "note": "", "status_date": None}
                        for i in range(count)],
             "harvests": [], "fertilizations": [], "sprays": [], "biofix": {}, "reviews": [], "prunings": [], "prune_month": None,
+            "harvest_window": self._window(harvest_window),
             "archived": None}
         self._touch(True)
         return vid
@@ -1891,8 +1893,11 @@ class GardenModel:
                        expected_harvest: Any = None, expected_yield: float | None = None,
                        notes: str | None = None, add_plants: int | None = None,
                        single_harvest: bool | None = None, multi_year: bool | None = None,
-                       container: str | None = None, species_name: str | None = None, kind: str | None = None) -> None:
+                       container: str | None = None, species_name: str | None = None, kind: str | None = None,
+                       harvest_window: Any = None) -> None:
         v = self.find_variety(ref)
+        if harvest_window is not None:
+            v["harvest_window"] = self._window(harvest_window)
         if species_name or kind:
             sp = self.data["species"].get(v["species"])
             if not sp or not sp.get("custom"):
@@ -2089,6 +2094,17 @@ class GardenModel:
             g = self.data["gardens"].get(v["garden"])
             v["expected_harvest"] = calc.rule_harvest_date(
                 rule, date.fromisoformat(v["planted"]), self._first_frost(g)).isoformat()
+
+    @staticmethod
+    def _window(w: Any) -> dict | None:
+        try:
+            return calc.window_clean(w)
+        except ValueError as e:
+            raise GardenError(str(e))
+
+    @staticmethod
+    def _perennial_species(sp: dict) -> bool:
+        return sp.get("kind") == "tree" or bool(sp.get("perennial"))
 
     def _perennial(self, v: dict) -> bool:
         """Trees and fruiting bushes are picked every year once they bear."""
@@ -2295,7 +2311,7 @@ class GardenModel:
                           "pests": [{"key": p["key"], "name": p["name"]} for p in sp.get("pests", [])],
                           "feeding_plan": sp.get("feeding_plan", []),
                           "single_harvest": bool(sp.get("single_harvest")),
-                          "multi_year": bool(sp.get("multi_year")), "default_days": sp.get("default_days"), "harvest_rule": sp.get("harvest_rule")}
+                          "perennial": self._perennial_species(sp), "multi_year": bool(sp.get("multi_year")), "default_days": sp.get("default_days"), "harvest_rule": sp.get("harvest_rule")}
         gardens = [self._garden_view(g, today) for g in self._live()]
         varieties = [self._variety_view(v, today, daily) for v in self.data["varieties"].values()]
         varieties.sort(key=lambda x: (x["archived"] is not None, x["garden"], x["kind"], x["name"].lower()))
@@ -2684,7 +2700,10 @@ class GardenModel:
                 "in_ground": calc.days_since(v.get("in_ground"), today),
                 "fertilized": calc.days_since(last_f and last_f["date"], today)}
         exp_eff = calc.d(v.get("expected_harvest"))
-        if self._perennial(v) and not v.get("archived"):
+        hw = calc.window_status(v.get("harvest_window"), today) if self._perennial(v) else None
+        if hw:
+            exp_eff = today if hw["state"] == "now" else date.fromisoformat(hw["start"])
+        elif self._perennial(v) and not v.get("archived"):
             exp_eff = calc.roll_expected(exp_eff, today, v.get("harvests", []))
         dh = calc.days_until(exp_eff, today)
         nxt, safe, cut = calc.next_spray_date(v), calc.safe_harvest_date(v), calc.spray_cutoff_date(v)
@@ -2753,7 +2772,7 @@ class GardenModel:
             "upotted": sorted(v["upotted"], key=lambda u: u["date"], reverse=True),
             "container": v.get("container"), "moves": sorted(v.get("moves", []), key=lambda m: (m["date"], m["id"]), reverse=True),
             "location_kind": (g or {}).get("kind", "garden"),
-            "days_to_harvest": v.get("days_to_harvest"), "expected_harvest": exp_eff.isoformat() if exp_eff else None,
+            "days_to_harvest": v.get("days_to_harvest"), "expected_harvest": exp_eff.isoformat() if exp_eff else None, "harvest_window": hw, "harvest_window_raw": v.get("harvest_window"), "first_harvests": calc.first_harvests(v, today) if self._perennial(v) else [],
             "expected_yield": v.get("expected_yield"), "notes": v["notes"],
             "age_years": round((today - planted_d).days / 365.25, 1), "days": days, "days_to_expected": dh, "multi_year": self._multi(v),
             "countdown": self._countdown(v, today, False), "countdown_short": self._countdown(v, today, True),

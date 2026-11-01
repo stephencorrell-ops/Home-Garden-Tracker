@@ -170,6 +170,18 @@ def seasons_for(v: dict, varieties: dict, daily: dict, today: date) -> list[dict
     return out
 
 
+def first_harvests(v: dict, today: date) -> list[dict]:
+    """The date of the first pick in each earlier year, newest first. Empty once this year's first pick is logged."""
+    firsts: dict[int, str] = {}
+    for h in v.get("harvests", []):
+        y = int(h["date"][:4])
+        if y == today.year:
+            return []
+        if y < today.year and (y not in firsts or h["date"] < firsts[y]):
+            firsts[y] = h["date"]
+    return [{"year": y, "date": firsts[y]} for y in sorted(firsts, reverse=True)]
+
+
 def add_year(d: date, years: int = 1) -> date:
     try:
         return d.replace(year=d.year + years)
@@ -193,6 +205,58 @@ def roll_expected(exp: date | None, today: date, harvests: list[dict]) -> date |
         else:
             break
     return exp
+
+
+MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+PARTS = ("early", "mid", "late")
+
+
+def _eom(y: int, m: int) -> int:
+    return (date(y + (m == 12), m % 12 + 1, 1) - timedelta(days=1)).day
+
+
+def window_clean(w: Any) -> dict | None:
+    """A usual harvest window like late July to early August: {fm, fp, tm, tp}, or None when it is not set."""
+    if not w:
+        return None
+    try:
+        out = {"fm": int(w["fm"]), "fp": str(w["fp"]).lower(), "tm": int(w["tm"]), "tp": str(w["tp"]).lower()}
+    except (KeyError, TypeError, ValueError):
+        raise ValueError("Pick the month and early, mid or late for both ends of the harvest")
+    if not (1 <= out["fm"] <= 12 and 1 <= out["tm"] <= 12) or out["fp"] not in PARTS or out["tp"] not in PARTS:
+        raise ValueError("Pick the month and early, mid or late for both ends of the harvest")
+    return out
+
+
+def window_text(w: dict) -> str:
+    a, b = f'{w["fp"].capitalize()} {MONTHS[w["fm"] - 1]}', f'{w["tp"]} {MONTHS[w["tm"] - 1]}'
+    if (w["fm"], w["fp"]) == (w["tm"], w["tp"]):
+        return a
+    if w["fm"] == w["tm"]:
+        return f'{w["fp"].capitalize()} to {w["tp"]} {MONTHS[w["fm"] - 1]}'
+    return f"{a} to {b}"
+
+
+def window_dates(w: dict, year: int) -> tuple[date, date]:
+    """Start and end of the window for the harvest that begins in `year` (it may run into the next year)."""
+    start = date(year, w["fm"], {"early": 1, "mid": 11, "late": 21}[w["fp"]])
+    end_year = year + (1 if (w["tm"], PARTS.index(w["tp"])) < (w["fm"], PARTS.index(w["fp"])) else 0)
+    end = date(end_year, w["tm"], {"early": 10, "mid": 20, "late": _eom(end_year, w["tm"])}[w["tp"]])
+    return start, end
+
+
+def window_status(w: dict | None, today: date) -> dict | None:
+    """Where the usual harvest window stands: in season now, or the next time it opens. No year needed."""
+    if not w:
+        return None
+    for yr in (today.year - 1, today.year):
+        start, end = window_dates(w, yr)
+        if start <= today <= end:
+            return {"text": window_text(w), "state": "now", "start": start.isoformat(), "end": end.isoformat(), "days": 0}
+    start, end = window_dates(w, today.year)
+    if start < today:
+        start, end = window_dates(w, today.year + 1)
+    return {"text": window_text(w), "state": "ahead", "start": start.isoformat(), "end": end.isoformat(), "days": (start - today).days}
 
 
 def project(v: dict, seasons: list[dict], daily: dict, today: date, alive: int, perennial: bool | None = None) -> dict | None:
