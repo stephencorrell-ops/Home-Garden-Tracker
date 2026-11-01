@@ -4,6 +4,10 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.31.12 - 2026-11-01
+
+- **Harvest with no weight.** Leave the pounds empty when you log a harvest and add the weight later, such as garlic and onions after they cure and are trimmed. The pick shows as "not weighed yet" in the pick history, with a "waiting for a weight" tag on the harvest card. Tap the pencil on the pick to add the weight. A pick with no weight counts for its date but adds nothing to yield. In Home Assistant, `log_harvest` no longer requires `lbs`.
+
 ## 0.31.11 - 2026-11-01
 
 - **Experimental: harvest degree days.** A tree or bush's plant page shows the degree days (base 50 F) from the start of the year to the first pick of each earlier year, and how many are left this year. It now covers fruiting bushes as well as trees, and uses them in the projected harvest date.

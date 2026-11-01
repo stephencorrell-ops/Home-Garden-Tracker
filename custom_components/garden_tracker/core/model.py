@@ -2125,16 +2125,22 @@ class GardenModel:
             flag = bool((self.get_species(v["species"]) or {}).get("multi_year"))
         return bool(flag)
 
-    def log_harvest(self, ref: str, lbs: float, when: Any = None, notes: str | None = None,
+    def log_harvest(self, ref: str, lbs: float | None = None, when: Any = None, notes: str | None = None,
                     plants: int | None = None) -> None:
+        """Log a pick. With no weight it is saved as waiting for one (garlic and onions are weighed after curing)."""
         v = self.find_variety(ref)
-        if lbs <= 0:
-            raise GardenError("Enter the pounds picked")
+        pending = lbs in (None, "") or lbs == 0
+        if pending:
+            lbs = 0.0
+        elif lbs < 0:
+            raise GardenError("Pounds cannot be negative")
         alive = [p for p in v["plants"] if p["status"] == "alive"]
         if not alive:
             raise GardenError("No living plants to receive this harvest")
         day = iso(when) or self.today().isoformat()
         entry = {"id": new_id(), "date": day, "lbs": round(lbs, 3), "notes": notes}
+        if pending:
+            entry["pending"] = True
         if self._single(v):
             n = int(plants) if plants else len(alive)
             if n < 1 or n > len(alive):
@@ -2210,6 +2216,7 @@ class GardenModel:
                         raise GardenError("Pounds must be above zero")
                     ids = list(e["shares"])
                     e["lbs"], e["shares"] = round(val, 3), calc.split_even(val, ids)
+                    e.pop("pending", None)
                 elif kind == "cover" and key in ("sown", "terminated"):
                     e[key] = iso(val)
                 elif kind == "cover" and key == "method":
@@ -2285,7 +2292,8 @@ class GardenModel:
         seasons = calc.seasons_for(
             {**old, "id": "_new"}, self.data["varieties"], self.data["daily"], self.today())
         if seasons:
-            ypp = round(calc.mean([s["yield_per_plant"] for s in seasons]), 1)
+            weighed = [s["yield_per_plant"] for s in seasons if s.get("weighed", True)]
+            ypp = round(calc.mean(weighed), 1) if weighed else None
         return self.add_variety(gref, old["species"], old["name"], plants or len(old["plants"]),
                                 old["origin"], planted, None, old.get("days_to_harvest"), None,
                                 ypp or old.get("expected_yield"), "", old["kind"], self._single(old),
@@ -2697,6 +2705,7 @@ class GardenModel:
             hh["n"] = len(h["shares"])
             hh["ended"] = len(h.get("ended", []))
             hh["each"] = round(h["lbs"] / max(1, len(h["shares"])), 2)
+            hh["pending"] = bool(h.get("pending"))
             harvests.append(hh)
         per_avg = round(sum(p["total"] for p in allp) / max(1, len(allp)), 2)
         last_f, last_s = calc.latest(v["fertilizations"]), calc.latest(v["sprays"])
