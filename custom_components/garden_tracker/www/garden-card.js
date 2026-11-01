@@ -25,6 +25,19 @@ const fmtDur = (ms) => {
 const fmtClock = (iso) => new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 const dAgo = (n) => (n === null || n === undefined ? "–" : `${n} d`);
 const dIn = (n) => (n === null || n === undefined ? "–" : n < 0 ? `${-n} d late` : n === 0 ? "today" : `${n} d`);
+// time left to harvest for the list: days when close, then months and days, then years and months
+const harvestIn = (days, todayIso) => {
+  if (days === null || days === undefined) return "";
+  if (days < 0) return `${-days} d late`;
+  if (days === 0) return "today";
+  if (days < 60) return `${days} d`;
+  const f = new Date(todayIso + "T00:00:00"), t = new Date(f.getTime() + days * 86400000 + 3600000 * 3);
+  t.setHours(0, 0, 0, 0);
+  let y = t.getFullYear() - f.getFullYear(), mo = t.getMonth() - f.getMonth(), d = t.getDate() - f.getDate();
+  if (d < 0) { mo -= 1; d += new Date(t.getFullYear(), t.getMonth(), 0).getDate(); }
+  if (mo < 0) { y -= 1; mo += 12; }
+  return y ? `${y} y${mo ? ` ${mo} mo` : ""}` : `${mo} mo${d ? ` ${d} d` : ""}`;
+};
 const yrs = (y) => `${Math.floor(y || 0)} yr${Math.floor(y || 0) === 1 ? "" : "s"}`;
 
 const CSS = `
@@ -876,8 +889,8 @@ class GardenTrackerCard extends HTMLElement {
   _lineRow(v, withGarden) {
     const tree = v.kind === "tree", inPlace = v.location_kind !== "garden";
     const sub = [v.species_name, tree ? null : `${v.alive} of ${v.count}`, inPlace ? v.container : null, withGarden ? (v.garden_name || "No garden") : null].filter(Boolean).join(" · ");
-    const hv = !tree ? this._stats(v).find((x) => x[0] === "Harvest in") : null;
-    const stat = tree ? yrs(v.age_years) : hv ? "harvest in " + hv[1] : v.status.text;
+    const left = v.expected_harvest && !v.archived ? harvestIn(v.days_to_expected, this._snap.today) : "";
+    const stat = left ? "harvest in " + left : tree ? yrs(v.age_years) : v.status.text;
     return `<div class="lrow" data-act="open-v" data-v="${v.id}"><b>${esc(v.name)}</b><span class="sub grow">${esc(sub)}</span><span class="small">${esc(stat)}</span></div>`;
   }
   _tile(v, withGarden) {
