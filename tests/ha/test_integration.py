@@ -144,3 +144,17 @@ async def test_services_run_and_bad_input_is_refused(hass, entry, call):
     assert hass.data[DOMAIN].find_variety(vid["Sungold"], True)["harvests"][0] == harvest
     with pytest.raises(ServiceValidationError):
         await call("set_greenhouse_climate", garden="Bed", enabled=True)
+
+
+async def test_harvest_window_goes_through_the_services(hass, entry, call):
+    """The usual harvest window is a dict, so it has to pass the service schema as well as the core."""
+    window = {"fm": 7, "fp": "late", "tm": 8, "tp": "early"}
+    await call("add_variety", species="apple", variety="Gala", kind="tree", harvest_window=window)
+    await call("add_variety", species="blueberry", variety="Duke", harvest_window=window)
+    views = {v["name"]: v for v in hass.data[DOMAIN].snapshot()["varieties"]}
+    assert views["Gala"]["harvest_window"]["text"] == "Late July to early August"
+    assert views["Duke"]["harvest_window"]["text"] == "Late July to early August"
+    await call("update_variety", plant=views["Gala"]["id"], harvest_window={})  # an empty window clears it
+    assert next(v for v in hass.data[DOMAIN].snapshot()["varieties"] if v["name"] == "Gala")["harvest_window"] is None
+    with pytest.raises(ServiceValidationError):
+        await call("update_variety", plant=views["Gala"]["id"], harvest_window={"fm": 7})
