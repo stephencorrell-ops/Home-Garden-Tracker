@@ -168,7 +168,8 @@ def seasons_for(v: dict, varieties: dict, daily: dict, today: date, perennial: b
             if y >= today.year:
                 continue
             first = date.fromisoformat(min(h["date"] for h in hs))
-            out.append(_season(y, first, sum(h["lbs"] for h in hs), len(v["plants"]), daily, None, True, bloom_dates(v).get(y)))
+            out.append({**_season(y, first, sum(h["lbs"] for h in hs), len(v["plants"]), daily, None, True, bloom_dates(v).get(y)),
+                        "weighed": any(not h.get("pending") for h in hs)})
     else:
         key = (v["species"], v["name"].strip().lower())
         for o in varieties.values():
@@ -178,8 +179,9 @@ def seasons_for(v: dict, varieties: dict, daily: dict, today: date, perennial: b
             if not o.get("archived") and planted.year >= today.year:
                 continue
             first = date.fromisoformat(min(h["date"] for h in o["harvests"]))
-            out.append(_season(planted.year, first, sum(h["lbs"] for h in o["harvests"]),
-                               len(o["plants"]), daily, planted, False))
+            out.append({**_season(planted.year, first, sum(h["lbs"] for h in o["harvests"]),
+                                  len(o["plants"]), daily, planted, False),
+                        "weighed": any(not h.get("pending") for h in o["harvests"])})
         out.sort(key=lambda s: (s["year"], s["first_harvest"]))
     return out
 
@@ -301,7 +303,7 @@ def project(v: dict, seasons: list[dict], daily: dict, today: date, alive: int, 
         return None
     if perennial is None:
         perennial = v["kind"] == "tree"
-    ypp = mean([s["yield_per_plant"] for s in seasons])
+    ypp = mean([s["yield_per_plant"] for s in seasons if s.get("weighed", True)] or [0])
     method, proj = "", None
     if not perennial:
         days = [s["days_to_first"] for s in seasons if s["days_to_first"] is not None]

@@ -298,6 +298,14 @@ def main():
         check("Jul 24 to Aug 2" in tx and "3 years" in tx, "three or more years show a range")
         check("Degree days, Jan 1 to first pick" in tx, "the plant page shows the degree days at past first picks")
         check("Experimental" in tx, "the degree days are labelled experimental")
+        gid2 = pg.evaluate("window.__garden.engine.snapshot()")["gardens"][0]["id"]
+        card.evaluate(f"el => el._call('add_variety', {{ garden: '{gid2}', species: 'garlic', variety: 'Music', plants: 4, origin: 'seed', planted_date: '{yr0 - 1}-10-20' }})")
+        pg.wait_for_timeout(300)
+        gv = [v for v in pg.evaluate("window.__garden.engine.snapshot()")["varieties"] if v["name"] == "Music"][0]
+        card.evaluate(f"el => el._call('log_harvest', {{ plant: '{gv['id']}', date: '{yr0}-07-10' }})")
+        pg.wait_for_timeout(300)
+        gv = [v for v in pg.evaluate("window.__garden.engine.snapshot()")["varieties"] if v["name"] == "Music"][0]
+        check(gv["harvests"] and gv["harvests"][0]["pending"], "a harvest can be logged with no weight, to add after curing")
         card.evaluate(f"el => el._call('log_bloom', {{ plant: '{rid}', date: '{yr0 - 1}-04-05' }})")
         pg.wait_for_timeout(400)
         check("Full bloom" in card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText"), "a bloom date can be logged and is listed")
@@ -433,6 +441,12 @@ def main():
         card.locator("[data-act=restore-g]").click()
         pg.wait_for_timeout(400)
         check(len(pg.evaluate("window.__garden.engine.snapshot()")["gardens"]) == 1, "a removed garden can be brought back")
+        if SHOTS:
+            g2 = [v for v in pg.evaluate("window.__garden.engine.snapshot()")["varieties"] if v["name"] == "Music"]
+            if g2:
+                card.evaluate(f"el => el._go({{ v: 'variety', id: '{g2[0]['id']}' }})")
+                pg.wait_for_timeout(400)
+                pg.screenshot(path=str(SHOTS / "no-weight.png"), full_page=True)
         check(not errors, f"no page errors {errors[:2]}")
         b.close()
     server.shutdown()

@@ -55,7 +55,7 @@ SERVICES: dict[str, dict] = {
         O("phi_days"): DAYS, O("reapply_days"): DAYS},
     "set_biofix": {R("plant"): cv.string, R("pest"): cv.string, O("date"): cv.date},
     "add_review": {R("plant"): cv.string, R("notes"): cv.string, O("year"): cv.positive_int},
-    "log_harvest": {R("plant"): cv.string, R("lbs"): NUM, O("date"): cv.date, O("notes"): cv.string,
+    "log_harvest": {R("plant"): cv.string, O("lbs"): NUM, O("date"): cv.date, O("notes"): cv.string,
         O("plants"): POS_INT},
     "set_plant_status": {R("plant"): cv.string, R("individual"): cv.string,
         R("status"): vol.In(["alive", "dead", "pulled"]), O("reason"): vol.In(REASONS),

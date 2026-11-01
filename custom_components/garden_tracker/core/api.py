@@ -48,7 +48,7 @@ HANDLERS: dict[str, Handler] = {
         c.get("phi_days"), c.get("reapply_days")),
     "set_biofix": lambda m, c: m.set_biofix(c["plant"], c["pest"], c.get("date")),
     "add_review": lambda m, c: m.add_review(c["plant"], c["notes"], c.get("year")),
-    "log_harvest": lambda m, c: m.log_harvest(c["plant"], c["lbs"], c.get("date"), c.get("notes"), c.get("plants")),
+    "log_harvest": lambda m, c: m.log_harvest(c["plant"], c.get("lbs"), c.get("date"), c.get("notes"), c.get("plants")),
     "set_plant_status": lambda m, c: m.set_plant_status(c["plant"], c["individual"], c["status"], c.get("reason"),
         c.get("note"), c.get("date")),
     "mark_plants_lost": lambda m, c: m.mark_plants_lost(c["plant"], c["count"], c["status"], c["reason"],
