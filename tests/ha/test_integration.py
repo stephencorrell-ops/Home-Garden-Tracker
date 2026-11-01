@@ -150,7 +150,8 @@ async def test_harvest_window_goes_through_the_services(hass, entry, call):
     """The usual harvest window is a dict, so it has to pass the service schema as well as the core."""
     window = {"fm": 7, "fp": "late", "tm": 8, "tp": "early"}
     await call("add_variety", species="apple", variety="Gala", kind="tree", harvest_window=window)
-    await call("add_variety", species="blueberry", variety="Duke", harvest_window=window)
+    await call("add_garden", name="Bed")
+    await call("add_variety", garden="Bed", species="blueberry", variety="Duke", harvest_window=window)
     views = {v["name"]: v for v in hass.data[DOMAIN].snapshot()["varieties"]}
     assert views["Gala"]["harvest_window"]["text"] == "Late July to early August"
     assert views["Duke"]["harvest_window"]["text"] == "Late July to early August"
