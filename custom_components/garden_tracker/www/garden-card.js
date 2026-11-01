@@ -1703,7 +1703,7 @@ class GardenTrackerCard extends HTMLElement {
     return {
       title: `Name this plant: ${p.label}`, submitLabel: "Save",
       fields: [
-        { name: "dir", label: "Side of the yard", type: "chips", options: [["", "None"], ["North", "North"], ["South", "South"], ["East", "East"], ["West", "West"]], value: "" },
+        { name: "dir", label: "Side of the yard or garden", type: "chips", options: [["", "None"], ["North", "North"], ["South", "South"], ["East", "East"], ["West", "West"]], value: "" },
         { name: "row", label: "Row", type: "number", step: "1", span: 3 },
         { name: "pl", label: "Plant in the row", type: "number", step: "1", span: 3 },
         { name: "custom", label: "Or type any name", type: "text", value: p.label },

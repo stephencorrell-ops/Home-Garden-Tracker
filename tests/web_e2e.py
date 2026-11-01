@@ -304,7 +304,7 @@ def main():
         check("North" in tx3 and "South" in tx3, "new plants can be named by side of the yard")
         card.locator("[data-act=form-plant-name]").first.click()
         pg.wait_for_timeout(300)
-        check("Side of the yard" in card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText"), "a plant can be renamed from its row")
+        check("Side of the yard or garden" in card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText"), "a plant can be renamed from its row")
         if SHOTS: pg.screenshot(path=str(SHOTS / "plant-name.png"), full_page=True)
         card.locator("[data-act=form-cancel]").first.click()
         pg.wait_for_timeout(200)
