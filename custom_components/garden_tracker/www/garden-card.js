@@ -1291,7 +1291,12 @@ class GardenTrackerCard extends HTMLElement {
       case "psort": this._psort = d.s; this._setPref("psort", d.s); return this._render();
       case "lay-plant": return this._open(this._fPlantLayout(this._garden(d.g)));
       case "brush-pick": this._brush = d.k; this._bq = null; return this._act("set_layout_draft", { garden: d.g, crop: d.k });
-      case "find-pick": { const f = this._form; f.values[d.f] = d.val; if (f.search) delete f.search[d.f]; return this._render(); }
+      case "find-pick": { const f = this._form;
+        if (d.f === "species" && "variety" in f.values) {  // the variety box follows the type until you type your own
+          const was = this._generic(f.values.species), cur = (f.values.variety || "").trim();
+          if (!cur || cur === was) f.values.variety = this._generic(d.val);
+        }
+        f.values[d.f] = d.val; if (f.search) delete f.search[d.f]; return this._render(); }
       case "form-view": return this._open(this._fView());
       case "micro-fold": this._microOpen = this._microOpen.includes(d.s) ? this._microOpen.filter((x) => x !== d.s) : [...this._microOpen, d.s]; this._setPref("micro_open", this._microOpen); return this._render();
       case "air-range": this._airRange = d.s; return this._render();
@@ -1545,6 +1550,10 @@ class GardenTrackerCard extends HTMLElement {
       },
     };
   }
+  _generic(speciesKey) {
+    const sp = this._snap.species[speciesKey];
+    return sp ? sp.name.replace(/\s*\(.*?\)/g, "").replace(/ tree\b/, "").trim() : "";
+  }
   _fVariety(gid) {
     const gs = this._gardens(), today = this._snap.today;
     const sp = Object.values(this._snap.species).sort((a, b) => a.name.localeCompare(b.name));
@@ -1560,7 +1569,7 @@ class GardenTrackerCard extends HTMLElement {
         { name: "species_other", label: "Type name", type: "text", req: true, show: (v) => v.species === "other", span: 3 },
         { name: "kind", label: "Kind", type: "seg", options: [["plant", "Plant"], ["tree", "Tree"]], value: "plant", show: (v) => v.species === "other", span: 3 },
         { name: "single_harvest", label: "Pulled when harvested?", type: "seg", options: [["false", "No"], ["true", "Yes"]], value: "false", show: (v) => v.species === "other" && v.kind !== "tree", span: 3 },
-        { name: "variety", label: "Variety", type: "text", req: true, placeholder: "Sungold" },
+        { name: "variety", label: "Variety", type: "text", req: true, placeholder: "Variety name", value: this._generic(this._snap.species.tomato ? "tomato" : sp[0] ? sp[0].key : "") },
         ...this._containerFields("", (v) => { const x = this._snap.gardens.find((y) => y.id === v.garden); return !!x && x.kind !== "garden"; }, false),
         { name: "plants", label: "Number of plants", type: "number", step: "1", value: 1, span: 3 },
         { name: "origin", label: "Started from", type: "seg", options: [["seed", "Seed"], ["start", "Start"]], value: "start", span: 3 },
