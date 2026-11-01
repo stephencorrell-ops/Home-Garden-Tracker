@@ -1403,3 +1403,39 @@ class YearlyHarvest(unittest.TestCase):
         self.assertEqual(late["date"][:4], "2027")
         early = calc.project(v, seasons, {}, date(2026, 6, 1), 1)
         self.assertEqual(early["date"][:4], "2026")
+
+
+class HarvestWindow(unittest.TestCase):
+    W = {"fm": 7, "fp": "late", "tm": 8, "tp": "early"}
+
+    def test_text_and_dates(self):
+        self.assertEqual(calc.window_text(self.W), "Late July to early August")
+        self.assertEqual(calc.window_text({"fm": 7, "fp": "early", "tm": 7, "tp": "late"}), "Early to late July")
+        self.assertEqual(calc.window_text({"fm": 7, "fp": "mid", "tm": 7, "tp": "mid"}), "Mid July")
+        self.assertEqual(calc.window_dates(self.W, 2027), (date(2027, 7, 21), date(2027, 8, 10)))
+        self.assertEqual(calc.window_dates({"fm": 11, "fp": "mid", "tm": 2, "tp": "late"}, 2026), (date(2026, 11, 11), date(2027, 2, 28)))
+        with self.assertRaises(ValueError):
+            calc.window_clean({"fm": 13, "fp": "mid", "tm": 8, "tp": "early"})
+        self.assertIsNone(calc.window_clean({}))
+
+    def test_status_needs_no_year(self):
+        before = calc.window_status(self.W, date(2026, 11, 1))
+        self.assertEqual((before["state"], before["start"], before["days"]), ("ahead", "2027-07-21", 262))
+        inside = calc.window_status(self.W, date(2026, 8, 1))
+        self.assertEqual((inside["state"], inside["days"]), ("now", 0))
+        self.assertEqual(calc.window_status(self.W, date(2026, 8, 11))["start"], "2027-07-21")
+        self.assertEqual(calc.window_status({"fm": 11, "fp": "mid", "tm": 2, "tp": "late"}, date(2027, 1, 5))["state"], "now")
+
+    def test_trees_and_berries_take_a_window(self):
+        m = make(date(2026, 11, 1))
+        gid = m.add_garden("Big")
+        tree = m.add_variety(gid, "apple", "Gala", planted="2020-03-01", harvest_window=self.W)
+        bush = m.add_variety(gid, "blueberry", "Duke", planted="2020-03-01", harvest_window={"fm": 7, "fp": "early", "tm": 8, "tp": "late"})
+        by = {v["id"]: v for v in m.snapshot()["varieties"]}
+        self.assertEqual(by[tree]["harvest_window"]["text"], "Late July to early August")
+        self.assertEqual(by[tree]["expected_harvest"], "2027-07-21")
+        self.assertEqual(by[bush]["expected_harvest"], "2027-07-01")
+        m.update_variety(tree, harvest_window={})
+        self.assertIsNone(next(v for v in m.snapshot()["varieties"] if v["id"] == tree)["harvest_window"])
+        with self.assertRaises(GardenError):
+            m.update_variety(tree, harvest_window={"fm": 7})

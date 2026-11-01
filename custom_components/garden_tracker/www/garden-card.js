@@ -890,7 +890,7 @@ class GardenTrackerCard extends HTMLElement {
     const tree = v.kind === "tree", inPlace = v.location_kind !== "garden";
     const sub = [v.species_name, tree ? null : `${v.alive} of ${v.count}`, inPlace ? v.container : null, withGarden ? (v.garden_name || "No garden") : null].filter(Boolean).join(" · ");
     const left = v.expected_harvest && !v.archived ? harvestIn(v.days_to_expected, this._snap.today) : "";
-    const stat = left ? "harvest in " + left : tree ? yrs(v.age_years) : v.status.text;
+    const stat = v.harvest_window && v.harvest_window.state === "now" && !v.archived ? "harvest now" : left ? "harvest in " + left : tree ? yrs(v.age_years) : v.status.text;
     return `<div class="lrow" data-act="open-v" data-v="${v.id}"><b>${esc(v.name)}</b><span class="sub grow">${esc(sub)}</span><span class="small">${esc(stat)}</span></div>`;
   }
   _tile(v, withGarden) {
@@ -960,9 +960,11 @@ class GardenTrackerCard extends HTMLElement {
       const d = p.vs_last_days;
       const cmp = d === 0 ? "same day as last season" : `${Math.abs(d)} day${Math.abs(d) === 1 ? "" : "s"} ${d < 0 ? "earlier" : "later"} than last season`;
       h += `<div class="row" style="align-items:baseline"><span class="big">${fmtDate(p.date, true)}</span><span class="small mut">${cmp}</span></div><div class="small mut">${p.yield_total ? `About ${num(p.yield_total, 1)} lb total (${num(p.yield_per_plant, 1)} lb per plant). ` : ""}Based on ${p.basis_seasons} season${p.basis_seasons === 1 ? "" : "s"}, using ${esc(p.method)}.</div>`;
-      if (v.expected_harvest) h += `<div class="small mut" style="margin-top:4px">Your entered date: ${fmtDate(v.expected_harvest, true)}</div>`;
+      if (v.harvest_window) h += `<div class="small mut" style="margin-top:4px">Your usual window: ${esc(v.harvest_window.text)}</div>`;
+      else if (v.expected_harvest) h += `<div class="small mut" style="margin-top:4px">Your entered date: ${fmtDate(v.expected_harvest, true)}</div>`;
     } else {
-      h += `<div class="row" style="align-items:baseline"><span class="big">${fmtDate(v.expected_harvest, true)}</span><span class="small mut">${v.countdown ? esc(v.countdown) : dIn(v.days_to_expected)}${v.expected_yield ? `, about ${num(v.expected_yield * v.alive, 1)} lb expected` : ""}</span></div>`;
+      const hw = v.harvest_window;
+      h += `<div class="row" style="align-items:baseline"><span class="big">${hw ? esc(hw.text) : fmtDate(v.expected_harvest, true)}</span><span class="small mut">${hw && hw.state === "now" ? "in season now" : v.countdown ? esc(v.countdown) : dIn(v.days_to_expected)}${v.expected_yield ? `, about ${num(v.expected_yield * v.alive, 1)} lb expected` : ""}</span></div>`;
     }
     return h + `</div>`;
   }
@@ -1534,6 +1536,7 @@ class GardenTrackerCard extends HTMLElement {
     const slug = (t) => String(t).toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
     const key = (v) => (v.species === "other" ? slug(v.species_other || "") : v.species);
     const kind = (v) => (v.species === "other" ? v.kind : (this._snap.species[v.species] || {}).kind || "plant");
+    const yearly = (v) => kind(v) === "tree" || !!(this._snap.species[v.species] || {}).perennial;
     return {
       title: "Add plant", submitLabel: "Add plant",
       fields: [
@@ -1548,7 +1551,8 @@ class GardenTrackerCard extends HTMLElement {
         { name: "origin", label: "Started from", type: "seg", options: [["seed", "Seed"], ["start", "Start"]], value: "start", span: 3 },
         { name: "planted_date", labelFn: (v) => (v.origin === "seed" ? "Sow date" : kind(v) === "tree" ? "Planting date" : "Transplant date"), type: "date", value: today, span: 3 },
         { name: "days_to_harvest", label: "Days to harvest", type: "number", step: "1", show: (v) => kind(v) !== "tree", span: 3 },
-        { name: "expected_harvest_date", label: "Expected harvest date", type: "date", show: (v) => kind(v) === "tree", span: 3 },
+        { name: "expected_harvest_date", label: "Expected harvest date", type: "date", show: (v) => kind(v) === "tree" && !yearly(v), span: 3 },
+        ...this._windowFields(null, yearly),
         { name: "expected_yield", label: "Expected yield per plant (lb)", type: "number", step: "0.1" },
         { name: "notes", label: "Notes", type: "text" },
       ],
@@ -1571,8 +1575,20 @@ class GardenTrackerCard extends HTMLElement {
         if (last && kind(v) !== "tree") h += `<div class="small" style="margin-top:8px">From your past seasons: ${esc(v.variety)} took ${last.days_to_first} days. <button data-act="use-days" data-n="${last.days_to_first}">Use ${last.days_to_first}</button></div>`;
         return h;
       },
-      submit: (v) => this._call("add_variety", { garden: v.garden || "", species: v.species === "other" ? v.species_other : v.species, variety: v.variety, plants: v.plants, origin: v.origin, planted_date: v.planted_date, days_to_harvest: v.days_to_harvest, expected_harvest_date: v.expected_harvest_date, expected_yield: v.expected_yield, notes: v.notes, container: v.container === undefined ? undefined : this._containerOf(v), kind: v.species === "other" ? v.kind : undefined, single_harvest: v.species === "other" && v.kind !== "tree" ? v.single_harvest === "true" : undefined }),
+      submit: (v) => this._call("add_variety", { garden: v.garden || "", species: v.species === "other" ? v.species_other : v.species, variety: v.variety, plants: v.plants, origin: v.origin, planted_date: v.planted_date, days_to_harvest: v.days_to_harvest, expected_harvest_date: v.expected_harvest_date, ...(yearly(v) ? { harvest_window: this._windowOf(v) } : {}), expected_yield: v.expected_yield, notes: v.notes, container: v.container === undefined ? undefined : this._containerOf(v), kind: v.species === "other" ? v.kind : undefined, single_harvest: v.species === "other" && v.kind !== "tree" ? v.single_harvest === "true" : undefined }),
     };
+  }
+  _windowFields(w, show) {
+    const M = [["", "Not set"], ...["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"].map((t, i) => [i + 1, t])];
+    const P = [["early", "Early"], ["mid", "Mid"], ["late", "Late"]];
+    const f = (name, label, options, value) => ({ name, label, type: "select", options, value, span: 3, ...(show ? { show } : {}) });
+    return [f("hw_fm", "Usual harvest starts", M, w ? w.fm : ""), f("hw_fp", "Early, mid or late", P, w ? w.fp : "mid"), f("hw_tm", "Usual harvest ends", M, w ? w.tm : ""), f("hw_tp", "Early, mid or late", P, w ? w.tp : "mid")];
+  }
+  _yearlyV(v) {
+    return v.kind === "tree" || !!(this._snap.species[v.species] || {}).perennial;
+  }
+  _windowOf(x) {
+    return x.hw_fm && x.hw_tm ? { fm: Number(x.hw_fm), fp: x.hw_fp || "mid", tm: Number(x.hw_tm), tp: x.hw_tp || "mid" } : {};
   }
   _fEditVariety(v) {
     return {
@@ -1584,7 +1600,7 @@ class GardenTrackerCard extends HTMLElement {
         { name: "planted_date", label: "Planted or transplanted", type: "date", value: v.planted, span: 3 },
         { name: "in_ground_date", label: "In ground", type: "date", value: v.in_ground, span: 3 },
         ...(v.kind === "tree" ? [] : [{ name: "days_to_harvest", label: "Days to harvest", type: "number", step: "1", value: v.days_to_harvest, span: 3 }]),
-        { name: "expected_harvest_date", label: "Expected harvest date", type: "date", value: v.expected_harvest, span: 3 },
+        ...(this._yearlyV(v) ? this._windowFields(v.harvest_window_raw) : [{ name: "expected_harvest_date", label: "Expected harvest date", type: "date", value: v.expected_harvest, span: 3 }]),
         { name: "expected_yield", label: "Expected yield per plant (lb)", type: "number", step: "0.1", value: v.expected_yield, span: 3 },
         { name: "add_plants", label: "Add plants", type: "number", step: "1", span: 3 },
         ...(v.kind === "tree" ? [] : [{ name: "multi_year", label: "Countdown in years, months, days", type: "seg", options: [["false", "No"], ["true", "Yes"]], value: String(!!v.multi_year), span: 3 }]),
@@ -1592,7 +1608,7 @@ class GardenTrackerCard extends HTMLElement {
         ...(v.location_kind !== "garden" ? this._containerFields(v.container || "", null, true) : []),
         { name: "notes", label: "Notes", type: "textarea", value: v.notes },
       ],
-      submit: (x) => { const { container, container_other, ...rest } = x; return this._call("update_variety", { plant: v.id, ...rest, ...(container === undefined && container_other === undefined ? {} : { container: this._containerOf({ container, container_other }) || " " }) }); },
+      submit: (x) => { const { container, container_other, hw_fm, hw_fp, hw_tm, hw_tp, ...rest } = x; return this._call("update_variety", { plant: v.id, ...rest, ...(hw_fm === undefined ? {} : { harvest_window: this._windowOf({ hw_fm, hw_fp, hw_tm, hw_tp }) }), ...(container === undefined && container_other === undefined ? {} : { container: this._containerOf({ container, container_other }) || " " }) }); },
     };
   }
   _fStage(v) {
