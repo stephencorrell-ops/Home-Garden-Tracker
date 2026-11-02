@@ -1469,6 +1469,24 @@ class PlantNames(unittest.TestCase):
         self.assertEqual(self.labels(m, t)[-1], "Plant 1")  # the first free number
 
 
+class HarvestYears(unittest.TestCase):
+    def test_pounds_by_year_add_up_across_varieties_and_past_plants(self):
+        m = make(date(2026, 8, 1))
+        gid = m.add_garden("Big")
+        a = m.add_variety(gid, "tomato", "Sungold", 2, planted="2025-05-01")
+        b = m.add_variety(gid, "tomato", "Roma", 2, planted="2025-05-01")
+        c = m.add_variety(gid, "garlic", "Music", 4, planted="2025-10-01")
+        m.log_harvest(a, 10, "2025-08-01")
+        m.log_harvest(b, 5.5, "2025-08-02")
+        m.log_harvest(a, 3, "2026-07-20")
+        m.log_harvest(c, None, "2026-07-10", plants=4)  # not weighed yet
+        m.archive_plant(a) if hasattr(m, "archive_plant") else None
+        hy = m.snapshot()["harvest_years"]
+        self.assertEqual(hy["tomato"]["years"], {"2026": 3.0, "2025": 15.5})
+        self.assertEqual(hy["garlic"]["years"], {"2026": 0.0})  # an unweighed pick adds nothing yet
+        self.assertEqual(hy["tomato"]["name"], "Tomato")
+
+
 class YearlyHarvest(unittest.TestCase):
     def test_roll_expected(self):
         d = date
