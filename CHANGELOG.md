@@ -4,6 +4,13 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.31.14 - 2026-11-01
+
+- **Sulfur needed to reach your target pH.** When a garden's pH is above its target, the garden page shows how much elemental sulfur the bed needs, from Ohio State Extension's table by soil type (sand, silt loam, clay; sandy loam, loam and clay loam are shown as ranges or the closest row, since the table lacks them). It uses the soil you set under watering and the bed size from the layout, or one you enter in Edit garden. It aims for the top of your pH range, held to 6.5.
+- **Limit per pass and a plan.** The most to put on in one pass starts at 0.5 lb per 100 sq ft (0.5, 1 or your own), and the plan splits the total into passes at spring bed prep (March 1) and early fall (September 15), more than 3 months apart. Soil that sits between two table rows plans one pass at a time.
+- **Check before you apply.** "Check, then log sulfur" takes the pounds you plan to put on and warns before it goes on if it is over the limit, past the yearly ceiling, or too soon after the last pass. A logged amount over the limit is flagged in the Application log. A fall pass mostly works after the soil warms in spring.
+- In Home Assistant, `update_garden` takes `area_sqft` and `sulfur_limit`.
+
 ## 0.31.13 - 2026-11-01
 
 - **Name plants by side or row.** Trees, bushes and perennials with more than one plant can be named Plant 1, 2, 3, North, South, East, West, or Row 1, 2, 3 when you add them, and when you add more later. Every plant on the Harvest card has a pencil to rename it with a side of the yard or garden, a row, a plant number, or any name you type. Names stay different within a variety. A single tree keeps its variety name and vegetables keep Plant 1, 2, 3. In Home Assistant, `add_variety` and `update_variety` take `label_style`, and a new `rename_plant` service renames one plant.

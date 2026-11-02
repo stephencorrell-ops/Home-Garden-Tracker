@@ -1373,6 +1373,69 @@ class CalendarSprays(unittest.TestCase):
         self.assertIsNone(v["alert"])
 
 
+class SulfurNeeded(unittest.TestCase):
+    def test_amounts_match_the_published_table(self):
+        from custom_components.garden_tracker.core import sulfur as sul
+        self.assertEqual(sul.per_acre("silt_loam", 8.0, 6.5), 670)
+        self.assertEqual(sul.per_acre("sand", 7.0, 5.5), 640)
+        self.assertEqual(sul.per_acre("clay", 8.5, 5.5), 3310)
+        self.assertAlmostEqual(sul.per_acre("silt_loam", 7.75, 6.5), 635)  # halfway between two printed rows
+        self.assertAlmostEqual(sul.per_acre("silt_loam", 8.0, 6.0), 1135)  # halfway between the two targets
+        e = sul.estimate("silt_loam", 8.0, 6.5, 600)
+        self.assertEqual(e["lb"], [9.2, 9.2])
+        self.assertFalse(e["range"])
+        r = sul.estimate("clay_loam", 8.0, 6.5, 600)
+        self.assertEqual(r["lb"], [9.2, 18.5])
+        self.assertTrue(r["range"])
+        self.assertFalse(sul.estimate("clay", 6.9, 6.5, 600)["ok"])  # below the table's 7.0 start
+        self.assertFalse(sul.estimate("clay", 8.0, 8.0, 600)["ok"])  # already at target
+        self.assertEqual(sul.target_for(6.0, 6.8), (6.5, None))
+        self.assertIsNone(sul.target_for(4.5, 5.0)[0])
+
+    def test_plan_keeps_each_pass_small_spaced_and_in_season(self):
+        from custom_components.garden_tracker.core import sulfur as sul
+        today, last = date(2026, 11, 1), date(2026, 9, 20)
+        p = sul.plan((9.2, 9.2), False, 3.0, 13.8, today, last, [(last, 2.3)])
+        self.assertEqual([x["lb"] for x in p], [2.3, 2.3, 2.3, 2.3])
+        self.assertEqual([x["date"] for x in p], ["2027-03-01", "2027-09-15", "2028-03-01", "2028-09-15"])  # spring prep, then early fall
+        gaps = [(date.fromisoformat(b["date"]) - date.fromisoformat(a["date"])).days for a, b in zip(p, p[1:])]
+        self.assertTrue(all(g >= sul.SPACING_DAYS for g in gaps))
+        r = sul.plan((9.2, 18.5), True, 3.0, 13.8, today, last, [])
+        self.assertEqual(len(r), 1)  # a range plans one pass at a time
+        self.assertEqual(r[0]["lb"], 3.0)
+        # a small ceiling pushes later passes into the next year
+        c = sul.plan((9.2, 9.2), False, 3.0, 4.0, date(2027, 3, 1), None, [])
+        self.assertEqual([x["date"][:4] for x in c], ["2027", "2028", "2029", "2030"])
+        self.assertEqual(sul.lbs_of("2.3 lb"), 2.3)
+        self.assertIsNone(sul.lbs_of("8.8"))
+        self.assertIsNone(sul.lbs_of("6 yards"))
+
+    def test_garden_card_gets_the_estimate_and_limits(self):
+        m = make(date(2026, 11, 1))
+        gid = m.add_garden("Big", ph_min=6.0, ph_max=6.8)
+        m.log_ph(gid, 8.0, "2026-09-20")
+        m.update_garden(gid, area_sqft=600)
+        g = next(x for x in m.snapshot()["gardens"] if x["id"] == gid)["sulfur"]
+        self.assertTrue(g["show"])
+        self.assertEqual(g["target"], 6.5)
+        self.assertEqual(g["soil"], "clay_loam")
+        self.assertEqual(g["estimate"]["lb"], [9.2, 18.5])
+        self.assertEqual(g["cap_lb"], 3.0)
+        self.assertEqual(len(g["plan"]), 1)
+        m.log_adjunct(gid, "sulfur", "2026-10-25", amount="2.3 lb")
+        m.log_adjunct(gid, "sulfur", "2026-10-26", amount="5 lb")
+        g = next(x for x in m.snapshot()["gardens"] if x["id"] == gid)
+        self.assertTrue(g["sulfur"]["wait"])
+        self.assertEqual(g["sulfur"]["next_ok"], "2027-01-25")
+        flags = {e["amount"]: e.get("flag") for e in g["adjunct_log"]}
+        self.assertIsNone(flags["2.3 lb"])
+        self.assertTrue(flags["5 lb"])  # more than one pass should take
+        m.log_ph(gid, 6.4, "2026-10-30")
+        self.assertFalse(next(x for x in m.snapshot()["gardens"] if x["id"] == gid)["sulfur"]["show"])
+        with self.assertRaises(GardenError):
+            m.update_garden(gid, sulfur_limit=9)
+
+
 class PlantNames(unittest.TestCase):
     def labels(self, m, vid):
         return [p["label"] for p in m.data["varieties"][vid]["plants"]]

@@ -19,7 +19,7 @@ HANDLERS: dict[str, Handler] = {
     "update_garden": lambda m, c: m.update_garden(c["garden"], c.get("name"), c.get("ph_entity"),
         c.get("ph_min"), c.get("ph_max"), c.get("ec_min"), c.get("ec_max"),
         c.get("moisture_min"), c.get("moisture_max"),
-        c.get("probe_depth")),
+        c.get("probe_depth"), c.get("area_sqft"), c.get("sulfur_limit")),
     "remove_garden": lambda m, c: m.remove_garden(c["garden"]),
     "restore_garden": lambda m, c: m.restore_garden(c["garden"]),
     "add_adjunct_type": lambda m, c: m.add_adjunct_type(c["garden"], c["name"], c.get("per_year"), c.get("interval_days")),

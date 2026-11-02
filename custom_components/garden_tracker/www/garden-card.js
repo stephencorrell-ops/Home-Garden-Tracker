@@ -8,6 +8,7 @@ const STATUS_TEXT = { alive: "Alive", dead: "Dead", pulled: "Pulled early", harv
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const num = (n, d = 2) => (n === null || n === undefined || n === "" ? "" : String(Math.round(Number(n) * 10 ** d) / 10 ** d));
 const fmtMd = (md) => new Date(2000, Number(md.slice(0, 2)) - 1, Number(md.slice(3))).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+const f1 = (x) => Number(x).toFixed(1);
 const fmtDate = (iso, withYear) => {
   if (!iso) return "";
   const d = new Date(iso + "T00:00:00");
@@ -1114,6 +1115,7 @@ class GardenTrackerCard extends HTMLElement {
     h += `<button style="width:100%;margin-top:8px" data-act="toggle-log">${this._icon(this._showLog ? "chevron-up" : "chevron-down")} Application log (${log.length})</button>`;
     if (this._showLog) for (const e of log) h += this._logRow("adjunct", gid, e.id, esc(e.type_name) + (e.product ? `, ${esc(e.product)}` : ""), fmtDate(e.date) + (e.amount ? ` · ${esc(e.amount)}` : ""));
     h += `</div>`;
+    h += this._sulfurCard(g);
     h += this._sensorAlarmCard(g);
     const all = this._vars().filter((v) => v.garden === gid), mine = this._sortVars(all.filter((v) => this._matches(v, "g" + gid)), this._sort);
     h += `<div class="card"><div class="sec">Plants in this garden</div>${all.length > 3 ? this._searchBox("g" + gid, "Search plants here") : ""}${all.length && !mine.length ? `<div class="small mut" style="margin:6px 0">No plants match your search.</div>` : ""}${mine.map((v) => `<div class="lg" style="cursor:pointer" data-act="open-v" data-v="${v.id}"><div class="t">${esc(v.name)}<span>${esc(v.species_name)}${v.kind === "tree" ? "" : `, ${v.alive} of ${v.count} plants`}</span></div>${this._icon("chevron-right")}</div>`).join("") || `<div class="small mut">None yet.</div>`}<div class="row" style="margin-top:8px">${this._btn("form-variety", "plus", "Add plant", `data-g="${gid}"`)}${mine.some((v) => !v.archived && v.kind !== "tree") ? this._btn("form-endseason", "archive", "End season", `data-g="${gid}"`, "danger") : ""}</div></div>`;
@@ -1358,7 +1360,10 @@ class GardenTrackerCard extends HTMLElement {
       case "form-review": return this._open(this._fReview(this._variety(d.v)));
       case "form-stage": return this._open(this._fStage(this._variety(d.v)));
       case "form-biofix": return this._open(this._fBiofix(this._variety(d.v), d.s));
-      case "form-adj": return this._open(this._fAdjunct(this._garden(d.g), d.s));
+      case "form-adj": return this._open(d.s === "sulfur" && this._garden(d.g).sulfur ? this._fSulfurLog(this._garden(d.g)) : this._fAdjunct(this._garden(d.g), d.s));
+      case "form-sulfur": return this._open(this._fSulfurLog(this._garden(d.g)));
+      case "form-sulfur-limit": return this._open(this._fSulfurLimit(this._garden(d.g)));
+      case "sulfur-limit": return this._call("update_garden", { garden: d.g, sulfur_limit: Number(d.val) });
       case "form-ph": return this._open(this._fPh(this._garden(d.g)));
       case "form-endseason": return this._open(this._fEndSeason(this._garden(d.g)));
       case "form-cover": return this._open(this._fCover(this._garden(d.g)));
@@ -1859,6 +1864,7 @@ class GardenTrackerCard extends HTMLElement {
           { name: "moisture_min", label: "Trust EC above moisture (%)", type: "number", step: "1", value: g.fertility.moisture_band[0], span: 3 },
           { name: "moisture_max", label: "Trust EC below moisture (%)", type: "number", step: "1", value: g.fertility.moisture_band[1], span: 3 },
           { name: "probe_depth", label: "Probe depth (inches)", type: "number", step: "0.5", value: g.fertility.depth },
+          { name: "area_sqft", label: "Bed size for the sulfur estimate (sq ft)", type: "number", step: "1", value: g.sulfur && g.sulfur.area_source === "set" ? g.sulfur.area_sqft : "", placeholder: g.sulfur && g.sulfur.area_source === "layout" ? `${g.sulfur.area_sqft} from the layout` : "Length times width" },
           { name: "frost_last", label: "Expected last spring frost", type: "date", value: g.frost.last_date, span: 3 },
           { name: "frost_first", label: "Expected first fall frost", type: "date", value: g.frost.first_date, span: 3 },
           { name: "show_water", label: "Watering log and moisture estimate", type: "seg", options: [["1", "Show"], ["0", "Hide"]], value: g.show_water ? "1" : "0" },
@@ -2019,6 +2025,70 @@ class GardenTrackerCard extends HTMLElement {
       fields: [{ name: "days", label: "Water every (days)", type: "number", step: "1", value: g.water.every || "" }],
       note: "Shows Water now once this many days have passed. Enter 0 to turn it off.",
       submit: (x) => this._call("set_water_interval", { garden: g.id, days: x.days === undefined ? 0 : x.days }),
+    };
+  }
+  _sulfurCard(g) {
+    const S = g.sulfur;
+    if (!S || !S.show) return "";
+    const gid = g.id, E = S.estimate, mut = (t) => `<div class="small mut" style="margin-top:4px">${t}</div>`;
+    const lb = (a, b) => (b === undefined || Math.abs(a - b) < 0.05 ? `${f1(a)} lb` : `${f1(a)} to ${f1(b)} lb`);
+    let h = `<div class="card"><div class="row"><div class="sec grow" style="margin:0">Sulfur needed to reach your target pH</div><span class="pill info" style="margin:0">Estimate</span></div>`;
+    h += mut("Elemental sulfur, worked into the top 6 inches");
+    h += this._statGrid([["pH now", `${f1(S.ph_now)}, ${fmtDate(S.ph_date)}`], ["Aim for", S.target ? f1(S.target) : "none"], ["Bed size", S.area_sqft ? `${num(S.area_sqft, 0)} sq ft` : "Not set"]]);
+    h += `<div class="row" style="margin-top:8px;flex-wrap:wrap;gap:6px"><span class="small mut">Soil: ${esc(S.soil_name)}</span>${this._btn("form-soil", "sprout", "Change soil", `data-g="${gid}"`)}${this._btn("edit-g", "pencil", "Bed size", `data-g="${gid}"`)}</div>`;
+    if (S.why) h += `<div class="warn" style="margin-top:10px">${esc(S.why)}</div>`;
+    if (E && E.ok && S.area_sqft) {
+      h += `<div class="row" style="align-items:baseline;margin-top:12px"><span class="big">${lb(E.lb[0], E.lb[1])}</span><span class="small mut">of elemental sulfur for the whole bed</span></div>`;
+      h += mut(`About ${E.range ? `${f1(E.per_100[0])} to ${f1(E.per_100[1])}` : f1(E.per_100[0])} lb per 100 sq ft.`);
+      if (E.note) h += `<div class="warn" style="margin-top:8px">${esc(E.note)}${E.range ? " It is an estimate, so start with a single pass and re-test." : ""}</div>`;
+    }
+    h += `<div class="sec" style="margin:14px 0 0">Don't put it all on at once</div>`;
+    h += `<div class="small mut" style="margin-top:2px">Most for one pass, per 100 sq ft</div><div class="seg" style="margin-top:6px">${[0.5, 1].map((v) => `<button data-act="sulfur-limit" data-g="${gid}" data-val="${v}" class="${Math.abs(S.limit_per_100 - v) < 1e-9 ? "on" : ""}">${v} lb</button>`).join("")}<button data-act="form-sulfur-limit" data-g="${gid}" class="${[0.5, 1].includes(S.limit_per_100) ? "" : "on"}">${[0.5, 1].includes(S.limit_per_100) ? "Own" : `${num(S.limit_per_100, 2)} lb`}</button></div>`;
+    h += mut(S.cap_lb ? `That is ${f1(S.cap_lb)} lb for this bed. It starts low; raise it if a soil test or lab says to.` : "Set the bed size to see it in pounds.");
+    if (S.plan.length) {
+      h += this._statGrid([...S.plan.map((p) => [`Pass ${p.n}`, `${E.range ? "up to " : ""}${f1(p.lb)} lb, ${fmtDate(p.date, new Date(p.date + "T00:00:00").getFullYear() !== new Date().getFullYear())}`]), ...(E && E.range ? [["Then", "Re-test pH in 3 months"]] : [])]);
+      h += mut(E && E.range ? "With a range this wide the card plans one pass at a time. Re-test pH after it and the next pass is worked out from the new reading." : `${S.plan.length === 1 ? "One pass" : `${S.plan.length} passes`}, set at spring bed prep (March 1) and after the garden is out in early fall (September 15), which keeps them more than 3 months apart. Watered in. Re-test pH before each one. This stops once you reach target.`);
+    }
+    h += `<div class="sec" style="margin:14px 0 0">Before you apply</div>`;
+    if (S.cap_lb) h += mut(`Put on no more than ${f1(Math.min(S.cap_lb, S.room_lb === null ? S.cap_lb : S.room_lb))} lb in one pass${S.room_lb !== null && S.room_lb < S.cap_lb ? `, because about ${f1(S.room_lb)} lb is all that fits in a year` : ""}.`);
+    if (S.last) h += mut(`Last logged: ${S.last.lbs ? `${f1(S.last.lbs)} lb on ` : ""}${fmtDate(S.last.date)}.${S.wait ? ` Too soon for another pass until ${fmtDate(S.next_ok, true)}.` : ""}`);
+    if (!S.in_season) h += mut("Sulfur put on from November to February mostly does its work after the soil warms in spring.");
+    h += `<div class="row" style="margin-top:10px">${this._btn("form-sulfur", "flask-outline", "Check, then log sulfur", `data-g="${gid}"`, "primary")}</div>`;
+    h += mut("Check the amount first. Logging afterwards saves what you really put on and flags it if it was over, but it cannot undo it.");
+    h += mut(`Amounts: <a href="https://ohioline.osu.edu/factsheet/agf-507" target="_blank" rel="noopener">Ohio State Extension AGF-507</a>. Limit and spacing: <a href="https://precisionag.sites.clemson.edu/Calculators/Fertility/SoilAcidification/" target="_blank" rel="noopener">Clemson Extension</a>. Sources differ on a yearly ceiling; this uses about ${f1(S.ceiling_per_100)} lb per 100 sq ft (Maine blueberry guide), and a blueberry guide on eXtension says 0.7. A fall pass mostly works after the soil warms in spring, because oxidation slows near freezing, and bentonite-bound prills oxidize little until they break down. Ohio State advises against fall applications. The table assumes soil without free lime. Soil with free lime, common where the ground is dry and alkaline, needs much more, so the estimate would be too low. A lab test tells you.`);
+    return h + `</div>`;
+  }
+  _fSulfurLimit(g) {
+    return {
+      title: `Most sulfur in one pass: ${g.name}`, submitLabel: "Save",
+      fields: [{ name: "sulfur_limit", label: "Pounds per 100 sq ft", type: "number", step: "0.05", value: g.sulfur.limit_per_100, req: true }],
+      note: "Clemson Extension says no more than 5 to 10 lb per 1,000 sq ft in one pass, which is 0.5 to 1 lb per 100 sq ft.",
+      submit: (x) => this._call("update_garden", { garden: g.id, sulfur_limit: x.sulfur_limit }),
+    };
+  }
+  _fSulfurLog(g) {
+    const S = g.sulfur;
+    return {
+      title: `Sulfur: check, then log`, submitLabel: "Log as applied",
+      fields: [
+        { name: "lbs", label: "Pounds you plan to put on", type: "number", step: "0.1", req: true, span: 3 },
+        { name: "date", label: "Date", type: "date", value: this._snap.today, span: 3 },
+        { name: "notes", label: "Notes", type: "text" },
+      ],
+      note: "Type the amount first and read the check. Put it on, then log it here.",
+      preview: (x) => {
+        const l = Number(x.lbs);
+        if (!(l > 0)) return "";
+        const msg = [], bad = (t) => `<div class="err">${t}</div>`;
+        if (!S.area_sqft) return `<div class="small mut">Set the bed size to check this against the limit.</div>`;
+        if (S.cap_lb && l > S.cap_lb + 0.05) msg.push(bad(`<b>Too much for one pass.</b> Put on no more than ${f1(S.cap_lb)} lb now and save the rest for a later pass.`));
+        if (S.room_lb !== null && l > S.room_lb + 0.05) msg.push(bad(`<b>More than a year should take.</b> About ${f1(S.room_lb)} lb is the most that fits in a year here.`));
+        if (S.wait && x.date && x.date < S.next_ok) msg.push(`<div class="warn">Too soon: the last pass was ${fmtDate(S.last.date)}. Wait until ${fmtDate(S.next_ok, true)}.</div>`);
+        const m = x.date ? Number(String(x.date).slice(5, 7)) : 0;
+        if (m && (m < 3 || m > 10)) msg.push(`<div class="small mut">Sulfur put on now mostly does its work after the soil warms in spring.</div>`);
+        return msg.length ? msg.join("") : `<div class="pill ok" style="margin:0"><b>Within the limit.</b> The next pass can go on 3 months after this one.</div>`;
+      },
+      submit: (x) => this._call("log_adjunct", { garden: g.id, adjunct: "sulfur", date: x.date, amount: `${num(Number(x.lbs), 2)} lb`, notes: x.notes }),
     };
   }
   _fAdjunct(g, key) {
