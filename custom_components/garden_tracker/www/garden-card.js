@@ -1014,7 +1014,7 @@ class GardenTrackerCard extends HTMLElement {
       }
       h += `</div>`;
     } else for (const p of v.plants) {
-      h += `<div class="plant"><div class="row"><b style="font-weight:500" class="grow">${esc(p.label)}</b><span style="font-size:18px;font-weight:500">${num(p.total, 1)} lb</span></div>`;
+      h += `<div class="plant"><div class="row"><b style="font-weight:500" class="grow">${esc(p.label)}</b>${!arch && this._yearlyV(v) ? `<button class="ic" data-act="form-plant-name" data-v="${id}" data-p="${p.id}" aria-label="Rename ${esc(p.label)}">${this._icon("pencil")}</button>` : ""}<span style="font-size:18px;font-weight:500">${num(p.total, 1)} lb</span></div>`;
       if (p.status === "harvested") h += `<div class="pill ok" style="margin:6px 0 0">Harvested${p.status_date ? ", " + fmtDate(p.status_date) : ""}</div>`;
       else if (p.status !== "alive") h += `<div class="pill bad" style="margin:6px 0 0">${esc(STATUS_TEXT[p.status])}, ${esc(REASON_TEXT[p.reason] || p.reason)}${p.note ? `: ${esc(p.note)}` : ""}</div>`;
       if (!arch && p.status !== "harvested") h += `<div class="seg" style="margin-top:8px">${["alive", "dead", "pulled"].map((s) => `<button class="${p.status === s ? (s === "alive" ? "on" : "bad") : ""}" data-act="${s === "alive" ? "plant-alive" : "form-status"}" data-v="${id}" data-p="${p.id}" data-s="${s}">${STATUS_TEXT[s]}</button>`).join("")}</div>`;
@@ -1343,6 +1343,7 @@ class GardenTrackerCard extends HTMLElement {
       case "edit-g": return this._open(this._fGarden(this._garden(d.g)));
       case "edit-v": return this._open(this._fEditVariety(this._variety(d.v)));
       case "form-harvest": return this._open(this._fHarvest(this._variety(d.v)));
+      case "form-plant-name": return this._open(this._fPlantName(this._variety(d.v), d.p));
       case "form-bloom": return this._open(this._fBloom(this._variety(d.v)));
       case "form-prune": return this._open(this._fPrune(this._variety(d.v)));
       case "form-prune-month": return this._open(this._fPruneMonth(this._variety(d.v)));
@@ -1594,6 +1595,7 @@ class GardenTrackerCard extends HTMLElement {
         { name: "variety", label: "Variety", type: "text", req: true, placeholder: "Variety name", value: this._generic(this._snap.species.tomato ? "tomato" : sp[0] ? sp[0].key : "") },
         ...this._containerFields("", (v) => { const x = this._snap.gardens.find((y) => y.id === v.garden); return !!x && x.kind !== "garden"; }, false),
         { name: "plants", label: "Number of plants", type: "number", step: "1", value: 1, span: 3 },
+        { name: "label_style", label: "Name the plants", type: "chips", options: [["plant", "Plant 1, 2, 3"], ["compass", "North, South, East, West"], ["row", "Row 1, 2, 3"]], value: "plant", show: (v) => yearly(v) && Number(v.plants) > 1 },
         { name: "origin", label: "Started from", type: "seg", options: [["seed", "Seed"], ["start", "Start"]], value: "start", span: 3 },
         { name: "planted_date", labelFn: (v) => (v.origin === "seed" ? "Sow date" : kind(v) === "tree" ? "Planting date" : "Transplant date"), type: "date", value: today, span: 3 },
         { name: "days_to_harvest", label: "Days to harvest", type: "number", step: "1", show: (v) => kind(v) !== "tree", span: 3 },
@@ -1621,7 +1623,7 @@ class GardenTrackerCard extends HTMLElement {
         if (last && kind(v) !== "tree") h += `<div class="small" style="margin-top:8px">From your past seasons: ${esc(v.variety)} took ${last.days_to_first} days. <button data-act="use-days" data-n="${last.days_to_first}">Use ${last.days_to_first}</button></div>`;
         return h;
       },
-      submit: (v) => this._call("add_variety", { garden: v.garden || "", species: v.species === "other" ? v.species_other : v.species, variety: v.variety, plants: v.plants, origin: v.origin, planted_date: v.planted_date, days_to_harvest: v.days_to_harvest, expected_harvest_date: v.expected_harvest_date, ...(yearly(v) ? { harvest_window: this._windowOf(v) } : {}), expected_yield: v.expected_yield, notes: v.notes, container: v.container === undefined ? undefined : this._containerOf(v), kind: v.species === "other" ? v.kind : undefined, single_harvest: v.species === "other" && v.kind !== "tree" ? v.single_harvest === "true" : undefined }),
+      submit: (v) => this._call("add_variety", { garden: v.garden || "", species: v.species === "other" ? v.species_other : v.species, variety: v.variety, plants: v.plants, label_style: this._yearlyV({ kind: kind(v), species: v.species }) ? v.label_style : undefined, origin: v.origin, planted_date: v.planted_date, days_to_harvest: v.days_to_harvest, expected_harvest_date: v.expected_harvest_date, ...(yearly(v) ? { harvest_window: this._windowOf(v) } : {}), expected_yield: v.expected_yield, notes: v.notes, container: v.container === undefined ? undefined : this._containerOf(v), kind: v.species === "other" ? v.kind : undefined, single_harvest: v.species === "other" && v.kind !== "tree" ? v.single_harvest === "true" : undefined }),
     };
   }
   _windowFields(w, show) {
@@ -1649,6 +1651,7 @@ class GardenTrackerCard extends HTMLElement {
         ...(this._yearlyV(v) ? this._windowFields(v.harvest_window_raw) : [{ name: "expected_harvest_date", label: "Expected harvest date", type: "date", value: v.expected_harvest, span: 3 }]),
         { name: "expected_yield", label: "Expected yield per plant (lb)", type: "number", step: "0.1", value: v.expected_yield, span: 3 },
         { name: "add_plants", label: "Add plants", type: "number", step: "1", span: 3 },
+        ...(this._yearlyV(v) ? [{ name: "label_style", label: "Name new plants", type: "chips", options: [["plant", "Plant 1, 2, 3"], ["compass", "North, South, East, West"], ["row", "Row 1, 2, 3"]], value: "plant", show: (x) => Number(x.add_plants) > 0 }] : []),
         ...(v.kind === "tree" ? [] : [{ name: "multi_year", label: "Countdown in years, months, days", type: "seg", options: [["false", "No"], ["true", "Yes"]], value: String(!!v.multi_year), span: 3 }]),
         ...(v.kind === "tree" ? [] : [{ name: "single_harvest", label: "Pulled when harvested?", type: "seg", options: [["false", "No"], ["true", "Yes"]], value: String(!!v.single_harvest), span: 3 }]),
         ...(v.location_kind !== "garden" ? this._containerFields(v.container || "", null, true) : []),
@@ -1695,6 +1698,23 @@ class GardenTrackerCard extends HTMLElement {
       title: `Pruned: ${v.name}`, submitLabel: "Log pruning",
       fields: [{ name: "date", label: "Date", type: "date", value: this._snap.today }, { name: "notes", label: "Notes", type: "text" }],
       submit: (x) => this._call("log_pruning", { plant: v.id, outcome: "pruned", ...x }),
+    };
+  }
+  _fPlantName(v, pid) {
+    const p = v.plants.find((x) => x.id === pid) || {};
+    return {
+      title: `Name this plant: ${p.label}`, submitLabel: "Save",
+      fields: [
+        { name: "dir", label: "Side of the yard or garden", type: "chips", options: [["", "None"], ["North", "North"], ["South", "South"], ["East", "East"], ["West", "West"]], value: "" },
+        { name: "row", label: "Row", type: "number", step: "1", span: 3 },
+        { name: "pl", label: "Plant in the row", type: "number", step: "1", span: 3 },
+        { name: "custom", label: "Or type any name", type: "text", value: p.label },
+      ],
+      note: "Pick a side, a row, a plant number, or any mix. Like North, Row 2, or Row 2, Plant 3. A picked name replaces what is typed below.",
+      submit: (x) => {
+        const parts = [x.dir, x.row ? `Row ${x.row}` : "", x.pl ? `Plant ${x.pl}` : ""].filter(Boolean);
+        return this._call("rename_plant", { plant: v.id, id: pid, label: parts.length ? parts.join(", ") : x.custom });
+      },
     };
   }
   _fBloom(v) {

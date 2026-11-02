@@ -4,6 +4,10 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.31.13 - 2026-11-01
+
+- **Name plants by side or row.** Trees, bushes and perennials with more than one plant can be named Plant 1, 2, 3, North, South, East, West, or Row 1, 2, 3 when you add them, and when you add more later. Every plant on the Harvest card has a pencil to rename it with a side of the yard or garden, a row, a plant number, or any name you type. Names stay different within a variety. A single tree keeps its variety name and vegetables keep Plant 1, 2, 3. In Home Assistant, `add_variety` and `update_variety` take `label_style`, and a new `rename_plant` service renames one plant.
+
 ## 0.31.12 - 2026-11-01
 
 - **Harvest with no weight.** Leave the pounds empty when you log a harvest and add the weight later, such as garlic and onions after they cure and are trimmed. The pick shows as "not weighed yet" in the pick history, with a "waiting for a weight" tag on the harvest card. Tap the pencil on the pick to add the weight. A pick with no weight counts for its date but adds nothing to yield. In Home Assistant, `log_harvest` no longer requires `lbs`.

@@ -153,6 +153,42 @@ def slug(text: Any) -> str:
     return re.sub(r"[^a-z0-9]+", "_", str(text).lower()).strip("_") or "item"
 
 
+COMPASS = ["North", "South", "East", "West"]
+LABEL_STYLES = ("plant", "compass", "row")
+
+
+def next_plant_label(style: str, taken: list[str]) -> str:
+    """The next unused name for a plant in a variety: Plant 1, North, or Row 1."""
+    low = {t.lower() for t in taken}
+    if style == "compass":
+        for c in COMPASS:
+            if c.lower() not in low:
+                return c
+    word = "Row" if style == "row" else "Plant"
+    n = 1
+    while f"{word} {n}".lower() in low:
+        n += 1
+    return f"{word} {n}"
+
+
+COMPASS = ["North", "South", "East", "West"]
+LABEL_STYLES = ("plant", "compass", "row")
+
+
+def next_plant_label(style: str, taken: list[str]) -> str:
+    """The next unused name for a plant in a variety: Plant 1, North, or Row 1."""
+    low = {t.lower() for t in taken}
+    if style == "compass":
+        for c in COMPASS:
+            if c.lower() not in low:
+                return c
+    word = "Row" if style == "row" else "Plant"
+    n = 1
+    while f"{word} {n}".lower() in low:
+        n += 1
+    return f"{word} {n}"
+
+
 def new_id() -> str:
     return uuid.uuid4().hex[:8]
 
@@ -1845,7 +1881,7 @@ class GardenModel:
                     expected_yield: float | None = None, notes: str = "",
                     kind: str | None = None, single_harvest: bool | None = None,
                     multi_year: bool | None = None, container: str | None = None,
-                    harvest_window: Any = None) -> str:
+                    harvest_window: Any = None, label_style: str = "plant") -> str:
         skey = slug(species)
         sp = self.get_species(skey)
         g = self._place(garden, bool(sp["kind"] == "tree" if sp else kind == "tree"))
@@ -1879,12 +1915,16 @@ class GardenModel:
             "expected_yield": expected_yield, "notes": notes or "", "expected_rule": use_rule,
             "multi_year": ((bool(sp.get("multi_year")) if sp else False) or bool(multi_year)) if vkind != "tree" else False,
             "single_harvest": (bool(sp.get("single_harvest")) if sp else False) or bool(single_harvest) if vkind != "tree" else False,
-            "plants": [{"id": new_id(), "label": f"Plant {i + 1}" if count > 1 or vkind != "tree" else variety or species,
-                        "status": "alive", "reason": "", "note": "", "status_date": None}
-                       for i in range(count)],
+            "plants": [],
             "harvests": [], "fertilizations": [], "sprays": [], "biofix": {}, "reviews": [], "prunings": [], "blooms": [], "prune_month": None,
             "harvest_window": self._window(harvest_window),
             "archived": None}
+        v = self.data["varieties"][vid]
+        style = label_style if label_style in LABEL_STYLES and (vkind == "tree" or (sp or {}).get("perennial")) else "plant"
+        for i in range(count):
+            label = next_plant_label(style if count > 1 else "plant", [p["label"] for p in v["plants"]]) \
+                if count > 1 or vkind != "tree" else variety or species
+            v["plants"].append({"id": new_id(), "label": label, "status": "alive", "reason": "", "note": "", "status_date": None})
         self._touch(True)
         return vid
 
@@ -1894,7 +1934,7 @@ class GardenModel:
                        notes: str | None = None, add_plants: int | None = None,
                        single_harvest: bool | None = None, multi_year: bool | None = None,
                        container: str | None = None, species_name: str | None = None, kind: str | None = None,
-                       harvest_window: Any = None) -> None:
+                       harvest_window: Any = None, label_style: str = "plant") -> None:
         v = self.find_variety(ref)
         if harvest_window is not None:
             v["harvest_window"] = self._window(harvest_window)
@@ -1947,9 +1987,24 @@ class GardenModel:
         if notes is not None:
             v["notes"] = notes
         for _ in range(int(add_plants or 0)):
-            v["plants"].append({"id": new_id(), "label": f"Plant {len(v['plants']) + 1}", "status": "alive",
-                                "reason": "", "note": "", "status_date": None})
+            style = label_style if label_style in LABEL_STYLES and self._perennial(v) else "plant"
+            v["plants"].append({"id": new_id(), "label": next_plant_label(style, [p["label"] for p in v["plants"]]),
+                                "status": "alive", "reason": "", "note": "", "status_date": None})
         self._touch(True)
+
+    def rename_plant(self, ref: str, plant: str, label: str) -> None:
+        """Give one plant a name such as North, Row 2 or Row 2, Plant 3. Names are unique within a variety."""
+        v = self.find_variety(ref)
+        p = next((x for x in v["plants"] if x["id"] == plant or x["label"].lower() == str(plant).lower()), None)
+        if p is None:
+            raise GardenError(f"No plant '{plant}' in {v['name']}")
+        label = " ".join(str(label or "").split())
+        if not label or len(label) > 40:
+            raise GardenError("Give the plant a name of 1 to 40 characters")
+        if any(x is not p and x["label"].lower() == label.lower() for x in v["plants"]):
+            raise GardenError(f"Another plant here is already called {label}")
+        p["label"] = label
+        self._touch()
 
     def set_harvest(self, ref: str, expected: Any = None, expected_yield: float | None = None) -> None:
         v = self.find_variety(ref)
