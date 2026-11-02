@@ -1397,8 +1397,7 @@ class SulfurNeeded(unittest.TestCase):
         today, last = date(2026, 11, 1), date(2026, 9, 20)
         p = sul.plan((9.2, 9.2), False, 3.0, 13.8, today, last, [(last, 2.3)])
         self.assertEqual([x["lb"] for x in p], [2.3, 2.3, 2.3, 2.3])
-        self.assertEqual(p[0]["date"], "2027-03-01")  # winter waits for March
-        self.assertTrue(all(date.fromisoformat(x["date"]).month in range(3, 9) for x in p))
+        self.assertEqual([x["date"] for x in p], ["2027-03-01", "2027-09-15", "2028-03-01", "2028-09-15"])  # spring prep, then early fall
         gaps = [(date.fromisoformat(b["date"]) - date.fromisoformat(a["date"])).days for a, b in zip(p, p[1:])]
         self.assertTrue(all(g >= sul.SPACING_DAYS for g in gaps))
         r = sul.plan((9.2, 18.5), True, 3.0, 13.8, today, last, [])

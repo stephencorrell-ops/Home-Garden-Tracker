@@ -31,7 +31,8 @@ START_MIN, START_MAX, TARGET_MIN, TARGET_MAX = 7.0, 8.5, 5.5, 6.5
 CAP_PER_100 = 0.5          # lb per 100 sq ft in one pass: the low end of Clemson's 5 to 10 lb per 1,000 sq ft
 CEILING_PER_100 = 1000 / ACRE * 100  # lb per 100 sq ft in a year: Maine's 1,000 lb per acre, about 2.3
 SPACING_DAYS = 91          # Clemson: no more often than every 2 to 3 months, so use the longer
-SEASON = range(3, 9)       # March to August: Ohio State says fall and winter are not advisable
+SEASON = range(3, 11)      # March to October: the soil is warm enough to react. November to February is too cold
+SLOTS = ((3, 1), (9, 15))  # spring bed prep, and after the garden is out in early fall
 
 
 def _interp(x: float, pts: dict[float, float]) -> float:
@@ -90,31 +91,42 @@ def in_season(d: date) -> bool:
 
 
 def season_start(d: date) -> date:
-    """The first day sulfur is suited on or after d: d itself in March to August, else the next March 1."""
+    """The first day sulfur is suited on or after d: d itself in March to October, else the next March 1."""
     if in_season(d):
         return d
-    return date(d.year + (1 if d.month > 8 else 0), 3, 1)
+    return date(d.year + (1 if d.month > 10 else 0), 3, 1)
+
+
+def next_slot(d: date) -> date:
+    """The next bed-prep time on or after d: March 1 or September 15."""
+    for y in (d.year, d.year + 1):
+        for m, dd in SLOTS:
+            if date(y, m, dd) >= d:
+                return date(y, m, dd)
+    return d
 
 
 def plan(total: tuple[float, float], range_: bool, cap_lb: float, ceiling_lb: float, today: date,
          last: date | None, applied: list[tuple[date, float]]) -> list[dict[str, Any]]:
-    """Passes no bigger than the cap, spaced and kept to spring and summer. With a range, only the first pass is planned."""
+    """Passes no bigger than the cap, at least SPACING_DAYS apart, set at spring bed prep and after the garden is out in
+    early fall. With a range, only the first pass is planned."""
     lo = total[0]
     if lo <= 0 or cap_lb <= 0:
         return []
     n = 1 if range_ else max(1, math.ceil(lo / cap_lb - 1e-9))
     each = min(cap_lb, lo) if range_ else lo / n
-    out, when = [], season_start(next_ok(last, today))
+    start = next_ok(last, today)
+    out, when = [], (start if in_season(start) else next_slot(start))
     done = list(applied)
     for i in range(n):
         for _ in range(4):  # push to next year when the yearly ceiling is used up
             year = [lb for d, lb in done if when - timedelta(days=365) < d <= when]
             if sum(year) + each <= ceiling_lb + 1e-9:
                 break
-            when = season_start(date(when.year + 1, 3, 1))
+            when = date(when.year + 1, 3, 1)
         out.append({"n": i + 1, "lb": round(each, 1), "date": when.isoformat()})
         done.append((when, each))
-        when = season_start(when + timedelta(days=SPACING_DAYS))
+        when = next_slot(when + timedelta(days=SPACING_DAYS))
     return out
 
 
