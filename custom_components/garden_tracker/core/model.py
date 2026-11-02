@@ -2396,8 +2396,21 @@ class GardenModel:
         varieties.sort(key=lambda x: (x["archived"] is not None, x["garden"], x["kind"], x["name"].lower()))
         return {"today": today.isoformat(), "micro": self._micro_view(today), "species": species, "gardens": gardens,
                 "varieties": varieties, "past_gardens": self._past_gardens(), "variety_traits": list(self.data["variety_traits"].values()), "can_undo": self._trash is not None,
-                "containers": list(DEFAULT_CONTAINERS), "container_per_tray": dict(CONTAINER_PER_TRAY),
+                "harvest_years": self._harvest_years(species), "containers": list(DEFAULT_CONTAINERS), "container_per_tray": dict(CONTAINER_PER_TRAY),
                 "reasons": REASONS}
+
+    def _harvest_years(self, species: dict) -> dict:
+        """Pounds picked in each year, for every plant type (apple, peach, tomato...) you have ever grown, past plants included."""
+        out: dict[str, dict] = {}
+        for v in self.data["varieties"].values():
+            key = v["species"]
+            e = out.setdefault(key, {"key": key, "name": (species.get(key) or {}).get("name") or v.get("species_name") or key, "years": {}})
+            for h in v["harvests"]:
+                y = h["date"][:4]
+                e["years"][y] = round(e["years"].get(y, 0.0) + h["lbs"], 2)
+        for e in out.values():
+            e["years"] = dict(sorted(e["years"].items(), reverse=True))
+        return out
 
     def _layout_view(self, g: dict, today: date) -> dict:
         out = lay.plan(g.get("layout"), self._plant_names(), self._history(g), today.year, self.data["variety_traits"], self._lat(), *self._soil_ph(g))

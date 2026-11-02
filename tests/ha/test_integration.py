@@ -159,3 +159,20 @@ async def test_harvest_window_goes_through_the_services(hass, entry, call):
     assert next(v for v in hass.data[DOMAIN].snapshot()["varieties"] if v["name"] == "Gala")["harvest_window"] is None
     with pytest.raises(ServiceValidationError):
         await call("update_variety", plant=views["Gala"]["id"], harvest_window={"fm": 7})
+
+
+async def test_yearly_harvest_totals_by_plant_type(hass, entry, call):
+    await call("add_garden", name="Bed")
+    await call("add_variety", garden="Bed", species="tomato", variety="Sungold", plants=2)
+    await call("add_variety", garden="Bed", species="tomato", variety="Roma", plants=2)
+    await call("log_harvest", plant="Sungold", lbs=10, date="2025-08-01")
+    await call("log_harvest", plant="Roma", lbs=5.5, date="2025-08-02")
+    await call("log_harvest", plant="Sungold", lbs=3, date="2026-07-20")
+    await hass.async_block_till_done()
+    ents = [s for s in hass.states.async_all("sensor") if s.entity_id.startswith("sensor.harvest_totals_")]
+    tom = next(s for s in ents if "tomato" in s.entity_id)
+    by_year = tom.attributes["by_year"]
+    assert by_year["2025"] == 15.5 and by_year["2026"] == 3.0  # the varieties add up under one plant type
+    allp = next(s for s in ents if "all_plants" in s.entity_id)
+    assert allp.attributes["by_year"]["2025"] == 15.5
+    assert allp.attributes["by_plant_type_this_year"]

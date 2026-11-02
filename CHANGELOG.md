@@ -4,6 +4,10 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.31.15 - 2026-11-01
+
+- **Yearly harvest totals for each plant type.** A "Harvest totals" device in Home Assistant has a sensor per plant type (for example Tomato this year) and one for all plants. Each shows pounds picked so far this year and keeps every earlier year in its `by_year` attribute, so other integrations (like Put 'Em Up) can read them. The all-plants sensor also lists this year's total by plant type.
+
 ## 0.31.14 - 2026-11-01
 
 - **Sulfur needed to reach your target pH.** When a garden's pH is above its target, the garden page shows how much elemental sulfur the bed needs, from Ohio State Extension's table by soil type (sand, silt loam, clay; sandy loam, loam and clay loam are shown as ranges or the closest row, since the table lacks them). It uses the soil you set under watering and the bed size from the layout, or one you enter in Edit garden. It aims for the top of your pH range, held to 6.5.

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -13,6 +14,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, SIGNAL_STRUCTURE, SIGNAL_UPDATE
 from .manager import GardenManager
@@ -502,6 +504,48 @@ def _date(years: list[dict], field: str):
     return date.fromisoformat(cur[field]) if cur and cur[field] else None
 
 
+class YearTotalSensor(_Base):
+    """Pounds picked so far this year for one plant type, or for everything. Earlier years are in the attributes."""
+    _attr_device_class = SensorDeviceClass.WEIGHT
+    _attr_native_unit_of_measurement = UnitOfMass.POUNDS
+    _attr_state_class = SensorStateClass.TOTAL
+
+    def __init__(self, mgr, known, key: str | None, name: str) -> None:
+        super().__init__(mgr, known, f"harvest_year_{key or 'all'}", "harvest_totals", "Harvest totals", "By plant type")
+        self._key = key
+        self._attr_name = f"{name} this year"
+
+    def _years(self) -> dict:
+        hy = self._mgr.snapshot()["harvest_years"]
+        if self._key is not None:
+            return (hy.get(self._key) or {}).get("years", {})
+        total: dict[str, float] = {}
+        for e in hy.values():
+            for y, lbs in e["years"].items():
+                total[y] = round(total.get(y, 0.0) + lbs, 2)
+        return dict(sorted(total.items(), reverse=True))
+
+    def _year(self) -> int:
+        return int(self._mgr.snapshot()["today"][:4])
+
+    @property
+    def native_value(self):
+        return self._years().get(str(self._year()), 0.0)
+
+    @property
+    def last_reset(self):
+        return datetime(self._year(), 1, 1, tzinfo=dt_util.DEFAULT_TIME_ZONE)
+
+    @property
+    def extra_state_attributes(self):
+        attrs = {"by_year": self._years()}
+        if self._key is None:
+            hy = self._mgr.snapshot()["harvest_years"]
+            y = str(self._year())
+            attrs["by_plant_type_this_year"] = {e["name"]: e["years"][y] for e in hy.values() if y in e["years"]}
+        return attrs
+
+
 class MicroSensor(_Base):
     """Local climate worked out from your own sensors, on one 'Microclimate' device."""
 
@@ -564,6 +608,11 @@ def _build(mgr: GardenManager, known: set) -> list:
             continue
         if f"micro_{d.key}" not in known:
             ents.append(MicroSensor(mgr, known, d))
+    if "harvest_year_all" not in known:
+        ents.append(YearTotalSensor(mgr, known, None, "All plants"))
+    for key, e in snap["harvest_years"].items():
+        if f"harvest_year_{key}" not in known:
+            ents.append(YearTotalSensor(mgr, known, key, e["name"]))
     for g in snap["gardens"]:
         if g["kind"] != "garden":
             for uid, cls in (("watered", WateringSensor), ("trays", TraysSensor)):
