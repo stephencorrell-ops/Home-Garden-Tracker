@@ -1003,6 +1003,8 @@ class GardenTrackerCard extends HTMLElement {
   _harvestCard(v, arch) {
     const id = v.id;
     let h = `<div class="card"><div class="row"><div class="grow"><div class="sec" style="margin:0">Harvest</div><div class="big">${num(v.total_lbs, 1)} lb</div></div>${!arch && v.alive ? this._btn("form-harvest", "basket", v.single_harvest ? "Harvest" : "Log harvest", `data-v="${id}"`, "primary") : ""}</div>`;
+    const wait = v.harvests.filter((x) => x.pending).length;
+    if (wait) h += `<div class="pill info" style="margin:6px 0 0">${wait} pick${wait === 1 ? "" : "s"} waiting for a weight</div>`;
     if (v.single_harvest) h += `<div class="small mut" style="margin-top:4px">Pulled when harvested: each plant is finished once it is harvested.</div>`;
     if (!arch && !v.alive) h += `<div class="small mut">No living plants to receive a harvest.</div>`;
     if (v.grouped) {
@@ -1020,8 +1022,8 @@ class GardenTrackerCard extends HTMLElement {
     }
     if (v.harvests.length) h += `<div class="sec" style="margin:12px 0 0">Pick history</div>`;
     for (const x of v.harvests) {
-      h += this._logRow("harvest", id, x.id, `${fmtDate(x.date)}, ${num(x.lbs)} lb`,
-        `${x.ended ? `${x.ended} plant${x.ended === 1 ? "" : "s"} pulled, ` : ""}${num(x.each)} lb each to ${esc(x.to_text)}${x.notes ? ` · ${esc(x.notes)}` : ""}`, x.ended ? `The ${x.ended} plant${x.ended === 1 ? "" : "s"} it harvested go back to growing, and the planting returns from Past plants if this was the last of it.` : `This takes ${num(x.each)} lb off each plant that received it.`);
+      h += this._logRow("harvest", id, x.id, x.pending ? `${fmtDate(x.date)}, not weighed yet` : `${fmtDate(x.date)}, ${num(x.lbs)} lb`,
+        `${x.pending ? `${x.ended ? `${x.ended} plant${x.ended === 1 ? "" : "s"} pulled. ` : ""}Tap the pencil to add the weight after curing and trimming.` : `${x.ended ? `${x.ended} plant${x.ended === 1 ? "" : "s"} pulled, ` : ""}`}${x.pending ? "" : `${num(x.each)} lb each to ${esc(x.to_text)}`}${x.notes ? ` · ${esc(x.notes)}` : ""}`, x.ended ? `The ${x.ended} plant${x.ended === 1 ? "" : "s"} it harvested go back to growing, and the planting returns from Past plants if this was the last of it.` : `This takes ${num(x.each)} lb off each plant that received it.`);
     }
     return h + `</div>`;
   }
@@ -1672,7 +1674,7 @@ class GardenTrackerCard extends HTMLElement {
     return {
       title: `${v.single_harvest ? "Harvest" : "Log harvest"}: ${v.name}`, submitLabel: v.single_harvest ? "Harvest" : "Log harvest",
       fields: [
-        { name: "lbs", label: "Pounds picked", type: "number", step: "0.1", req: true, span: 3 },
+        { name: "lbs", label: "Pounds picked (empty if not weighed yet)", type: "number", step: "0.1", span: 3 },
         { name: "date", label: "Date", type: "date", value: this._snap.today, span: 3 },
         ...(v.single_harvest ? [{ name: "plants", label: `Plants pulled (of ${v.alive})`, type: "number", step: "1", value: v.alive }] : []),
         { name: "notes", label: "Notes", type: "text" },
@@ -1688,7 +1690,7 @@ class GardenTrackerCard extends HTMLElement {
         }
         return `<div class="small mut">${num(l)} lb split across ${v.alive} living plant${v.alive === 1 ? "" : "s"}: ${num(l / v.alive)} lb each</div>`;
       },
-      submit: (x) => this._call("log_harvest", { plant: v.id, ...x }),
+      submit: (x) => { const { lbs, ...rest } = x; return this._call("log_harvest", { plant: v.id, ...rest, ...(Number(lbs) > 0 ? { lbs } : {}) }); },
     };
   }
   _fPrune(v) {
@@ -2801,7 +2803,7 @@ class GardenTrackerCard extends HTMLElement {
   _fEntry(kind, parent, id) {
     const e = this._findEntry(kind, parent, id), g = this._garden(parent);
     const F = {
-      harvest: [{ name: "lbs", label: "Pounds", type: "number", step: "0.1", value: e.lbs, req: true, span: 3 }, { name: "date", label: "Date", type: "date", value: e.date, span: 3 }, { name: "notes", label: "Notes", type: "text", value: e.notes }],
+      harvest: [{ name: "lbs", label: e.pending ? "Weight (after curing and trimming)" : "Pounds", type: "number", step: "0.1", value: e.pending ? "" : e.lbs, req: true, span: 3 }, { name: "date", label: "Date", type: "date", value: e.date, span: 3 }, { name: "notes", label: "Notes", type: "text", value: e.notes }],
       fertilizer: [{ name: "product", label: "Product", type: "text", value: e.product, req: true }, { name: "n", label: "N", type: "number", step: "0.1", value: e.n, span: 2 }, { name: "p", label: "P", type: "number", step: "0.1", value: e.p, span: 2 }, { name: "k", label: "K", type: "number", step: "0.1", value: e.k, span: 2 }, { name: "date", label: "Date", type: "date", value: e.date }, { name: "notes", label: "Notes", type: "text", value: e.notes }],
       prune: [{ name: "outcome", label: "What happened", type: "chips", options: [["pruned", "Pruned"], ["skipped", "No pruning needed"]], value: e.outcome }, { name: "date", label: "Date", type: "date", value: e.date }, { name: "notes", label: "Notes", type: "text", value: e.notes }],
       spray: [{ name: "product", label: "Product", type: "text", value: e.product, req: true }, { name: "target", label: "Target pest", type: "text", value: e.target }, { name: "date", label: "Date", type: "date", value: e.date }, { name: "phi_days", label: "Days before harvest", type: "number", step: "1", value: e.phi_days, span: 3 }, { name: "reapply_days", label: "Reapply after days", type: "number", step: "1", value: e.reapply_days, span: 3 }],
