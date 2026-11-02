@@ -2052,10 +2052,10 @@ class GardenTrackerCard extends HTMLElement {
     h += `<div class="sec" style="margin:14px 0 0">Before you apply</div>`;
     if (S.cap_lb) h += mut(`Put on no more than ${f1(Math.min(S.cap_lb, S.room_lb === null ? S.cap_lb : S.room_lb))} lb in one pass${S.room_lb !== null && S.room_lb < S.cap_lb ? `, because about ${f1(S.room_lb)} lb is all that fits in a year` : ""}.`);
     if (S.last) h += mut(`Last logged: ${S.last.lbs ? `${f1(S.last.lbs)} lb on ` : ""}${fmtDate(S.last.date)}.${S.wait ? ` Too soon for another pass until ${fmtDate(S.next_ok, true)}.` : ""}`);
-    if (!S.in_season) h += `<div class="warn" style="margin-top:8px">The soil is cold from November to February and sulfur works slowly. Your spring bed prep suits it better.</div>`;
+    if (!S.in_season) h += mut("Sulfur put on from November to February mostly does its work after the soil warms in spring.");
     h += `<div class="row" style="margin-top:10px">${this._btn("form-sulfur", "flask-outline", "Check, then log sulfur", `data-g="${gid}"`, "primary")}</div>`;
     h += mut("Check the amount first. Logging afterwards saves what you really put on and flags it if it was over, but it cannot undo it.");
-    h += mut(`Amounts: <a href="https://ohioline.osu.edu/factsheet/agf-507" target="_blank" rel="noopener">Ohio State Extension AGF-507</a>. Limit and spacing: <a href="https://precisionag.sites.clemson.edu/Calculators/Fertility/SoilAcidification/" target="_blank" rel="noopener">Clemson Extension</a>. Sources differ on a yearly ceiling; this uses about ${f1(S.ceiling_per_100)} lb per 100 sq ft (Maine blueberry guide), and a blueberry guide on eXtension says 0.7. Ohio State advises against fall applications because the soil cools, so keep the fall pass to early fall while the soil is still warm. The table assumes soil without free lime. Soil with free lime, common where the ground is dry and alkaline, needs much more, so the estimate would be too low. A lab test tells you.`);
+    h += mut(`Amounts: <a href="https://ohioline.osu.edu/factsheet/agf-507" target="_blank" rel="noopener">Ohio State Extension AGF-507</a>. Limit and spacing: <a href="https://precisionag.sites.clemson.edu/Calculators/Fertility/SoilAcidification/" target="_blank" rel="noopener">Clemson Extension</a>. Sources differ on a yearly ceiling; this uses about ${f1(S.ceiling_per_100)} lb per 100 sq ft (Maine blueberry guide), and a blueberry guide on eXtension says 0.7. A fall pass mostly works after the soil warms in spring, because oxidation slows near freezing, and bentonite-bound prills oxidize little until they break down. Ohio State advises against fall applications. The table assumes soil without free lime. Soil with free lime, common where the ground is dry and alkaline, needs much more, so the estimate would be too low. A lab test tells you.`);
     return h + `</div>`;
   }
   _fSulfurLimit(g) {
@@ -2085,7 +2085,7 @@ class GardenTrackerCard extends HTMLElement {
         if (S.room_lb !== null && l > S.room_lb + 0.05) msg.push(bad(`<b>More than a year should take.</b> About ${f1(S.room_lb)} lb is the most that fits in a year here.`));
         if (S.wait && x.date && x.date < S.next_ok) msg.push(`<div class="warn">Too soon: the last pass was ${fmtDate(S.last.date)}. Wait until ${fmtDate(S.next_ok, true)}.</div>`);
         const m = x.date ? Number(String(x.date).slice(5, 7)) : 0;
-        if (m && (m < 3 || m > 10)) msg.push(`<div class="warn">The soil is cold from November to February and sulfur works slowly. Spring bed prep or early fall suits it better.</div>`);
+        if (m && (m < 3 || m > 10)) msg.push(`<div class="small mut">Sulfur put on now mostly does its work after the soil warms in spring.</div>`);
         return msg.length ? msg.join("") : `<div class="pill ok" style="margin:0"><b>Within the limit.</b> The next pass can go on 3 months after this one.</div>`;
       },
       submit: (x) => this._call("log_adjunct", { garden: g.id, adjunct: "sulfur", date: x.date, amount: `${num(Number(x.lbs), 2)} lb`, notes: x.notes }),

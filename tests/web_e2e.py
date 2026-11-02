@@ -475,7 +475,7 @@ def main():
         card.locator("input[data-f=lbs]").fill("2.3")
         pg.wait_for_timeout(300)
         ct = card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText")
-        check("Too much for one pass" not in ct and "soil is cold" in ct, "an amount within the limit passes, with a cold-soil warning in the off months")
+        check("Too much for one pass" not in ct and "after the soil warms" in ct, "an amount within the limit passes, with a note that winter sulfur acts in spring")
         if SHOTS: pg.screenshot(path=str(SHOTS / "sulfur-check.png"), full_page=True)
         check(not errors, f"no page errors {errors[:2]}")
         b.close()
