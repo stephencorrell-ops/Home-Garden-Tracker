@@ -16,6 +16,7 @@ from . import rotation as rot
 from . import microclimate as mc
 from . import season as season_mod, chores as chores_mod
 from . import sun as sun_mod
+from . import sulfur as sul
 
 
 DEFAULT_SETTINGS = {"frost_last": "04-25", "frost_first": "10-15",  # Ephrata, WA averages
@@ -554,9 +555,18 @@ class GardenModel:
                       ph_min: float | None = None, ph_max: float | None = None,
                       ec_min: float | None = None, ec_max: float | None = None,
                       moisture_min: float | None = None, moisture_max: float | None = None,
-                      probe_depth: float | None = None) -> None:
+                      probe_depth: float | None = None, area_sqft: float | None = None,
+                      sulfur_limit: float | None = None) -> None:
         g = self.find_garden(ref)
         self._ensure_garden(g)
+        if area_sqft is not None:
+            if area_sqft < 0 or area_sqft > 1_000_000:
+                raise GardenError("Bed size must be 0 to 1,000,000 square feet")
+            g["area_sqft"] = round(area_sqft, 1) or None
+        if sulfur_limit is not None:
+            if not 0.05 <= sulfur_limit <= 5:
+                raise GardenError("The most sulfur in one pass must be between 0.05 and 5 lb per 100 sq ft")
+            g["sulfur_limit"] = round(sulfur_limit, 2)
         elo, ehi = g["ec_target"]
         elo, ehi = (ec_min if ec_min is not None else elo), (ec_max if ec_max is not None else ehi)
         mlo, mhi = g["moisture_band"]
@@ -2461,8 +2471,60 @@ class GardenModel:
                    "source": cur and cur["source"], "target": [lo, hi], "level": level,
                    "first": first and {"date": first["date"], "value": first["value"]}, "history": hist},
             "adjuncts": [calc.adjunct_status(t, g["adjuncts"], today) for t in g["adjunct_types"].values()],
-            "adjunct_log": [{**e, "type_name": names.get(e["type"], e["type"])} for e in log],
+            "adjunct_log": [{**e, "type_name": names.get(e["type"], e["type"]), **self._sulfur_flag(g, e)} for e in log],
+            "sulfur": self._sulfur_view(g, today, cur, lo, hi) if kind == "garden" else None,
         }
+
+    def _sulfur_area(self, g: dict) -> tuple[float | None, str | None]:
+        if g.get("area_sqft"):
+            return float(g["area_sqft"]), "set"
+        L = g.get("layout")
+        if L and L.get("width_ft") and L.get("length_ft"):
+            return round(float(L["width_ft"]) * float(L["length_ft"]), 1), "layout"
+        return None, None
+
+    def _sulfur_flag(self, g: dict, e: dict) -> dict:
+        """Mark a logged sulfur application that was more than one pass should be."""
+        if e.get("type") != "sulfur":
+            return {}
+        lbs, (area, _) = sul.lbs_of(e.get("amount")), self._sulfur_area(g)
+        if lbs and area and lbs > g.get("sulfur_limit", sul.CAP_PER_100) * area / 100 + 0.05:
+            return {"flag": "More than the limit for one pass"}
+        return {}
+
+    def _sulfur_view(self, g: dict, today: date, cur: dict | None, lo: float, hi: float) -> dict:
+        """How much sulfur to reach the target pH, the most to put on in one pass, and when the next pass can go on."""
+        area, area_src = self._sulfur_area(g)
+        cap_100 = g.get("sulfur_limit", sul.CAP_PER_100)
+        cap_lb = round(cap_100 * area / 100, 2) if area else None
+        ceiling = round(sul.CEILING_PER_100 * area / 100, 2) if area else None
+        logs = sorted((e for e in g["adjuncts"] if e["type"] == "sulfur"), key=lambda e: (e["date"], e["id"]))
+        applied = [(date.fromisoformat(e["date"]), sul.lbs_of(e.get("amount"))) for e in logs if sul.lbs_of(e.get("amount"))]
+        last = date.fromisoformat(logs[-1]["date"]) if logs else None
+        nxt = sul.next_ok(last, today)
+        soil = (g.get("irrigation") or irr.blank()).get("soil", irr.DEFAULT_SOIL)
+        out = {"area_sqft": area, "area_source": area_src, "limit_per_100": cap_100, "cap_lb": cap_lb, "ceiling_per_100": round(sul.CEILING_PER_100, 2),
+               "ceiling_lb": ceiling, "room_lb": round(sul.room_this_year(applied, ceiling, today), 2) if ceiling else None,
+               "spacing_days": sul.SPACING_DAYS, "last": {"date": last.isoformat(), "lbs": applied[-1][1] if applied and applied[-1][0] == last else None} if last else None,
+               "next_ok": nxt.isoformat(), "wait": nxt > today, "in_season": sul.in_season(today),
+               "soil": soil, "soil_name": irr.SOILS.get(soil, irr.SOILS[irr.DEFAULT_SOIL])[0], "ph_now": cur and cur["value"], "ph_date": cur and cur["date"],
+               "target": None, "show": bool(cur and cur["value"] > hi), "estimate": None, "why": None, "plan": []}
+        if not out["show"]:
+            return out
+        target, why = sul.target_for(lo, hi)
+        if target is None:
+            out["why"] = why
+            return out
+        out["target"] = target
+        est = sul.estimate(soil, cur["value"], target, area)
+        out["estimate"] = est
+        if not est["ok"]:
+            out["why"] = est.get("why")
+        elif not area:
+            out["why"] = "Add the bed size to work out pounds."
+        elif cap_lb:
+            out["plan"] = sul.plan(tuple(est["lb"]), est["range"], cap_lb, ceiling, today, last, applied)
+        return out
 
     def _chores_view(self, g: dict, today: date) -> list:
         planted = {c["key"] for c in (lay.plan(g.get("layout"), self._plant_names(), None, today.year).get("crops") or [])} if g.get("layout") else set()
