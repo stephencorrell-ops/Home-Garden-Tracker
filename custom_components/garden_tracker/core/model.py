@@ -2179,6 +2179,9 @@ class GardenModel:
         names = {k: sp["name"] for k, sp in species.items()}
         return rem.yield_history(list(self.data["varieties"].values()), names)
 
+    def _mortality_view(self, species: dict) -> dict:
+        return rem.mortality_history(list(self.data["varieties"].values()), {k: sp["name"] for k, sp in species.items()})
+
     def _progress_view(self, today: date, species: dict) -> dict:
         names = {k: sp["name"] for k, sp in species.items()}
         gnames = {g["id"]: g["name"] for g in self.data["gardens"].values()}
@@ -2500,7 +2503,7 @@ class GardenModel:
                 "varieties": varieties, "past_gardens": self._past_gardens(), "variety_traits": list(self.data["variety_traits"].values()), "can_undo": self._trash is not None,
                 "harvest_years": self._harvest_years(species), "reminders": self._reminders_view(today, species),
                 "alerts": self._alerts_view(today), "years": self._years_view(today, species), "yields": self._yields_view(species),
-                "harvest_progress": self._progress_view(today, species),
+                "harvest_progress": self._progress_view(today, species), "mortality": self._mortality_view(species),
                 "forecast": {"source": (self.data.get("forecast") or {}).get("source", ""), "days": (self.data.get("forecast") or {}).get("days", [])}, "containers": list(DEFAULT_CONTAINERS), "container_per_tray": dict(CONTAINER_PER_TRAY),
                 "reasons": REASONS}
 

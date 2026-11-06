@@ -200,6 +200,42 @@ def yield_history(varieties: list[dict], names: dict[str, str]) -> dict:
     return {"varieties": by_var, "types": by_type}
 
 
+# ---- plant losses ---------------------------------------------------------------------------
+
+def mortality_history(varieties: list[dict], names: dict[str, str]) -> dict:
+    """How many plants were lost (died, or pulled early) out of how many were planted, by planting year, for each variety
+    and each plant type. A tree lost in its fifth year still counts against the year it was planted."""
+    by_var: dict[str, dict] = {}
+    by_type: dict[str, dict] = {}
+    for v in varieties:
+        if not v.get("planted"):
+            continue
+        year = int(str(v["planted"])[:4])
+        plants = v.get("plants", [])
+        if not plants:
+            continue
+        lost = [p for p in plants if p.get("status") in ("dead", "pulled")]
+        species = v["species"]
+        for bucket, key, label in ((by_var, f"{species}|{v['name'].strip().lower()}", v["name"].strip()), (by_type, species, names.get(species) or species)):
+            e = bucket.setdefault(key, {"key": key, "name": label, "species": species, "species_name": names.get(species) or species,
+                                        "years": {}, "planted": 0, "lost": 0, "reasons": {}})
+            y = e["years"].setdefault(year, {"year": year, "planted": 0, "lost": 0, "reasons": {}})
+            y["planted"] += len(plants)
+            y["lost"] += len(lost)
+            e["planted"] += len(plants)
+            e["lost"] += len(lost)
+            for p in lost:
+                r = p.get("reason") or "unknown"
+                y["reasons"][r] = y["reasons"].get(r, 0) + 1
+                e["reasons"][r] = e["reasons"].get(r, 0) + 1
+    for bucket in (by_var, by_type):
+        for e in bucket.values():
+            e["years"] = [{**y, "pct": round(y["lost"] / y["planted"] * 100)} for y in sorted(e["years"].values(), key=lambda y: -y["year"])]
+            e["seasons"] = len(e["years"])
+            e["pct"] = round(e["lost"] / e["planted"] * 100) if e["planted"] else 0
+    return {"varieties": by_var, "types": by_type}
+
+
 # ---- how much of this season's harvest is still to come ---------------------------------------
 
 def harvest_progress(varieties: list[dict], names: dict[str, str], garden_names: dict[str, str], history: dict, today: date) -> dict:

@@ -239,3 +239,41 @@ class HarvestProgress(unittest.TestCase):
         v = self.m.add_variety(self.g, "tomato", "Sungold", 2, expected_yield=10)
         self.m.log_harvest(v, 30, "2025-08-01")
         self.assertEqual(self.prog()["picked"], 0.0)
+
+
+class Mortality(unittest.TestCase):
+    def setUp(self):
+        self.m = make(date(2026, 8, 15))
+        self.g = self.m.add_garden("Back Garden")
+
+    def lose(self, vid, n, status="dead", reason="frost"):
+        self.m.mark_plants_lost(vid, n, status, reason)
+
+    def test_lost_over_planted_with_reasons(self):
+        v = self.m.add_variety(self.g, "tomato", "Sungold", 20, "start", "2025-05-10")
+        self.lose(v, 1, "dead", "frost")
+        self.lose(v, 1, "dead", "pests")
+        e = self.m.snapshot()["mortality"]["varieties"]["tomato|sungold"]
+        self.assertEqual((e["planted"], e["lost"], e["pct"]), (20, 2, 10))
+        self.assertEqual(e["years"][0]["reasons"], {"frost": 1, "pests": 1})
+
+    def test_seasons_add_up_and_pulled_early_counts_as_lost(self):
+        a = self.m.add_variety(self.g, "tomato", "Sungold", 10, "start", "2025-05-10")
+        b = self.m.add_variety(self.g, "tomato", "Sungold", 10, "start", "2026-05-10")
+        self.lose(a, 3, "dead", "disease")
+        self.lose(b, 1, "pulled", "heat")
+        e = self.m.snapshot()["mortality"]["varieties"]["tomato|sungold"]
+        self.assertEqual([(y["year"], y["planted"], y["lost"], y["pct"]) for y in e["years"]], [(2026, 10, 1, 10), (2025, 10, 3, 30)])
+        self.assertEqual((e["planted"], e["lost"], e["pct"], e["seasons"]), (20, 4, 20, 2))
+
+    def test_plant_type_rolls_up_every_variety(self):
+        a = self.m.add_variety(self.g, "tomato", "Sungold", 10, "start", "2025-05-10")
+        b = self.m.add_variety(self.g, "tomato", "Roma", 10, "start", "2025-05-10")
+        self.lose(a, 2)
+        t = self.m.snapshot()["mortality"]["types"]["tomato"]
+        self.assertEqual((t["planted"], t["lost"], t["pct"]), (20, 2, 10))
+
+    def test_no_losses_is_zero_percent(self):
+        self.m.add_variety(self.g, "tomato", "Sungold", 5, "start", "2025-05-10")
+        e = self.m.snapshot()["mortality"]["varieties"]["tomato|sungold"]
+        self.assertEqual((e["lost"], e["pct"]), (0, 0))

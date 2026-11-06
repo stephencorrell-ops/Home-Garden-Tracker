@@ -660,6 +660,27 @@ class GardenTrackerCard extends HTMLElement {
     const pp = src.per_plant;
     return `<div class="card" style="margin-top:8px"><div class="sec">${title}</div>${this._yieldRows(src, 4)}<p class="small" style="margin:6px 0 0">Average ${num(pp, 1)} lb per plant${n > 1 ? `, so about ${num(pp * n, 0)} lb from ${n} plants` : ""}. ${canUse ? `<button data-act="use-yield" data-n="${num(pp, 1)}">Use ${num(pp, 1)} lb per plant</button>` : ""}</p></div>`;
   }
+  _lossLine(y) {
+    const r = Object.entries(y.reasons || {}).sort((a, b) => b[1] - a[1]).map(([k, c]) => `${c} ${k.replace(/_/g, " ")}`).join(", ");
+    return `<div class="row small" style="margin:2px 0"><span class="grow">${y.year}</span><span class="mut">${y.lost} of ${y.planted} lost${r ? ` (${esc(r)})` : ""}</span><b style="min-width:52px;text-align:right">${y.pct}%</b></div>`;
+  }
+  _lossSummary(src, n) {
+    const r = Object.entries(src.reasons || {}).sort((a, b) => b[1] - a[1]).map(([k, c]) => `${c} ${k.replace(/_/g, " ")}`).join(", ");
+    if (!src.lost) return `No plants lost${src.seasons > 1 ? ` in ${src.seasons} seasons` : " so far"}.`;
+    const more = n > 1 && src.pct < 100 ? ` To end up with ${n}, plant ${Math.ceil(n / (1 - src.pct / 100))}.` : "";
+    return `About ${src.pct}% lost${src.seasons > 1 ? ` over ${src.seasons} seasons` : ""}${r ? ` (${esc(r)})` : ""}.${more}`;
+  }
+  _lossHint(species, name, n) {
+    const M = this._snap.mortality || {}, vh = M.varieties && M.varieties[`${species}|${String(name || "").trim().toLowerCase()}`], th = M.types && M.types[species], src = vh || th;
+    if (!src) return "";
+    const title = vh ? `${esc(vh.name)}, plant losses` : `${esc(th.name)}, plant losses (all your varieties${name ? `, no ${esc(name)} yet` : ""})`;
+    return `<div class="card" style="margin-top:8px"><div class="sec">${title}</div>${src.years.slice(0, 4).map((y) => this._lossLine(y)).join("")}<p class="small" style="margin:6px 0 0">${this._lossSummary(src, n)}</p></div>`;
+  }
+  _lossCard(v) {
+    const M = this._snap.mortality || {}, vh = M.varieties && M.varieties[`${v.species}|${String(v.name).trim().toLowerCase()}`];
+    if (!vh) return "";
+    return `<div class="card"><div class="sec">Plant losses</div>${vh.years.map((y) => this._lossLine(y)).join("")}<p class="small" style="margin:6px 0 0">${this._lossSummary(vh, 0)}</p></div>`;
+  }
   _yieldCard(v) {
     const Y = this._snap.yields || {}, vh = Y.varieties && Y.varieties[`${v.species}|${String(v.name).trim().toLowerCase()}`], th = Y.types && Y.types[v.species];
     if (!vh) return "";
@@ -1058,7 +1079,7 @@ class GardenTrackerCard extends HTMLElement {
     if (tree) h += this._pruneCard(v, arch) + this._sprayCard(v, arch);
     h += this._feedCard(v, arch, tree);
     h += this._adjunctChips(v);
-    h += this._yieldCard(v);
+    h += this._yieldCard(v) + this._lossCard(v);
     h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">Notes for next year</div>${arch ? "" : this._btn("form-review", "plus", "Add", `data-v="${id}"`)}</div>${v.notes ? `<p class="small" style="margin:6px 0">${esc(v.notes)}</p>` : ""}${v.reviews.map((r) => this._logRow("review", id, r.id, esc(r.notes), String(r.year))).join("") || `<div class="small mut" style="margin-top:6px">No notes yet.</div>`}</div>`;
     if (!arch) {
       if (tree) h += `<div class="card">${this._confirm === "rm" ? `<div class="conf">Remove ${esc(v.name)} and all its history? This can't be undone.<div class="row"><button data-act="cancel-del">Keep</button><button class="danger" data-act="do-rm" data-v="${id}">Remove tree</button></div></div>` : `<button class="danger" data-act="ask-rm">${this._icon("delete-outline")} Remove tree</button>`}</div>`;
@@ -1749,7 +1770,7 @@ class GardenTrackerCard extends HTMLElement {
         const past = this._snap.varieties.filter((x) => x.species === key(v) && v.variety && x.name.toLowerCase() === v.variety.toLowerCase());
         const s = past.map((x) => x.seasons).sort((a, b) => b.length - a.length)[0];
         const last = s && s.filter((z) => z.days_to_first !== null).pop();
-        h += this._yieldHint(key(v), v.variety, Number(v.plants) || 1, true);
+        h += this._yieldHint(key(v), v.variety, Number(v.plants) || 1, true) + this._lossHint(key(v), v.variety, Number(v.plants) || 1);
         if (last && kind(v) !== "tree") h += `<div class="small" style="margin-top:8px">From your past seasons: ${esc(v.variety)} took ${last.days_to_first} days. <button data-act="use-days" data-n="${last.days_to_first}">Use ${last.days_to_first}</button></div>`;
         return h;
       },
@@ -1946,7 +1967,7 @@ class GardenTrackerCard extends HTMLElement {
         { name: "planted_date", label: "Planting date", type: "date", value: this._snap.today, span: 3 },
       ],
       note: "Copies the variety and days to harvest. Past seasons feed the projection automatically.",
-      preview: (x) => this._yieldHint(v.species, v.name, Number(x.plants) || 1, false),
+      preview: (x) => this._yieldHint(v.species, v.name, Number(x.plants) || 1, false) + this._lossHint(v.species, v.name, Number(x.plants) || 1),
       submit: (x) => this._call("plant_again", { plant: v.id, ...x, garden: x.garden || "" }),
       after: () => { this._view = { v: "home" }; this._nav = []; },
     };
