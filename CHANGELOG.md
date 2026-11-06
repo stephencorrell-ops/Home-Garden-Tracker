@@ -4,6 +4,10 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.31.16 - 2026-11-05
+
+- A plant that's already in a garden no longer shows "Log up-potting or in-ground". The button now appears only for plants still in a seedling rack or greenhouse.
+
 ## 0.31.15 - 2026-11-01
 
 - **Yearly harvest totals for each plant type.** A "Harvest totals" device in Home Assistant has a sensor per plant type (for example Tomato this year) and one for all plants. Each shows pounds picked so far this year and keeps every earlier year in its `by_year` attribute, so other integrations (like Put 'Em Up) can read them. The all-plants sensor also lists this year's total by plant type.
