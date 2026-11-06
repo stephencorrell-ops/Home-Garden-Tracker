@@ -938,7 +938,7 @@ class GardenTrackerCard extends HTMLElement {
     if (arch) {
       h += `<div class="card"><span class="pill info">${esc(ARCH_TEXT[arch.reason])}, ${fmtDate(arch.date, true)}</span>${arch.notes ? `<p style="margin:8px 0 0">${esc(arch.notes)}</p>` : ""}<div class="row" style="margin-top:10px">${this._btn("form-again", "sprout", "Plant again", `data-v="${id}"`, "primary")}${this._btn("restore", "undo", "Restore", `data-v="${id}"`)}</div></div>`;
     } else {
-      h += `<div class="card"><div class="row">${this._picBox(v)}<div class="grow"><span class="pill ${v.status.level}" style="margin:0">${esc(v.status.text)}</span></div></div>${this._statGrid(this._stats(v))}${tree ? "" : `<div class="row" style="margin-top:10px"><button class="grow" data-act="form-stage" data-v="${id}">${this._icon("sprout")} Log up-potting or in-ground</button></div>`}</div>`;
+      h += `<div class="card"><div class="row">${this._picBox(v)}<div class="grow"><span class="pill ${v.status.level}" style="margin:0">${esc(v.status.text)}</span></div></div>${this._statGrid(this._stats(v))}${tree || v.location_kind === "garden" || v.in_ground ? "" : `<div class="row" style="margin-top:10px"><button class="grow" data-act="form-stage" data-v="${id}">${this._icon("sprout")} Log up-potting or in-ground</button></div>`}</div>`;
     }
     h += this._whereCard(v);
     h += this._projection(v);
