@@ -194,3 +194,48 @@ class YieldHistory(unittest.TestCase):
         g = list(self.m.data["gardens"])[0]
         self.m.add_variety(g, "pepper", "Jalapeno", 3)
         self.assertNotIn("pepper|jalapeno", self.m.snapshot()["yields"]["varieties"])
+
+
+class HarvestProgress(unittest.TestCase):
+    def setUp(self):
+        self.m = make(date(2026, 8, 15))
+        self.g = self.m.add_garden("Back Garden")
+
+    def prog(self):
+        return self.m.snapshot()["harvest_progress"]
+
+    def test_your_own_estimate_gives_picked_of_expected_and_left(self):
+        v = self.m.add_variety(self.g, "tomato", "Sungold", 10, expected_yield=50)
+        self.m.log_harvest(v, 375, "2026-08-01")
+        p = self.prog()
+        self.assertEqual((p["picked"], p["expected"], p["left"], p["pct"]), (375.0, 500.0, 125.0, 75))
+        self.assertEqual(p["types"][0]["items"][0]["source"], "estimate")
+
+    def test_without_an_estimate_it_uses_past_seasons_then_the_plant_type(self):
+        old = self.m.add_variety(self.g, "tomato", "Roma", 5)
+        self.m.log_harvest(old, 100, "2025-08-01")           # 20 lb per plant last year
+        self.m.archive_variety(old, "season_over", "2025-10-01")
+        new = self.m.add_variety(self.g, "tomato", "Roma", 10)  # this year
+        other = self.m.add_variety(self.g, "tomato", "Brand New", 2)
+        self.m.log_harvest(new, 50, "2026-08-01")
+        items = {i["name"]: i for i in self.prog()["types"][0]["items"]}
+        self.assertEqual((items["Roma"]["expected"], items["Roma"]["source"]), (200.0, "past"))
+        self.assertEqual((items["Brand New"]["expected"], items["Brand New"]["source"]), (40.0, "type"))
+
+    def test_nothing_to_go_on_is_listed_apart(self):
+        v = self.m.add_variety(self.g, "pepper", "Jalapeno", 3)
+        self.m.log_harvest(v, 8, "2026-08-01")
+        p = self.prog()
+        self.assertEqual(p["types"], [])
+        self.assertEqual([(u["name"], u["picked"]) for u in p["unknown"]], [("Jalapeno", 8.0)])
+
+    def test_picking_more_than_expected_leaves_nothing_and_caps_the_bar(self):
+        v = self.m.add_variety(self.g, "tomato", "Sungold", 2, expected_yield=10)
+        self.m.log_harvest(v, 30, "2026-08-01")
+        t = self.prog()["types"][0]
+        self.assertEqual((t["left"], t["pct"]), (0.0, 100))
+
+    def test_last_years_picks_do_not_count_toward_this_year(self):
+        v = self.m.add_variety(self.g, "tomato", "Sungold", 2, expected_yield=10)
+        self.m.log_harvest(v, 30, "2025-08-01")
+        self.assertEqual(self.prog()["picked"], 0.0)

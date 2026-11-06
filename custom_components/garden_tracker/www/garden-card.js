@@ -439,6 +439,7 @@ class GardenTrackerCard extends HTMLElement {
       else if (w === "water" && this._view.id && this._garden(this._view.id) && this._garden(this._view.id).irrigation) body = this._irrView(this._garden(this._view.id));
       else if (w === "archive") body = this._archiveView();
       else if (w === "review") body = this._reviewView();
+      else if (w === "harvest") body = this._harvestView();
       else if (w === "micro" && this._snap.micro) body = this._microView();
       else { this._view = { v: "home" }; body = this._homeView(); }
     }
@@ -665,6 +666,35 @@ class GardenTrackerCard extends HTMLElement {
     const typeLine = th && th.lbs > vh.lbs ? `<p class="small mut" style="margin:6px 0 0">All your ${esc(th.name)}: ${num(th.lbs, 1)} lb in all, ${num(th.per_plant, 1)} lb per plant.</p>` : "";
     return `<div class="card"><div class="sec">Pounds by season</div>${this._yieldRows(vh)}<p class="small" style="margin:6px 0 0">${vh.seasons > 1 ? `Average ${num(vh.per_plant, 1)} lb per plant over ${vh.seasons} seasons, ${num(vh.lbs, 1)} lb in all.` : `${num(vh.lbs, 1)} lb so far.`}</p>${typeLine}</div>`;
   }
+  _harvestChip() {
+    const p = this._snap.harvest_progress;
+    if (!p || !(p.types.length || p.unknown.length)) return "";
+    return `<button class="chip" data-act="open-harvest">${this._icon("basket-outline")} Harvest${p.expected ? ` · ${p.pct}%` : ""}</button>`;
+  }
+  _harvestView() {
+    const p = this._snap.harvest_progress;
+    if (!p || !(p.types.length || p.unknown.length)) { this._view = { v: "home" }; return this._homeView(); }
+    const lb = (x) => `${num(x, 1)} lb`, SRC = { estimate: "your estimate", past: "from past seasons", type: "from your other plants of this type" };
+    let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="ttl grow">Harvest ${p.year}</div></div>`;
+    if (p.expected) {
+      h += `<div class="card"><div class="row" style="align-items:baseline"><span class="big">${num(p.picked, 0)}</span><span class="small mut">of ${num(p.expected, 0)} lb expected</span><span class="grow"></span><b>${p.pct}%</b></div><div class="bar" style="height:14px;margin:8px 0"><i style="width:${Math.max(p.picked ? 2 : 0, p.pct)}%"></i></div><div class="small">${p.left > 0 ? `<b>${num(p.left, 0)} lb</b> still to pick.` : "Everything you expected is picked."}${p.unknown_picked ? ` <span class="mut">Plus ${lb(p.unknown_picked)} from plants with no estimate.</span>` : ""}</div></div>`;
+    } else {
+      h += `<div class="card"><div class="small">${lb(p.unknown_picked)} picked so far. Nothing has an expected yield yet, so there's no total to compare with. Enter an expected yield per plant, or it fills in from past seasons.</div></div>`;
+    }
+    for (const t of p.types) {
+      h += `<div class="card"><div class="row" style="align-items:baseline"><b class="grow">${esc(t.name)}</b><span class="small mut">${lb(t.picked)} of ${lb(t.expected)}</span></div><div class="bar" style="margin:6px 0"><i style="width:${Math.max(t.picked ? 2 : 0, t.pct)}%"></i></div><div class="small mut">${t.left > 0 ? `${lb(t.left)} left` : "All picked"}</div>`;
+      if (t.items.length > 1 || t.items[0].name.toLowerCase() !== t.name.toLowerCase()) {
+        h += t.items.map((i) => `<div class="rem"><div class="row" style="align-items:baseline"><span class="grow" data-act="open-v" data-v="${i.id}" style="cursor:pointer">${esc(i.name)}${i.garden_name ? `<span class="small mut">, ${esc(i.garden_name)}</span>` : ""}</span><span class="small">${lb(i.picked)} of ${lb(i.expected)}</span></div><div class="bar" style="height:6px;margin:4px 0"><i style="width:${Math.max(i.picked ? 2 : 0, i.pct)}%"></i></div><div class="small mut">${i.left > 0 ? `${lb(i.left)} left` : "All picked"} · ${i.plants} ${i.plants === 1 ? "plant" : "plants"}, ${SRC[i.source]}</div></div>`).join("");
+      } else {
+        h += `<div class="small mut" style="margin-top:2px">${t.items[0].plants} ${t.items[0].plants === 1 ? "plant" : "plants"}, ${SRC[t.items[0].source]}</div>`;
+      }
+      h += `</div>`;
+    }
+    if (p.unknown.length) {
+      h += `<div class="card"><div class="sec">No estimate yet</div>${p.unknown.map((i) => `<div class="row" style="margin:6px 0"><span class="grow" data-act="open-v" data-v="${i.id}" style="cursor:pointer">${esc(i.name)} <span class="small mut">${esc(i.species_name)}${i.garden_name ? `, ${esc(i.garden_name)}` : ""}</span></span><span class="small">${lb(i.picked)} picked</span></div>`).join("")}<p class="small mut" style="margin:6px 0 0">Add an expected yield per plant on the plant's page and it counts toward the total.</p></div>`;
+    }
+    return h;
+  }
   _reviewChip() {
     return Object.keys(this._snap.years || {}).length ? `<button class="chip" data-act="open-review">${this._icon("chart-box-outline")} Year in review</button>` : "";
   }
@@ -713,7 +743,7 @@ class GardenTrackerCard extends HTMLElement {
     if (!gs.length && !every.length) {
       return h + `<div class="msg">${pastN ? "Add a garden to start adding plants." : "Create your first garden to start adding plants."} Trees can be added without a garden.<br><br>${this._btn("form-garden", "plus", "Add garden", "", "primary")}</div>` + (pastN ? `<button style="width:100%" data-act="open-archive">${this._icon("history")} History (${pastN})</button>` : "");
     }
-    h += `<div class="chips">${gs.map((g) => `<button class="chip" data-act="open-g" data-g="${g.id}">${g.kind === "garden" ? "" : this._icon(KIND_ICON[g.kind]) + " "}${esc(g.name)}</button>`).join("")}${this._microChip()}${this._reviewChip()}${pastN ? `<button class="chip" data-act="open-archive">${this._icon("history")} History</button>` : ""}${this._config.garden ? "" : `<button class="chip" data-act="form-garden">${this._icon("plus")} Add</button>`}</div>`;
+    h += `<div class="chips">${gs.map((g) => `<button class="chip" data-act="open-g" data-g="${g.id}">${g.kind === "garden" ? "" : this._icon(KIND_ICON[g.kind]) + " "}${esc(g.name)}</button>`).join("")}${this._microChip()}${this._harvestChip()}${this._reviewChip()}${pastN ? `<button class="chip" data-act="open-archive">${this._icon("history")} History</button>` : ""}${this._config.garden ? "" : `<button class="chip" data-act="form-garden">${this._icon("plus")} Add</button>`}</div>`;
     if (!this._web) h += gs.map((g) => this._sensorBanner(g)).join("");
     h += this._weatherAlerts() + this._remindersCard();
     const cnt = (l) => vs.filter((v) => v.status.level === l).length;
@@ -1333,6 +1363,7 @@ class GardenTrackerCard extends HTMLElement {
       case "open-g": return this._go({ v: "garden", id: d.g });
       case "open-archive": return this._go({ v: "archive" });
       case "open-review": return this._go({ v: "review" });
+      case "open-harvest": return this._go({ v: "harvest" });
       case "review-year": this._view = { v: "review", year: d.y }; return this._render();
       case "rem-done": return this._act("review_done", { plant: d.v, note: d.n, cycle: Number(d.c) });
       case "rem-snooze": return this._act("review_snooze", { plant: d.v, note: d.n, days: 7 });

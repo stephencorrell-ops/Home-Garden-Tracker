@@ -200,6 +200,61 @@ def yield_history(varieties: list[dict], names: dict[str, str]) -> dict:
     return {"varieties": by_var, "types": by_type}
 
 
+# ---- how much of this season's harvest is still to come ---------------------------------------
+
+def harvest_progress(varieties: list[dict], names: dict[str, str], garden_names: dict[str, str], history: dict, today: date) -> dict:
+    """Pounds picked this year against what you expect, by plant type and variety.
+    The expectation is your own yield per plant if you entered one, otherwise what that variety gave per plant in earlier
+    years, otherwise what that plant type gave. Plants with no basis for a guess are listed apart, with what they gave."""
+    year = today.year
+    types: dict[str, dict] = {}
+    unknown: list[dict] = []
+    for v in varieties:
+        picked = sum((h.get("lbs") or 0.0) for h in v.get("harvests", []) if h["date"][:4] == str(year))
+        arch = v.get("archived")
+        if arch and str(arch.get("date") or "")[:4] != str(year) and picked == 0:
+            continue
+        n = sum(1 for p in v.get("plants", []) if p.get("status") in ("alive", "harvested"))
+        if not n and picked == 0:
+            continue
+        species = v["species"]
+        est, source = None, None
+        if v.get("expected_yield"):
+            est, source = round(float(v["expected_yield"]) * n, 1), "estimate"
+        else:
+            for src, h in (("past", history["varieties"].get(f"{species}|{v['name'].strip().lower()}")), ("type", history["types"].get(species))):
+                prior = [y for y in (h or {}).get("years", []) if y["year"] < year]
+                lbs, plants = sum(y["lbs"] for y in prior), sum(y["plants"] for y in prior)
+                if plants and lbs > 0:
+                    est, source = round(lbs / plants * n, 1), src
+                    break
+        base = {"id": v["id"], "name": v["name"], "species": species, "species_name": names.get(species) or species,
+                "garden_name": garden_names.get(v.get("garden", ""), ""), "plants": n, "picked": round(picked, 1)}
+        if est is None:
+            if picked > 0 or n:
+                unknown.append(base)
+            continue
+        t = types.setdefault(species, {"key": species, "name": names.get(species) or species, "picked": 0.0, "expected": 0.0, "items": []})
+        t["picked"] += picked
+        t["expected"] += est
+        t["items"].append({**base, "expected": est, "left": round(max(0.0, est - picked), 1), "source": source,
+                           "pct": round(min(100.0, picked / est * 100)) if est else 0})
+    out_types = []
+    for t in types.values():
+        t["items"].sort(key=lambda i: (-i["left"], i["name"].lower()))
+        t.update(left=round(max(0.0, t["expected"] - t["picked"]), 1), pct=round(min(100.0, t["picked"] / t["expected"] * 100)) if t["expected"] else 0,
+                 picked=round(t["picked"], 1), expected=round(t["expected"], 1))
+        out_types.append(t)
+    out_types.sort(key=lambda t: (-t["left"], t["name"].lower()))
+    picked = round(sum(t["picked"] for t in out_types), 1)
+    expected = round(sum(t["expected"] for t in out_types), 1)
+    left = round(sum(max(0.0, i["expected"] - i["picked"]) for t in out_types for i in t["items"]), 1)
+    unknown.sort(key=lambda i: (-i["picked"], i["name"].lower()))
+    return {"year": year, "picked": picked, "expected": expected, "left": left,
+            "pct": round(min(100.0, picked / expected * 100)) if expected else 0,
+            "types": out_types, "unknown": unknown, "unknown_picked": round(sum(i["picked"] for i in unknown), 1)}
+
+
 # ---- a look back at each year ---------------------------------------------------------------
 
 def year_summaries(varieties: list[dict], names: dict[str, str], garden_names: dict[str, str], frost_years: list[dict],
