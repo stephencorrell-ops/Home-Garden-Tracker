@@ -316,6 +316,11 @@ def main():
         pg.wait_for_timeout(300)
         gv = [v for v in pg.evaluate("window.__garden.engine.snapshot()")["varieties"] if v["name"] == "Music"][0]
         check(gv["harvests"] and gv["harvests"][0]["pending"], "a harvest can be logged with no weight, to add after curing")
+        # garlic planted straight into a garden is already in the ground: no up-potting / in-ground prompt
+        card.evaluate(f"el => el._go({{ v: 'variety', id: '{gv['id']}' }})")
+        pg.wait_for_timeout(200)
+        check(card.evaluate("el => !el.shadowRoot.querySelector('[data-act=form-stage]')"), "a plant already in a garden doesn't ask to log up-potting or in-ground")
+        card.evaluate("el => el._back()")
         card.evaluate(f"el => el._call('log_bloom', {{ plant: '{rid}', date: '{yr0 - 1}-04-05' }})")
         pg.wait_for_timeout(400)
         check("Full bloom" in card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText"), "a bloom date can be logged and is listed")
