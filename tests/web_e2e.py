@@ -33,6 +33,8 @@ def weather_json(today: date, years=4):
         days.append(d.isoformat()); lo.append(round(l, 1)); hi.append(round(h, 1)); rain.append(0.2 if d.day % 4 == 0 else 0.0)
         d += timedelta(days=1)
     days.append(today.isoformat()); lo.append(40.0); hi.append(61.0); rain.append(0.0)
+    for n, (fl, fh) in enumerate([(29.0, 52.0), (40.0, 99.0), (41.0, 60.0)], start=1):  # the forecast: a frost, then a hot day
+        days.append((today + timedelta(days=n)).isoformat()); lo.append(fl); hi.append(fh); rain.append(0.0)
     hours = [f"{(today - timedelta(days=n)).isoformat()}T{h:02d}:00" for n in range(3, -1, -1) for h in range(24)]
     soil = [48 + 6 * math.sin((i % 24 - 9) / 24 * 6.2832) for i in range(len(hours))]
     return {"daily": {"time": days, "temperature_2m_min": lo, "temperature_2m_max": hi, "precipitation_sum": rain},
@@ -316,6 +318,46 @@ def main():
         pg.wait_for_timeout(300)
         gv = [v for v in pg.evaluate("window.__garden.engine.snapshot()")["varieties"] if v["name"] == "Music"][0]
         check(gv["harvests"] and gv["harvests"][0]["pending"], "a harvest can be logged with no weight, to add after curing")
+        # frost and heat alerts from the forecast, notes from last year, and the year in review
+        saved = card.evaluate("el => ({ view: el._view, nav: el._nav.slice() })")
+        tomato = pg.evaluate("([g]) => window.__garden.engine.call('add_variety', { garden: g, species: 'tomato', variety: 'FrostTest', plants: 2 })", [gid2])
+        pg.evaluate("window.__garden.refreshWeather(true)")
+        pg.wait_for_timeout(400)
+        snap = pg.evaluate("window.__garden.engine.snapshot()")
+        kinds = sorted(a["kind"] for a in snap["alerts"])
+        check(kinds == ["frost", "heat"], f"the forecast raises a frost and a heat alert: {kinds}")
+        card.evaluate("el => { el._snap = window.__garden.engine.snapshot(); el._view = { v: 'home' }; el._nav = []; el._render(); }")
+        txt = card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText")
+        check("Frost tomorrow night: low of 29°F" in txt and "Heat" in txt, "the home page shows the frost and heat banners")
+        if SHOTS: pg.screenshot(path=str(SHOTS / "alerts.png"), full_page=True)
+        card.locator("[data-act=ack-alert]").first.click()
+        pg.wait_for_timeout(300)
+        left = pg.evaluate("window.__garden.engine.snapshot()")["alerts"]
+        check(sum(1 for a in left if not a["acked"]) == 1, "Covered them dismisses just that alert")
+
+        yr_now = date.today().year
+        pg.evaluate("async (d) => { await window.__garden.engine.setToday(d); }", f"{yr_now}-10-05")
+        early = pg.evaluate("([g]) => window.__garden.engine.call('add_variety', { garden: g, species: 'garlic', variety: 'Early Red', plants: 3 })", [gid2])
+        eid = [v for v in pg.evaluate("window.__garden.engine.snapshot()")["varieties"] if v["name"] == "Early Red"][0]["id"]
+        pg.evaluate("async ([v, y]) => { await window.__garden.engine.call('add_review', { plant: v, notes: 'Add potassium sulfate before planting.', year: y }); }", [eid, yr_now])
+        # a note written today is not a reminder yet, so look a few weeks on, inside the garlic planting window
+        pg.evaluate("async (d) => { await window.__garden.engine.setToday(d); }", f"{yr_now}-10-25")
+        rem = pg.evaluate("window.__garden.engine.snapshot()")["reminders"]
+        check(any("potassium sulfate" in r["note"] for r in rem), f"a note from last year comes back when the planting window opens: {[r['note'] for r in rem]}")
+        card.evaluate("el => { el._snap = window.__garden.engine.snapshot(); el._view = { v: 'home' }; el._nav = []; el._render(); }")
+        check("Notes from last year" in card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText"), "the home page shows the notes card")
+        if SHOTS: pg.screenshot(path=str(SHOTS / "notes.png"), full_page=True)
+        card.locator("[data-act=rem-done]").first.click()
+        pg.wait_for_timeout(300)
+        rem = pg.evaluate("window.__garden.engine.snapshot()")["reminders"]
+        check(not any("potassium sulfate" in r["note"] for r in rem), "Done hides the reminder for this season")
+        card.evaluate("el => { el._snap = window.__garden.engine.snapshot(); el._render(); }")
+        card.locator("[data-act=open-review]").click()
+        pg.wait_for_timeout(200)
+        check("in review" in card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText") and "Pounds by plant type" in card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText"), "the year in review page opens with totals by plant type")
+        if SHOTS: pg.screenshot(path=str(SHOTS / "review.png"), full_page=True)
+        pg.evaluate("async (d) => { await window.__garden.engine.setToday(d); }", date.today().isoformat())
+        card.evaluate("(el, sv) => { el._snap = window.__garden.engine.snapshot(); el._view = sv.view; el._nav = sv.nav; el._render(); }", saved)
         # garlic planted straight into a garden is already in the ground: no up-potting / in-ground prompt
         card.evaluate(f"el => el._go({{ v: 'variety', id: '{gv['id']}' }})")
         pg.wait_for_timeout(200)

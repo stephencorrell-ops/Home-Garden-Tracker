@@ -1,4 +1,4 @@
-"""A problem sensor for each rack or greenhouse with a temperature alarm switched on."""
+"""Problem sensors: frost and heat from the forecast, and each rack or greenhouse with an alarm switched on."""
 from __future__ import annotations
 
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass, BinarySensorEntity
@@ -83,8 +83,46 @@ class SensorAlarm(TemperatureAlarm):
                                                 "back": x["end"]} for x in a["alerts"]]}
 
 
+class FrostHeatAlert(BinarySensorEntity):
+    """On while the forecast brings frost or heat that matters to your plants and you have not dismissed it."""
+
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+    _attr_name = "Frost and heat alert"
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_unique_id = "frost_heat_alert"
+
+    def __init__(self, mgr: GardenManager) -> None:
+        self._mgr = mgr
+        self._attr_device_info = DeviceInfo(identifiers={(DOMAIN, "weather_alerts")}, name="Garden weather",
+                                            manufacturer="Garden Tracker")
+
+    async def async_added_to_hass(self) -> None:
+        @callback
+        def _upd() -> None:
+            self.async_write_ha_state()
+        self.async_on_remove(async_dispatcher_connect(self.hass, SIGNAL_UPDATE, _upd))
+
+    def _open(self) -> list[dict]:
+        return [a for a in self._mgr.snapshot()["alerts"] if not a["acked"]]
+
+    @property
+    def is_on(self) -> bool:
+        return bool(self._open())
+
+    @property
+    def extra_state_attributes(self):
+        snap = self._mgr.snapshot()
+        return {"alerts": [{"id": a["id"], "kind": a["kind"], "title": a["title"], "text": a["text"], "dates": a["dates"],
+                            "plants": [p["name"] for p in a["plants"]]} for a in self._open()],
+                "forecast_source": snap["forecast"]["source"] or None}
+
+
 def _build(mgr: GardenManager, known: set) -> list:
     out: list = []
+    if "frost_heat_alert" not in known:
+        known.add("frost_heat_alert")
+        out.append(FrostHeatAlert(mgr))
     for g in mgr.snapshot()["gardens"]:
         if g["alarm"] and g["alarm"]["enabled"] and f"{g['id']}_temp_alarm" not in known:
             out.append(TemperatureAlarm(mgr, known, g["id"], g))

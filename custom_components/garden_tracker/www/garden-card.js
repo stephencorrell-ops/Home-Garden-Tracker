@@ -68,6 +68,8 @@ label{display:block;font-size:12px;color:var(--mut);margin-bottom:4px}
 .ok{--c:var(--ok)}.spray,.warn{--c:var(--spray)}.hold,.bad,.low,.high{--c:var(--hold)}.info{--c:var(--info)}.none{--c:var(--mut)}
 .alarm{background:color-mix(in srgb,var(--hold) 16%,transparent);border:1px solid var(--hold);border-radius:10px;padding:10px 12px;margin:0 0 10px}
 .alarm b{color:var(--hold)}.alarm .row{margin-top:8px}
+.wxa{border-radius:10px;padding:10px 12px;margin:0 0 10px;border:1px solid var(--c);background:color-mix(in srgb,var(--c) 14%,transparent)}.wxa.frost{--c:var(--info)}.wxa.heat{--c:var(--spray)}.wxa b{color:var(--c)}.wxa .row{margin-top:8px}
+.rem{border-top:1px solid var(--line);padding:8px 0}.rem:first-of-type{border-top:0}.rem .row{margin-top:6px}.bar{height:10px;border-radius:5px;background:var(--secondary-background-color);overflow:hidden}.bar i{display:block;height:100%;background:var(--ok)}.bar.low i{background:var(--spray)}
 .tbl{width:100%;border-collapse:collapse;font-size:13px}.tbl th{text-align:left;font-weight:500;color:var(--secondary-text-color);padding:4px 6px 4px 0}.tbl td{padding:5px 6px 5px 0;border-top:1px solid var(--divider-color)}
 .airleg{display:grid;grid-template-columns:repeat(auto-fit,minmax(62px,1fr));gap:6px;margin:10px 0}.airleg .stat{padding:6px 8px}.airleg .stat span{display:block;font-size:11px}.airleg .stat b{font-size:16px}
 .stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px}
@@ -436,6 +438,7 @@ class GardenTrackerCard extends HTMLElement {
       else if (w === "layout" && this._view.id && this._garden(this._view.id) && this._garden(this._view.id).layout) body = this._layoutView(this._garden(this._view.id));
       else if (w === "water" && this._view.id && this._garden(this._view.id) && this._garden(this._view.id).irrigation) body = this._irrView(this._garden(this._view.id));
       else if (w === "archive") body = this._archiveView();
+      else if (w === "review") body = this._reviewView();
       else if (w === "micro" && this._snap.micro) body = this._microView();
       else { this._view = { v: "home" }; body = this._homeView(); }
     }
@@ -598,9 +601,10 @@ class GardenTrackerCard extends HTMLElement {
         fields: [
           { name: "usda_zone", label: "What USDA says your zone is", type: "text", placeholder: "7a", value: c.usda_zone || "" },
           { name: "frost_f", label: "Counts as a frost at or below (°F)", type: "number", step: "0.5", value: c.frost_f },
+          { name: "heat_f", label: "Heat alert at or above (°F)", type: "number", step: "1", value: c.heat_f },
         ],
-        note: "Frost dates, your zone, temperatures and rain come from the weather service for your location.",
-        submit: (x) => this._call("set_microclimate", { usda_zone: x.usda_zone || " ", frost_f: x.frost_f }),
+        note: "Frost dates, your zone, temperatures, rain and the frost and heat alerts come from the weather service for your location.",
+        submit: (x) => this._call("set_microclimate", { usda_zone: x.usda_zone || " ", frost_f: x.frost_f, heat_f: x.heat_f }),
       };
     }
     const airMatch = { pm1: /pm[\s_.]?1(?![0-9])/i, pm25: /pm[\s_.]?2[\s_.]?5/i, pm10: /pm[\s_.]?10/i, nox: /nox/i, voc: /voc|volatile/i };
@@ -614,13 +618,54 @@ class GardenTrackerCard extends HTMLElement {
         ...Object.entries({ pm1: "PM1", pm25: "PM2.5", pm10: "PM10", nox: "NOx", voc: "VOC" }).map(([k, t]) => ({ name: `air_${k}`, label: `Air quality, ${t} sensors (tap to include)`, type: "multi", options: W(c.air_entities[k], (a, u, id) => airMatch[k].test(id + " " + (a.friendly_name || "")) || a.device_class === ({ pm1: "pm1", pm25: "pm25", pm10: "pm10", nox: "nitrogen_oxides", voc: "volatile_organic_compounds" })[k]), value: c.air_entities[k].join(",") })),
         { name: "usda_zone", label: "What USDA says your zone is", type: "text", placeholder: "7a", value: c.usda_zone || "" },
         { name: "frost_f", label: "Counts as a frost at or below (°F)", type: "number", step: "0.5", value: c.frost_f },
+        { name: "heat_f", label: "Heat alert at or above (°F)", type: "number", step: "1", value: c.heat_f },
+        { name: "weather_entity", label: "Weather forecast for frost and heat alerts", type: "seg", options: [["", "None"], ...Object.entries((this._hass && this._hass.states) || {}).filter(([id]) => id.startsWith("weather.")).map(([id, s2]) => [id, (s2.attributes && s2.attributes.friendly_name) || id])], value: c.weather_entity || "" },
       ],
       note: "Several sensors of one kind are averaged. Rain needs totals that count up through the day, week or year, not a rain rate. Past weather is read from Home Assistant's long-term statistics for these sensors, so history is there right away. Humidity and sun cards show once you pick sensors for them.",
       submit: (x) => {
         const list = (v) => String(v || "").split(",").filter(Boolean);
-        return this._call("set_microclimate", { temp_entities: list(x.temp_entities), rain_entities: list(x.rain_entities), humidity_entities: list(x.humidity_entities), solar_entities: list(x.solar_entities), air_entities: { pm1: list(x.air_pm1), pm25: list(x.air_pm25), pm10: list(x.air_pm10), nox: list(x.air_nox), voc: list(x.air_voc) }, usda_zone: x.usda_zone || " ", frost_f: x.frost_f });
+        return this._call("set_microclimate", { temp_entities: list(x.temp_entities), rain_entities: list(x.rain_entities), humidity_entities: list(x.humidity_entities), solar_entities: list(x.solar_entities), air_entities: { pm1: list(x.air_pm1), pm25: list(x.air_pm25), pm10: list(x.air_pm10), nox: list(x.air_nox), voc: list(x.air_voc) }, usda_zone: x.usda_zone || " ", frost_f: x.frost_f, heat_f: x.heat_f, weather_entity: x.weather_entity || "" });
       },
     };
+  }
+  _weatherAlerts() {
+    return (this._snap.alerts || []).filter((a) => !a.acked).map((a) =>
+      `<div class="wxa ${a.kind}"><b>${this._icon(a.kind === "frost" ? "snowflake-alert" : "weather-sunny-alert")} ${esc(a.title)}</b><div class="small" style="margin-top:4px">${esc(a.text)}</div><div class="row">${this._btn("ack-alert", "check", a.kind === "frost" ? "Covered them" : "Got it", `data-a="${esc(a.id)}"`, "grow")}</div></div>`).join("");
+  }
+  _remindersCard() {
+    const r = this._snap.reminders || [];
+    if (!r.length) return "";
+    return `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("notebook-outline")} Notes from last year</div><span class="small mut">${r.length} ${r.length === 1 ? "note" : "notes"}</span></div>` +
+      r.map((x) => `<div class="rem"><div class="row"><b class="grow" data-act="open-v" data-v="${x.v}" style="cursor:pointer">${esc(x.name)}${x.garden_name ? `, ${esc(x.garden_name)}` : ""}</b><span class="pill ${x.state === "open" ? "spray" : "info"}" style="margin:0">${esc(x.label)}</span></div><div class="small" style="margin-top:4px">${esc(x.note)}</div><div class="small mut">Your note, ${esc(x.year)}</div><div class="row">${this._btn("rem-done", "check", "Done", `data-v="${x.v}" data-n="${x.id}" data-c="${x.cycle}"`)}${this._btn("rem-snooze", "clock-outline", "Snooze a week", `data-v="${x.v}" data-n="${x.id}"`)}</div></div>`).join("") + `</div>`;
+  }
+  _reviewChip() {
+    return Object.keys(this._snap.years || {}).length ? `<button class="chip" data-act="open-review">${this._icon("chart-box-outline")} Year in review</button>` : "";
+  }
+  _reviewView() {
+    const years = this._snap.years || {}, keys = Object.keys(years).sort().reverse();
+    if (!keys.length) { this._view = { v: "home" }; return this._homeView(); }
+    const yr = keys.includes(String(this._view.year)) ? String(this._view.year) : keys[0], y = years[yr];
+    const lb = (x) => `${num(x, 1)} lb`;
+    let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="ttl grow">${yr} ${y.in_progress ? "so far" : "in review"}</div></div>`;
+    if (keys.length > 1) h += `<div class="chips">${keys.map((k) => `<button class="chip ${k === yr ? "on" : ""}" data-act="review-year" data-y="${k}">${k}</button>`).join("")}</div>`;
+    const stats = [["Harvested", lb(y.lbs)]];
+    if (y.change_pct !== null) stats.push(["Vs. last year", `${y.change_pct > 0 ? "+" : ""}${y.change_pct}%`]);
+    stats.push(["Picks logged", String(y.picks)], ["Sprays", String(y.sprays)], ["Feedings", String(y.feeds)], ["Plants lost", String(y.lost)]);
+    h += `<div class="card">${y.in_progress ? `<div class="small mut">Still in progress, so it isn't compared with last year yet.</div>` : ""}${this._statGrid(stats)}</div>`;
+    if (y.crops.length) {
+      const max = Math.max(...y.crops.map((c) => c.lbs), 1);
+      h += `<div class="card"><div class="sec">Pounds by plant type</div>${y.crops.map((c) => {
+        const low = c.prev && c.lbs < c.prev * 0.8;
+        return `<div style="margin:8px 0"><div class="row"><span class="grow">${esc(c.name)}</span><span class="small mut">${c.prev ? `${lb(c.prev)} last year · ` : ""}<b style="color:var(--primary-text-color)">${lb(c.lbs)}</b></span></div><div class="bar${low ? " low" : ""}"><i style="width:${Math.max(2, Math.round(c.lbs / max * 100))}%"></i></div></div>`;
+      }).join("")}</div>`;
+    }
+    const facts = [];
+    if (y.best_garden) facts.push(`Best place: ${esc(y.best_garden.name)}, ${lb(y.best_garden.lbs)}.`);
+    if (y.drop) facts.push(`Biggest drop: ${esc(y.drop.name)}, ${Math.abs(y.drop.pct)}% under last year.`);
+    if (y.last_spring_frost || y.first_fall_frost) facts.push(`Frost: last in spring ${y.last_spring_frost ? fmtDate(y.last_spring_frost, true) : "none recorded"}, first in fall ${y.first_fall_frost ? fmtDate(y.first_fall_frost, true) : "none recorded"}.`);
+    facts.push(y.notes ? `Notes you wrote this year: ${y.notes}.` : "No notes written for this year yet.");
+    h += `<div class="card"><div class="sec">What stood out</div>${facts.map((f) => `<p class="small" style="margin:6px 0">${f}</p>`).join("")}</div>`;
+    return h;
   }
   _homeView() {
     const gs = this._gardens(), every = this._vars();
@@ -633,8 +678,9 @@ class GardenTrackerCard extends HTMLElement {
     if (!gs.length && !every.length) {
       return h + `<div class="msg">${pastN ? "Add a garden to start adding plants." : "Create your first garden to start adding plants."} Trees can be added without a garden.<br><br>${this._btn("form-garden", "plus", "Add garden", "", "primary")}</div>` + (pastN ? `<button style="width:100%" data-act="open-archive">${this._icon("history")} History (${pastN})</button>` : "");
     }
-    h += `<div class="chips">${gs.map((g) => `<button class="chip" data-act="open-g" data-g="${g.id}">${g.kind === "garden" ? "" : this._icon(KIND_ICON[g.kind]) + " "}${esc(g.name)}</button>`).join("")}${this._microChip()}${pastN ? `<button class="chip" data-act="open-archive">${this._icon("history")} History</button>` : ""}${this._config.garden ? "" : `<button class="chip" data-act="form-garden">${this._icon("plus")} Add</button>`}</div>`;
+    h += `<div class="chips">${gs.map((g) => `<button class="chip" data-act="open-g" data-g="${g.id}">${g.kind === "garden" ? "" : this._icon(KIND_ICON[g.kind]) + " "}${esc(g.name)}</button>`).join("")}${this._microChip()}${this._reviewChip()}${pastN ? `<button class="chip" data-act="open-archive">${this._icon("history")} History</button>` : ""}${this._config.garden ? "" : `<button class="chip" data-act="form-garden">${this._icon("plus")} Add</button>`}</div>`;
     if (!this._web) h += gs.map((g) => this._sensorBanner(g)).join("");
+    h += this._weatherAlerts() + this._remindersCard();
     const cnt = (l) => vs.filter((v) => v.status.level === l).length;
     const filters = [["all", `All ${vs.length}`], ["spray", `Spray due ${cnt("spray")}`], ["hold", `Harvest hold ${cnt("hold")}`], ["ok", `On track ${cnt("ok")}`]];
     if (nTrees && nPlants) h += `<div class="chips tabs">${[["all", `All ${every.length}`], ["trees", `Trees ${nTrees}`], ["plants", `Plants ${nPlants}`]].map(([k, t]) => `<button class="chip ${this._tab === k ? "on" : ""}" data-act="tab" data-s="${k}">${t}</button>`).join("")}</div>`;
@@ -1250,6 +1296,11 @@ class GardenTrackerCard extends HTMLElement {
       case "open-v": return this._go({ v: "variety", id: d.v });
       case "open-g": return this._go({ v: "garden", id: d.g });
       case "open-archive": return this._go({ v: "archive" });
+      case "open-review": return this._go({ v: "review" });
+      case "review-year": this._view = { v: "review", year: d.y }; return this._render();
+      case "rem-done": return this._act("review_done", { plant: d.v, note: d.n, cycle: Number(d.c) });
+      case "rem-snooze": return this._act("review_snooze", { plant: d.v, note: d.n, days: 7 });
+      case "ack-alert": return this._act("ack_alert", { alert: d.a });
       case "open-micro": return this._go({ v: "micro" });
       case "open-layout": this._season = null; this._placeRow = "0"; this._placeStart = ""; this._brush = null; this._bq = null; this._selRow = null; this._brushLen = ""; return this._go({ v: "layout", id: d.g });
       case "open-water": return this._go({ v: "water", id: d.g });

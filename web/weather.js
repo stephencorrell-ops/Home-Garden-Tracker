@@ -41,7 +41,7 @@ async function getJson(url) {
 export async function fetchWeather(loc, todayIso, full) {
   const today = new Date(todayIso + "T12:00:00");
   const q = `latitude=${loc.lat}&longitude=${loc.lon}`;
-  const recent = getJson(`https://api.open-meteo.com/v1/forecast?${q}&daily=${DAILY}&hourly=${HOURLY}&current=temperature_2m&past_days=14&forecast_days=1&${UNITS}`);
+  const recent = getJson(`https://api.open-meteo.com/v1/forecast?${q}&daily=${DAILY}&hourly=${HOURLY}&current=temperature_2m&past_days=14&forecast_days=4&${UNITS}`);
   let all = { daily: {}, rain: {} };
   if (full) {
     const hist = await getJson(`https://archive-api.open-meteo.com/v1/archive?${q}&start_date=${iso(addDays(today, -3650))}&end_date=${iso(addDays(today, -7))}&daily=${DAILY}&${UNITS}`);
@@ -51,7 +51,9 @@ export async function fetchWeather(loc, todayIso, full) {
   const td = rj.daily && rj.daily.time ? rj.daily.time.indexOf(todayIso) : -1;
   const now = rj.current && rj.current.temperature_2m !== undefined && rj.current.temperature_2m !== null
     ? { temp: rj.current.temperature_2m, date: todayIso, lo: td >= 0 ? rj.daily.temperature_2m_min[td] : null, hi: td >= 0 ? rj.daily.temperature_2m_max[td] : null } : null;
-  return { daily: { ...all.daily, ...r.daily }, rain: { ...all.rain, ...r.rain }, now, soil: soilRows(rj) };
+  const d = rj.daily || {};
+  const forecast = (d.time || []).map((day, i) => ({ date: day, lo: d.temperature_2m_min[i], hi: d.temperature_2m_max[i] })).filter((x) => x.date >= todayIso);
+  return { daily: { ...all.daily, ...r.daily }, rain: { ...all.rain, ...r.rain }, now, soil: soilRows(rj), forecast };
 }
 
 export async function findPlaces(name) {
