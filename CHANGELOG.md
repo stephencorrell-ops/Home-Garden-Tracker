@@ -4,6 +4,15 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.32.0 - 2026-11-05
+
+- **Notes from last year come back.** Notes you wrote for next year show on Home when that plant's planting window is open or about to open (trees show before bloom). Past plants count. Done hides a note for the season, Snooze hides it for a week.
+- **Frost and heat alerts.** The next three days of forecast are checked against your frost setting and a new heat setting (95 °F). A banner names the plants at risk, with a Covered them button. In Home Assistant, pick a weather entity under Microclimate settings; a new "Frost and heat alert" sensor on a "Garden weather" device turns on while an alert is open. The web app uses Open-Meteo.
+- **Year in review.** A chip on Home opens each year's pounds by plant type and by variety, with plants and pounds per plant, comparison with last year, sprays, feedings, plants lost and recorded frost dates. All years adds up every season.
+- **Pounds per plant when planting.** Add plant lists varieties you have grown before to tap, and shows past pounds per plant with a Use button for the expected yield. The plant page has pounds by season.
+- **Harvest screen.** Pounds picked this year against what you expect, with what is left, by plant type and variety. Expected comes from your yield per plant, else past seasons of that variety, else that plant type.
+- **Plant losses.** Lost out of planted for each variety and plant type, shown when adding plants (with how many to start) and on the plant page.
+
 ## 0.31.16 - 2026-11-05
 
 - A plant that's already in a garden no longer shows "Log up-potting or in-ground". The button now appears only for plants still in a seedling rack or greenhouse.
