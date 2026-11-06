@@ -638,6 +638,16 @@ class GardenTrackerCard extends HTMLElement {
     return `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("notebook-outline")} Notes from last year</div><span class="small mut">${r.length} ${r.length === 1 ? "note" : "notes"}</span></div>` +
       r.map((x) => `<div class="rem"><div class="row"><b class="grow" data-act="open-v" data-v="${x.v}" style="cursor:pointer">${esc(x.name)}${x.garden_name ? `, ${esc(x.garden_name)}` : ""}</b><span class="pill ${x.state === "open" ? "spray" : "info"}" style="margin:0">${esc(x.label)}</span></div><div class="small" style="margin-top:4px">${esc(x.note)}</div><div class="small mut">Your note, ${esc(x.year)}</div><div class="row">${this._btn("rem-done", "check", "Done", `data-v="${x.v}" data-n="${x.id}" data-c="${x.cycle}"`)}${this._btn("rem-snooze", "clock-outline", "Snooze a week", `data-v="${x.v}" data-n="${x.id}"`)}</div></div>`).join("") + `</div>`;
   }
+  _pastVarieties(species) {
+    if (!species) return [];
+    const seen = new Map();
+    for (const v of [...this._snap.varieties].sort((a, b) => String(b.planted || "").localeCompare(String(a.planted || "")))) {
+      if (v.species !== species) continue;
+      const k = v.name.trim().toLowerCase();
+      if (!seen.has(k)) seen.set(k, v.name.trim());
+    }
+    return [...seen.values()];
+  }
   _yieldRows(src, max) {
     return src.years.slice(0, max || 6).map((y) => `<div class="row small" style="margin:2px 0"><span class="grow">${y.year}</span><span class="mut">${num(y.lbs, 1)} lb from ${y.plants} ${y.plants === 1 ? "plant" : "plants"}</span><b style="min-width:84px;text-align:right">${num(y.per_plant, 1)} lb each</b></div>`).join("");
   }
@@ -1597,6 +1607,11 @@ class GardenTrackerCard extends HTMLElement {
       }
       else if (x.type === "multi") { const on = new Set(String(val).split(",").filter(Boolean)); ctl = `<div class="seg" style="flex-wrap:wrap">${x.options.map(([v, t]) => `<button data-act="toggle" data-f="${x.name}" data-val="${esc(v)}" class="${on.has(v) ? "on" : ""}">${esc(t)}</button>`).join("") || `<span class="small mut">No matching sensors found. Type entity ids below.</span>`}</div>`; }
       else if (x.type === "seg" || x.type === "chips") ctl = `<div class="seg">${x.options.map(([v, t]) => `<button data-act="pick" data-f="${x.name}" data-val="${esc(v)}" class="${val === v ? "on" : ""}">${esc(t)}</button>`).join("")}</div>`;
+      else if (x.type === "variety") {
+        const names = x.suggest ? x.suggest(vals) : [];
+        ctl = `<input data-f="${x.name}" type="text" value="${esc(val)}" ${x.placeholder ? `placeholder="${esc(x.placeholder)}"` : ""}>`;
+        if (names.length) ctl += `<div class="small mut" style="margin:6px 0 2px">You've grown these before. Tap one, or type a new variety.</div><div class="seg" style="flex-wrap:wrap">${names.map((n) => `<button data-act="pick" data-f="${x.name}" data-val="${esc(n)}" class="${String(val).trim().toLowerCase() === n.toLowerCase() ? "on" : ""}">${esc(n)}</button>`).join("")}</div>`;
+      }
       else if (x.type === "date") ctl = this._dateField(x, val);
       else if (x.type === "textarea") ctl = `<textarea data-f="${x.name}" rows="3">${esc(val)}</textarea>`;
       else ctl = `<input data-f="${x.name}" type="${x.type || "text"}" value="${esc(val)}" ${x.step ? `step="${x.step}"` : ""} ${x.placeholder ? `placeholder="${esc(x.placeholder)}"` : ""} ${x.type === "number" ? 'inputmode="decimal"' : ""}>`;
@@ -1675,7 +1690,7 @@ class GardenTrackerCard extends HTMLElement {
         { name: "species_other", label: "Type name", type: "text", req: true, show: (v) => v.species === "other", span: 3 },
         { name: "kind", label: "Kind", type: "seg", options: [["plant", "Plant"], ["tree", "Tree"]], value: "plant", show: (v) => v.species === "other", span: 3 },
         { name: "single_harvest", label: "Pulled when harvested?", type: "seg", options: [["false", "No"], ["true", "Yes"]], value: "false", show: (v) => v.species === "other" && v.kind !== "tree", span: 3 },
-        { name: "variety", label: "Variety", type: "text", req: true, placeholder: "Variety name", value: this._generic(this._snap.species.tomato ? "tomato" : sp[0] ? sp[0].key : "") },
+        { name: "variety", label: "Variety", type: "variety", req: true, placeholder: "Variety name", suggest: (v) => this._pastVarieties(key(v)), value: this._generic(this._snap.species.tomato ? "tomato" : sp[0] ? sp[0].key : "") },
         ...this._containerFields("", (v) => { const x = this._snap.gardens.find((y) => y.id === v.garden); return !!x && x.kind !== "garden"; }, false),
         { name: "plants", label: "Number of plants", type: "number", step: "1", value: 1, span: 3 },
         { name: "label_style", label: "Name the plants", type: "chips", options: [["plant", "Plant 1, 2, 3"], ["compass", "North, South, East, West"], ["row", "Row 1, 2, 3"]], value: "plant", show: (v) => yearly(v) && Number(v.plants) > 1 },
