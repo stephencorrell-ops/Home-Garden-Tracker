@@ -128,6 +128,7 @@ async function refreshWeather(force = false) {
     const w = await fetchWeather(loc, today, fullFor !== key || force);
     if (placeKey() !== key) { weatherAgain = true; return; }  // the place changed or a backup was restored meanwhile
     engine.mergeWeather(w);
+    if (w.forecast && w.forecast.length) { try { await engine.call("set_forecast", { days: w.forecast, source: "Open-Meteo" }); } catch (e) { console.warn("Forecast not saved:", e); } }
     try { localStorage.setItem("gt.weatherAt", String(Date.now())); localStorage.setItem("gt.weatherFull", key); } catch { /* ignore */ }
     changed();
   } catch (e) {

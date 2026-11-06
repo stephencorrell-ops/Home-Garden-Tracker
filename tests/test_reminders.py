@@ -1,0 +1,279 @@
+import unittest
+from datetime import date
+
+from . import _load  # noqa: F401
+from .test_core import make
+from custom_components.garden_tracker.core import reminders as rem
+
+
+def fc(*rows):
+    return [{"date": d, "lo": lo, "hi": hi} for d, lo, hi in rows]
+
+
+class NoteReminders(unittest.TestCase):
+    def setUp(self):
+        self.today = date(2026, 9, 25)
+        self.m = make(self.today)
+        self.gid = self.m.add_garden("Back Garden")
+        self.vid = self.m.add_variety(self.gid, "garlic", "Music", 4, "seed", "2025-10-20")
+        self.m.add_review(self.vid, "Add potassium sulfate before planting.", 2026)
+        for r in self.m.data["varieties"][self.vid]["reviews"]:
+            r["added"] = "2026-06-01"
+
+    def due(self, today):
+        self.m.today = lambda: today
+        self.m._rev += 1
+        return self.m.snapshot()["reminders"]
+
+    def test_note_shows_before_the_fall_planting_window(self):
+        r = self.due(date(2026, 9, 25))
+        self.assertEqual([x["note"] for x in r], ["Add potassium sulfate before planting."])
+        self.assertIn(r[0]["state"], ("open", "soon"))
+
+    def test_not_shown_in_midsummer(self):
+        self.assertEqual(self.due(date(2026, 7, 1)), [])
+
+    def test_done_hides_it_for_this_season_only(self):
+        r = self.due(date(2026, 10, 5))[0]
+        self.m.review_done(self.vid, r["id"], r["cycle"])
+        self.assertEqual(self.due(date(2026, 10, 6)), [])
+        self.assertEqual(len(self.due(date(2027, 10, 5))), 1)
+
+    def test_snooze_hides_for_a_week(self):
+        r = self.due(date(2026, 10, 5))[0]
+        self.m.review_snooze(self.vid, r["id"], 7)
+        self.assertEqual(self.due(date(2026, 10, 8)), [])
+        self.assertEqual(len(self.due(date(2026, 10, 13))), 1)
+
+    def test_a_note_you_just_wrote_is_not_a_reminder(self):
+        self.m.today = lambda: date(2026, 10, 5)
+        self.m.add_review(self.vid, "Fresh note", 2026)
+        self.assertNotIn("Fresh note", [x["note"] for x in self.due(date(2026, 10, 6))])
+
+    def test_past_plants_notes_still_remind(self):
+        self.m.today = lambda: date(2026, 10, 5)
+        self.m.archive_variety(self.vid, "season_over")
+        self.assertEqual(len(self.due(date(2026, 10, 5))), 1)
+        self.assertTrue(self.due(date(2026, 10, 5))[0]["archived"])
+
+    def test_tree_notes_show_before_bloom(self):
+        v = self.m.add_variety("", "Loquat", "Champagne", 1, kind="tree")
+        self.m.add_review(v, "Thin fruit earlier.", 2026)
+        for r in self.m.data["varieties"][v]["reviews"]:
+            r["added"] = "2026-01-01"
+        notes = [x["note"] for x in self.due(date(2027, 3, 1))]
+        self.assertIn("Thin fruit earlier.", notes)
+
+
+class Alerts(unittest.TestCase):
+    PLANTS = [{"id": "t", "name": "Tomato", "species": "tomato", "hardy": "tender", "count": 6},
+              {"id": "p", "name": "Pepper", "species": "pepper", "hardy": "tender", "count": 4},
+              {"id": "g", "name": "Garlic", "species": "garlic", "hardy": "fall", "count": 180},
+              {"id": "k", "name": "Kale", "species": "kale", "hardy": "hardy", "count": 8},
+              {"id": "c", "name": "Cauliflower", "species": "cauliflower", "hardy": "half", "count": 3}]
+    TODAY = date(2026, 11, 5)
+
+    def alerts(self, rows, acked=()):
+        return rem.forecast_alerts(fc(*rows), self.TODAY, self.PLANTS, 32.0, 95.0, acked)
+
+    def test_frost_names_tender_plants_and_what_is_fine(self):
+        a = self.alerts([("2026-11-05", 29, 50)])
+        self.assertEqual(len(a), 1)
+        self.assertEqual(a[0]["kind"], "frost")
+        self.assertEqual(a[0]["title"], "Frost tonight: low of 29°F")
+        self.assertEqual([p["name"] for p in a[0]["plants"]], ["Tomato", "Pepper"])
+        self.assertIn("Garlic, Kale and Cauliflower are fine", a[0]["text"])
+
+    def test_half_hardy_only_hurt_by_a_hard_frost(self):
+        a = self.alerts([("2026-11-05", 30, 50)])
+        self.assertNotIn("Cauliflower", [p["name"] for p in a[0]["plants"]])
+        a = self.alerts([("2026-11-05", 26, 50)])
+        self.assertIn("Cauliflower", [p["name"] for p in a[0]["plants"]])
+
+    def test_no_alert_when_it_stays_above_freezing(self):
+        self.assertEqual(self.alerts([("2026-11-05", 36, 55), ("2026-11-06", 34, 55)]), [])
+
+    def test_only_the_next_three_days(self):
+        self.assertEqual(self.alerts([("2026-11-05", 40, 60), ("2026-11-09", 20, 40)]), [])
+
+    def test_heat_run_groups_days(self):
+        a = rem.forecast_alerts(fc(("2026-07-09", 70, 101), ("2026-07-10", 72, 103), ("2026-07-11", 70, 99)),
+                                date(2026, 7, 9), self.PLANTS, 32.0, 95.0, ())
+        self.assertEqual(len(a), 1)
+        self.assertEqual(a[0]["kind"], "heat")
+        self.assertEqual(a[0]["title"], "Heat Thursday to Saturday: highs of 103°F")
+        self.assertIn("Tomato and Pepper may drop blossoms", a[0]["text"])
+
+    def test_acknowledged_alert_is_flagged(self):
+        a = self.alerts([("2026-11-05", 29, 50)], acked=["frost:2026-11-05"])
+        self.assertTrue(a[0]["acked"])
+
+    def test_model_forecast_to_alert_and_ack(self):
+        m = make(self.TODAY)
+        gid = m.add_garden("Beds")
+        m.add_variety(gid, "tomato", "Sungold", 3)
+        m.set_forecast(fc(("2026-11-05", 28, 49), ("2026-11-06", 33, 55)), "test")
+        a = m.snapshot()["alerts"]
+        self.assertEqual([x["kind"] for x in a], ["frost"])
+        self.assertEqual(a[0]["plants"][0]["count"], 3)
+        m.ack_alert(a[0]["id"])
+        self.assertTrue(m.snapshot()["alerts"][0]["acked"])
+
+    def test_plants_not_in_a_garden_bed_are_ignored(self):
+        m = make(self.TODAY)
+        rack = m.add_garden("Rack", kind="rack")
+        m.add_variety(rack, "tomato", "Sungold", 3)
+        m.set_forecast(fc(("2026-11-05", 20, 49)), "test")
+        self.assertEqual(m.snapshot()["alerts"], [])
+
+
+class YearInReview(unittest.TestCase):
+    def test_totals_compare_to_last_year_and_find_the_drop(self):
+        m = make(date(2026, 11, 5))
+        a = m.add_garden("Back Garden")
+        b = m.add_garden("Raised bed")
+        t = m.add_variety(a, "tomato", "Sungold", 2)
+        p = m.add_variety(b, "pepper", "Jalapeno", 2)
+        m.log_harvest(t, 100, "2025-08-01")
+        m.log_harvest(p, 40, "2025-08-10")
+        m.log_harvest(t, 120, "2026-08-01")
+        m.log_harvest(p, 20, "2026-08-10")
+        m.log_spray(t, "Neem", "2026-06-01")
+        y = m.snapshot()["years"]
+        self.assertEqual(list(y), ["2026", "2025"])
+        self.assertEqual(y["2026"]["lbs"], 140.0)
+        self.assertEqual(y["2026"]["prev_lbs"], 140.0)
+        self.assertEqual(y["2026"]["change_pct"], 0)
+        self.assertEqual(y["2026"]["drop"], {"name": "Pepper", "pct": -50})
+        self.assertEqual(y["2026"]["best_garden"]["name"], "Back Garden")
+        self.assertEqual(y["2026"]["sprays"], 1)
+        self.assertEqual(y["2026"]["crops"][0]["name"], "Tomato")
+
+    def test_a_year_still_in_progress_is_not_compared(self):
+        m = make(date(2026, 6, 1))
+        g = m.add_garden("Back Garden")
+        t = m.add_variety(g, "tomato", "Sungold", 2)
+        m.log_harvest(t, 100, "2025-08-01")
+        m.log_harvest(t, 5, "2026-05-20")
+        y = m.snapshot()["years"]["2026"]
+        self.assertTrue(y["in_progress"])
+        self.assertIsNone(y["change_pct"])
+        self.assertIsNone(y["drop"])
+
+
+class YieldHistory(unittest.TestCase):
+    def setUp(self):
+        self.m = make(date(2026, 11, 5))
+        g = self.m.add_garden("Back Garden")
+        self.a25 = self.m.add_variety(g, "tomato", "Sungold", 8)
+        self.a26 = self.m.add_variety(g, "tomato", "Sungold", 6)
+        self.b26 = self.m.add_variety(g, "tomato", "Roma", 4)
+        self.m.log_harvest(self.a25, 40, "2025-08-01")
+        self.m.log_harvest(self.a25, 2, "2025-09-01")
+        self.m.log_harvest(self.a26, 60, "2026-08-01")
+        self.m.log_harvest(self.b26, 20, "2026-08-05")
+
+    def test_variety_pounds_and_average_per_plant_by_season(self):
+        v = self.m.snapshot()["yields"]["varieties"]["tomato|sungold"]
+        self.assertEqual([(y["year"], y["lbs"], y["plants"], y["per_plant"]) for y in v["years"]], [(2026, 60.0, 6, 10.0), (2025, 42.0, 8, 5.25)])
+        self.assertEqual(v["lbs"], 102.0)
+        self.assertEqual(v["per_plant"], round(102 / 14, 2))
+        self.assertEqual(v["seasons"], 2)
+
+    def test_plant_type_totals_add_up_every_variety(self):
+        t = self.m.snapshot()["yields"]["types"]["tomato"]
+        self.assertEqual(t["lbs"], 122.0)
+        self.assertEqual(t["years"][0], {"year": 2026, "lbs": 80.0, "plants": 10, "per_plant": 8.0})
+
+    def test_year_in_review_lists_varieties_with_per_plant(self):
+        y = self.m.snapshot()["years"]["2026"]
+        self.assertEqual([(v["name"], v["lbs"], v["per_plant"]) for v in y["varieties"]], [("Sungold", 60.0, 10.0), ("Roma", 20.0, 5.0)])
+        self.assertEqual(y["crops"][0]["per_plant"], 8.0)
+
+    def test_a_variety_with_no_pounds_has_no_history(self):
+        g = list(self.m.data["gardens"])[0]
+        self.m.add_variety(g, "pepper", "Jalapeno", 3)
+        self.assertNotIn("pepper|jalapeno", self.m.snapshot()["yields"]["varieties"])
+
+
+class HarvestProgress(unittest.TestCase):
+    def setUp(self):
+        self.m = make(date(2026, 8, 15))
+        self.g = self.m.add_garden("Back Garden")
+
+    def prog(self):
+        return self.m.snapshot()["harvest_progress"]
+
+    def test_your_own_estimate_gives_picked_of_expected_and_left(self):
+        v = self.m.add_variety(self.g, "tomato", "Sungold", 10, expected_yield=50)
+        self.m.log_harvest(v, 375, "2026-08-01")
+        p = self.prog()
+        self.assertEqual((p["picked"], p["expected"], p["left"], p["pct"]), (375.0, 500.0, 125.0, 75))
+        self.assertEqual(p["types"][0]["items"][0]["source"], "estimate")
+
+    def test_without_an_estimate_it_uses_past_seasons_then_the_plant_type(self):
+        old = self.m.add_variety(self.g, "tomato", "Roma", 5)
+        self.m.log_harvest(old, 100, "2025-08-01")           # 20 lb per plant last year
+        self.m.archive_variety(old, "season_over", "2025-10-01")
+        new = self.m.add_variety(self.g, "tomato", "Roma", 10)  # this year
+        other = self.m.add_variety(self.g, "tomato", "Brand New", 2)
+        self.m.log_harvest(new, 50, "2026-08-01")
+        items = {i["name"]: i for i in self.prog()["types"][0]["items"]}
+        self.assertEqual((items["Roma"]["expected"], items["Roma"]["source"]), (200.0, "past"))
+        self.assertEqual((items["Brand New"]["expected"], items["Brand New"]["source"]), (40.0, "type"))
+
+    def test_nothing_to_go_on_is_listed_apart(self):
+        v = self.m.add_variety(self.g, "pepper", "Jalapeno", 3)
+        self.m.log_harvest(v, 8, "2026-08-01")
+        p = self.prog()
+        self.assertEqual(p["types"], [])
+        self.assertEqual([(u["name"], u["picked"]) for u in p["unknown"]], [("Jalapeno", 8.0)])
+
+    def test_picking_more_than_expected_leaves_nothing_and_caps_the_bar(self):
+        v = self.m.add_variety(self.g, "tomato", "Sungold", 2, expected_yield=10)
+        self.m.log_harvest(v, 30, "2026-08-01")
+        t = self.prog()["types"][0]
+        self.assertEqual((t["left"], t["pct"]), (0.0, 100))
+
+    def test_last_years_picks_do_not_count_toward_this_year(self):
+        v = self.m.add_variety(self.g, "tomato", "Sungold", 2, expected_yield=10)
+        self.m.log_harvest(v, 30, "2025-08-01")
+        self.assertEqual(self.prog()["picked"], 0.0)
+
+
+class Mortality(unittest.TestCase):
+    def setUp(self):
+        self.m = make(date(2026, 8, 15))
+        self.g = self.m.add_garden("Back Garden")
+
+    def lose(self, vid, n, status="dead", reason="frost"):
+        self.m.mark_plants_lost(vid, n, status, reason)
+
+    def test_lost_over_planted_with_reasons(self):
+        v = self.m.add_variety(self.g, "tomato", "Sungold", 20, "start", "2025-05-10")
+        self.lose(v, 1, "dead", "frost")
+        self.lose(v, 1, "dead", "pests")
+        e = self.m.snapshot()["mortality"]["varieties"]["tomato|sungold"]
+        self.assertEqual((e["planted"], e["lost"], e["pct"]), (20, 2, 10))
+        self.assertEqual(e["years"][0]["reasons"], {"frost": 1, "pests": 1})
+
+    def test_seasons_add_up_and_pulled_early_counts_as_lost(self):
+        a = self.m.add_variety(self.g, "tomato", "Sungold", 10, "start", "2025-05-10")
+        b = self.m.add_variety(self.g, "tomato", "Sungold", 10, "start", "2026-05-10")
+        self.lose(a, 3, "dead", "disease")
+        self.lose(b, 1, "pulled", "heat")
+        e = self.m.snapshot()["mortality"]["varieties"]["tomato|sungold"]
+        self.assertEqual([(y["year"], y["planted"], y["lost"], y["pct"]) for y in e["years"]], [(2026, 10, 1, 10), (2025, 10, 3, 30)])
+        self.assertEqual((e["planted"], e["lost"], e["pct"], e["seasons"]), (20, 4, 20, 2))
+
+    def test_plant_type_rolls_up_every_variety(self):
+        a = self.m.add_variety(self.g, "tomato", "Sungold", 10, "start", "2025-05-10")
+        b = self.m.add_variety(self.g, "tomato", "Roma", 10, "start", "2025-05-10")
+        self.lose(a, 2)
+        t = self.m.snapshot()["mortality"]["types"]["tomato"]
+        self.assertEqual((t["planted"], t["lost"], t["pct"]), (20, 2, 10))
+
+    def test_no_losses_is_zero_percent(self):
+        self.m.add_variety(self.g, "tomato", "Sungold", 5, "start", "2025-05-10")
+        e = self.m.snapshot()["mortality"]["varieties"]["tomato|sungold"]
+        self.assertEqual((e["lost"], e["pct"]), (0, 0))

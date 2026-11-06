@@ -21,6 +21,7 @@ from .core.model import CLIMATE_KINDS, METRIC_SETS, METRICS, GardenModel, fan_on
 
 _LOGGER = logging.getLogger(__name__)
 CLIMATE_INTERVAL = timedelta(minutes=1)
+FORECAST_INTERVAL = timedelta(minutes=30)
 FREEZE_GUARD_F = 36.0  # below this the heater is never held off by a maximum run time
 ENERGY_UNITS = {"kwh": 1.0, "wh": 0.001, "mwh": 1000.0}
 POWER_UNITS = {"w": 0.001, "kw": 1.0}
@@ -42,6 +43,7 @@ class GardenManager(GardenModel):
         self._climate_unsub = None
         self._power_t: dict[str, object] = {}
         self._ready = False
+        self._forecast_unsub = None
 
     async def async_load(self) -> None:
         self.load(await self._store.async_load())
@@ -52,12 +54,45 @@ class GardenManager(GardenModel):
         self.refresh_ph_listeners()
         self._watch_weather()
         self._climate_unsub = async_track_time_interval(self.hass, self._tick, CLIMATE_INTERVAL)
+        self._forecast_unsub = async_track_time_interval(self.hass, self.async_refresh_forecast, FORECAST_INTERVAL)
         self.hass.async_create_task(self.async_backfill())
+        self.hass.async_create_task(self.async_refresh_forecast())
 
     def _micro_changed(self) -> None:
         if self._ready:
             self._watch_weather()
             self.hass.async_create_task(self.async_backfill())
+            self.hass.async_create_task(self.async_refresh_forecast())
+
+    # ---- forecast for the frost and heat alerts -----------------------------------------
+    async def async_refresh_forecast(self, _now=None) -> None:
+        """Read the next few days from the weather entity chosen in the settings and hand them to the model in °F."""
+        entity = self.data["settings"].get("weather_entity")
+        if not entity:
+            return
+        try:
+            resp = await self.hass.services.async_call("weather", "get_forecasts", {"entity_id": entity, "type": "daily"},
+                                                       blocking=True, return_response=True)
+        except Exception as err:  # noqa: BLE001 - a missing or slow weather integration must never break the garden
+            _LOGGER.debug("Could not read the forecast from %s: %s", entity, err)
+            return
+        state = self.hass.states.get(entity)
+        unit = (state.attributes.get("temperature_unit") if state else None) or self.hass.config.units.temperature_unit
+
+        def f(v):
+            if v is None:
+                return None
+            try:
+                return TemperatureConverter.convert(float(v), unit, UnitOfTemperature.FAHRENHEIT)
+            except (TypeError, ValueError, HomeAssistantError):
+                return None
+
+        days = []
+        for item in ((resp or {}).get(entity) or {}).get("forecast") or []:
+            when = str(item.get("datetime") or "")[:10]  # the date as the weather service wrote it, not shifted by time zone
+            if when:
+                days.append({"date": when, "lo": f(item.get("templow")), "hi": f(item.get("temperature"))})
+        self.set_forecast(days, entity)
 
     # ---- local weather: temperature, rain, humidity, solar -----------------------------
     def outdoor_entities(self) -> list[str]:
@@ -362,6 +397,9 @@ class GardenManager(GardenModel):
         if self._climate_unsub:
             self._climate_unsub()
             self._climate_unsub = None
+        if self._forecast_unsub:
+            self._forecast_unsub()
+            self._forecast_unsub = None
         if self._ph_unsub:
             self._ph_unsub()
             self._ph_unsub = None

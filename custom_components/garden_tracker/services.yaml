@@ -135,6 +135,8 @@ set_microclimate:
     rain_entities: {description: "Rainfall total sensors (daily, weekly or yearly rain, not the rain rate), averaged", selector: {entity: {domain: sensor, multiple: true}}}
     humidity_entities: {description: "Outside humidity sensors, averaged", selector: {entity: {domain: sensor, multiple: true}}}
     solar_entities: {description: "Solar radiation sensors in W/m², averaged", selector: {entity: {domain: sensor, multiple: true}}}
+    heat_f: {description: "Temperature counted as a heat alert (°F)", example: 95, selector: {number: {min: 80, max: 120, step: 1, mode: box}}}
+    weather_entity: {description: "Weather entity whose daily forecast drives the frost and heat alerts", selector: {entity: {domain: weather}}}
     air_entities: {description: "Air quality sensors as lists under pm1, pm25, pm10, nox and voc, averaged for each", example: "{pm25: [sensor.outside_pm2_5], voc: [sensor.outside_voc]}", selector: {object: {}}}
 set_power_rate:
   fields: {cents: {required: true, description: "Price of electricity in cents per kWh (0 clears it)", example: 5.15, selector: {number: {min: 0, max: 1000, step: 0.01, mode: box}}}}
@@ -176,3 +178,11 @@ edit_entry:
   fields: {kind: {required: true, selector: {select: {options: [harvest, fertilizer, spray, review, upotted, adjunct, ph, moisture, ec, soil_temp, air_temp, out_temp, par, cover, water]}}}, parent: {required: true, selector: {text: {}}}, entry_id: {required: true, selector: {text: {}}}, date: {selector: {date: {}}}, lbs: {selector: {number: {min: 0, step: 0.1, mode: box}}}, product: {selector: {text: {}}}, n: {selector: {number: {mode: box}}}, p: {selector: {number: {mode: box}}}, k: {selector: {number: {mode: box}}}, target: {selector: {text: {}}}, phi_days: {selector: {number: {mode: box}}}, reapply_days: {selector: {number: {mode: box}}}, amount: {selector: {text: {}}}, value: {selector: {number: {step: 0.1, mode: box}}}, sown: {selector: {date: {}}}, terminated: {selector: {date: {}}}, method: {selector: {select: {options: [mowed, roll_crimped, tarped, tilled, winterkill, other]}}}, crop: {selector: {text: {}}}, amount_lbs: {selector: {number: {min: 0, step: 0.1, mode: box}}}, wait_days: {selector: {number: {min: 0, max: 120, mode: box}}}, notes: {selector: {text: {}}}, year: {selector: {number: {mode: box}}}, type: {selector: {text: {}}}}
 add_species:
   fields: {key: {required: true, selector: {text: {}}}, name: {required: true, selector: {text: {}}}, kind: {selector: {select: {options: [tree, plant]}}}, pests: {description: "List of pests: key, name, lower_f, upper_f, default_biofix (MM-DD or omit), milestones [{dd, note}]", selector: {object: {}}}}
+review_done:
+  fields: {plant: {required: true, selector: {text: {}}}, note: {required: true, description: "The id of the note", selector: {text: {}}}, cycle: {description: "Planting season year it is done for (default this year)", selector: {number: {min: 2000, max: 2100, mode: box}}}}
+review_snooze:
+  fields: {plant: {required: true, selector: {text: {}}}, note: {required: true, description: "The id of the note", selector: {text: {}}}, days: {description: "Days to hide it (default 7)", selector: {number: {min: 1, max: 60, mode: box}}}}
+set_forecast:
+  fields: {days: {required: true, description: "Daily forecast as a list of {date, lo, hi} in °F", example: "[{date: '2026-11-06', lo: 29, hi: 50}]", selector: {object: {}}}, source: {selector: {text: {}}}}
+ack_alert:
+  fields: {alert: {required: true, description: "The alert id, for example frost:2026-11-06", selector: {text: {}}}}

@@ -17,10 +17,11 @@ from . import microclimate as mc
 from . import season as season_mod, chores as chores_mod
 from . import sun as sun_mod
 from . import sulfur as sul
+from . import reminders as rem
 
 
 DEFAULT_SETTINGS = {"frost_last": "04-25", "frost_first": "10-15",  # Ephrata, WA averages
-                    "usda_zone": "7a (6b on the 2012 map)", "frost_f": mc.FROST_F,
+                    "usda_zone": "7a (6b on the 2012 map)", "frost_f": mc.FROST_F, "heat_f": rem.HEAT_F, "weather_entity": None,
                     "location": None, "temp_entities": [], "rain_entities": [], "humidity_entities": [], "solar_entities": [],
                     "air_entities": {"pm1": [], "pm25": [], "pm10": [], "nox": [], "voc": []}}
 SENSOR_ALARM_AFTER = timedelta(hours=1)  # how long an in-use sensor may report nothing before it alarms
@@ -465,8 +466,14 @@ class GardenModel:
 
     def set_microclimate(self, usda_zone: Any = UNSET, frost_f: float | None = None, temp_entities: Any = UNSET,
                          rain_entities: Any = UNSET, humidity_entities: Any = UNSET, solar_entities: Any = UNSET,
-                         air_entities: Any = UNSET) -> None:
+                         air_entities: Any = UNSET, heat_f: float | None = None, weather_entity: Any = UNSET) -> None:
         st = self.data["settings"]
+        if heat_f is not None:
+            if not 80 <= float(heat_f) <= 120:
+                raise GardenError("Heat is between 80 and 120 °F")
+            st["heat_f"] = float(heat_f)
+        if weather_entity is not UNSET:
+            st["weather_entity"] = (str(weather_entity).strip() or None) if weather_entity else None
         if usda_zone is not UNSET:
             st["usda_zone"] = (str(usda_zone).strip()[:40] or None) if usda_zone is not None else None
         if frost_f is not None:
@@ -775,7 +782,7 @@ class GardenModel:
                          **{k: mc.temp_range(self.data["humid"], a, b) for k, (a, b) in per.items()}},
             "air": self._air_view(today),
             "solar": {"sensors": st["solar_entities"], **{k: mc.solar_total(self.data["solar"], a, b) for k, (a, b) in per.items()}},
-            "settings": {"usda_zone": st.get("usda_zone"), "frost_f": thr, "location": st.get("location"), "outdoor_entity": self.outdoor_entity,
+            "settings": {"usda_zone": st.get("usda_zone"), "frost_f": thr, "heat_f": st.get("heat_f", rem.HEAT_F), "weather_entity": st.get("weather_entity"), "location": st.get("location"), "outdoor_entity": self.outdoor_entity,
                          "temp_entities": st["temp_entities"], "rain_entities": st["rain_entities"],
                          "humidity_entities": st["humidity_entities"], "solar_entities": st["solar_entities"],
                          "air_entities": st["air_entities"]},
@@ -2086,8 +2093,106 @@ class GardenModel:
 
     def add_review(self, ref: str, notes: str, year: int | None = None) -> None:
         self.find_variety(ref)["reviews"].append(
-            {"id": new_id(), "year": year or self.today().year, "notes": notes})
+            {"id": new_id(), "year": year or self.today().year, "notes": notes, "added": self.today().isoformat()})
         self._touch()
+
+    def _find_review(self, ref: str, review_id: str) -> dict:
+        r = next((x for x in self.find_variety(ref, archived_ok=True)["reviews"] if x["id"] == review_id), None)
+        if r is None:
+            raise GardenError("That note is gone")
+        return r
+
+    def review_done(self, ref: str, review_id: str, cycle: int | None = None) -> None:
+        """Mark a reminder done for this planting season; it comes back at the next one."""
+        r = self._find_review(ref, review_id)
+        r["done"] = int(cycle or self.today().year)
+        r.pop("snooze_until", None)
+        self._touch()
+
+    def review_snooze(self, ref: str, review_id: str, days: int = 7) -> None:
+        r = self._find_review(ref, review_id)
+        r["snooze_until"] = (self.today() + timedelta(days=max(1, min(int(days), 60)))).isoformat()
+        self._touch()
+
+    # ---- forecast, frost and heat alerts -----------------------------------------
+    def set_forecast(self, days: list, source: str = "") -> None:
+        """Daily lows and highs (°F) for the next few days, from Home Assistant's weather entity or Open-Meteo."""
+        clean = []
+        for d in days or []:
+            try:
+                lo = None if d.get("lo") is None else round(float(d["lo"]), 1)
+                hi = None if d.get("hi") is None else round(float(d["hi"]), 1)
+                clean.append({"date": iso(d["date"]), "lo": lo, "hi": hi})
+            except (KeyError, TypeError, ValueError):
+                continue
+        clean = [c for c in clean if c["date"]][:10]
+        cur = self.data.get("forecast") or {}
+        if cur.get("days") == clean and cur.get("source") == (source or ""):
+            return
+        self.data["forecast"] = {"days": clean, "source": source or ""}
+        self._touch()
+
+    def ack_alert(self, alert_id: str) -> None:
+        acked = [a for a in self.data.get("alert_ack", []) if a.split(":", 1)[-1] >= (self.today() - timedelta(days=7)).isoformat()]
+        if alert_id not in acked:
+            acked.append(alert_id)
+        self.data["alert_ack"] = acked
+        self._touch()
+
+    def _alert_plants(self) -> list[dict]:
+        crop_days = self.data.get("crop_days") or {}
+        out = []
+        for v in self.data["varieties"].values():
+            g = self.data["gardens"].get(v.get("garden", ""))
+            if v.get("archived") or v.get("kind") == "tree" or not g or g.get("archived") or g.get("kind", "garden") != "garden":
+                continue
+            n = sum(1 for p in v["plants"] if p["status"] == "alive")
+            if not n:
+                continue
+            e = crop_days.get(v["species"])
+            spec = (int(e["days"]), e["hardy"]) if e else season_mod.CROPS.get(v["species"])
+            sp = self.get_species(v["species"]) or {}
+            out.append({"id": v["id"], "name": sp.get("name") or v.get("species_name") or v["species"], "species": v["species"],
+                        "hardy": spec[1] if spec else None, "count": n})
+        merged: dict[str, dict] = {}
+        for p in out:  # one line per crop, however many varieties
+            m = merged.setdefault(p["species"], {**p, "count": 0})
+            m["count"] += p["count"]
+        return list(merged.values())
+
+    def _alerts_view(self, today: date) -> list[dict]:
+        fc = (self.data.get("forecast") or {}).get("days") or []
+        if not fc:
+            return []
+        st = self.data["settings"]
+        return rem.forecast_alerts(fc, today, self._alert_plants(), st.get("frost_f", mc.FROST_F), st.get("heat_f", rem.HEAT_F),
+                                   self.data.get("alert_ack", []))
+
+    def _reminders_view(self, today: date, species: dict) -> list[dict]:
+        st = self.data["settings"]
+        names = {k: sp["name"] for k, sp in species.items()}
+        gnames = {g["id"]: g["name"] for g in self.data["gardens"].values()}
+        return rem.due_notes(list(self.data["varieties"].values()), names, gnames, today, st["frost_last"], st["frost_first"],
+                             self.data.get("crop_days") or {})
+
+    def _yields_view(self, species: dict) -> dict:
+        names = {k: sp["name"] for k, sp in species.items()}
+        return rem.yield_history(list(self.data["varieties"].values()), names)
+
+    def _mortality_view(self, species: dict) -> dict:
+        return rem.mortality_history(list(self.data["varieties"].values()), {k: sp["name"] for k, sp in species.items()})
+
+    def _progress_view(self, today: date, species: dict) -> dict:
+        names = {k: sp["name"] for k, sp in species.items()}
+        gnames = {g["id"]: g["name"] for g in self.data["gardens"].values()}
+        vs = list(self.data["varieties"].values())
+        return rem.harvest_progress(vs, names, gnames, rem.yield_history(vs, names), today)
+
+    def _years_view(self, today: date, species: dict) -> dict:
+        names = {k: sp["name"] for k, sp in species.items()}
+        gnames = {g["id"]: g["name"] for g in self.data["gardens"].values()}
+        thr = self.data["settings"].get("frost_f", mc.FROST_F)
+        return rem.year_summaries(list(self.data["varieties"].values()), names, gnames, mc.frost_years(self.data["daily"], today, thr), today)
 
     def set_plant_status(self, ref: str, plant: str, status: str, reason: str | None = None,
                          note: str | None = None, when: Any = None) -> None:
@@ -2396,7 +2501,10 @@ class GardenModel:
         varieties.sort(key=lambda x: (x["archived"] is not None, x["garden"], x["kind"], x["name"].lower()))
         return {"today": today.isoformat(), "micro": self._micro_view(today), "species": species, "gardens": gardens,
                 "varieties": varieties, "past_gardens": self._past_gardens(), "variety_traits": list(self.data["variety_traits"].values()), "can_undo": self._trash is not None,
-                "harvest_years": self._harvest_years(species), "containers": list(DEFAULT_CONTAINERS), "container_per_tray": dict(CONTAINER_PER_TRAY),
+                "harvest_years": self._harvest_years(species), "reminders": self._reminders_view(today, species),
+                "alerts": self._alerts_view(today), "years": self._years_view(today, species), "yields": self._yields_view(species),
+                "harvest_progress": self._progress_view(today, species), "mortality": self._mortality_view(species),
+                "forecast": {"source": (self.data.get("forecast") or {}).get("source", ""), "days": (self.data.get("forecast") or {}).get("days", [])}, "containers": list(DEFAULT_CONTAINERS), "container_per_tray": dict(CONTAINER_PER_TRAY),
                 "reasons": REASONS}
 
     def _harvest_years(self, species: dict) -> dict:

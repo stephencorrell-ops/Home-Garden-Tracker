@@ -68,6 +68,8 @@ label{display:block;font-size:12px;color:var(--mut);margin-bottom:4px}
 .ok{--c:var(--ok)}.spray,.warn{--c:var(--spray)}.hold,.bad,.low,.high{--c:var(--hold)}.info{--c:var(--info)}.none{--c:var(--mut)}
 .alarm{background:color-mix(in srgb,var(--hold) 16%,transparent);border:1px solid var(--hold);border-radius:10px;padding:10px 12px;margin:0 0 10px}
 .alarm b{color:var(--hold)}.alarm .row{margin-top:8px}
+.wxa{border-radius:10px;padding:10px 12px;margin:0 0 10px;border:1px solid var(--c);background:color-mix(in srgb,var(--c) 14%,transparent)}.wxa.frost{--c:var(--info)}.wxa.heat{--c:var(--spray)}.wxa b{color:var(--c)}.wxa .row{margin-top:8px}
+.rem{border-top:1px solid var(--line);padding:8px 0}.rem:first-of-type{border-top:0}.rem .row{margin-top:6px}.bar{height:10px;border-radius:5px;background:var(--secondary-background-color);overflow:hidden}.bar i{display:block;height:100%;background:var(--ok)}.bar.low i{background:var(--spray)}
 .tbl{width:100%;border-collapse:collapse;font-size:13px}.tbl th{text-align:left;font-weight:500;color:var(--secondary-text-color);padding:4px 6px 4px 0}.tbl td{padding:5px 6px 5px 0;border-top:1px solid var(--divider-color)}
 .airleg{display:grid;grid-template-columns:repeat(auto-fit,minmax(62px,1fr));gap:6px;margin:10px 0}.airleg .stat{padding:6px 8px}.airleg .stat span{display:block;font-size:11px}.airleg .stat b{font-size:16px}
 .stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:10px}
@@ -436,6 +438,8 @@ class GardenTrackerCard extends HTMLElement {
       else if (w === "layout" && this._view.id && this._garden(this._view.id) && this._garden(this._view.id).layout) body = this._layoutView(this._garden(this._view.id));
       else if (w === "water" && this._view.id && this._garden(this._view.id) && this._garden(this._view.id).irrigation) body = this._irrView(this._garden(this._view.id));
       else if (w === "archive") body = this._archiveView();
+      else if (w === "review") body = this._reviewView();
+      else if (w === "harvest") body = this._harvestView();
       else if (w === "micro" && this._snap.micro) body = this._microView();
       else { this._view = { v: "home" }; body = this._homeView(); }
     }
@@ -598,9 +602,10 @@ class GardenTrackerCard extends HTMLElement {
         fields: [
           { name: "usda_zone", label: "What USDA says your zone is", type: "text", placeholder: "7a", value: c.usda_zone || "" },
           { name: "frost_f", label: "Counts as a frost at or below (°F)", type: "number", step: "0.5", value: c.frost_f },
+          { name: "heat_f", label: "Heat alert at or above (°F)", type: "number", step: "1", value: c.heat_f },
         ],
-        note: "Frost dates, your zone, temperatures and rain come from the weather service for your location.",
-        submit: (x) => this._call("set_microclimate", { usda_zone: x.usda_zone || " ", frost_f: x.frost_f }),
+        note: "Frost dates, your zone, temperatures, rain and the frost and heat alerts come from the weather service for your location.",
+        submit: (x) => this._call("set_microclimate", { usda_zone: x.usda_zone || " ", frost_f: x.frost_f, heat_f: x.heat_f }),
       };
     }
     const airMatch = { pm1: /pm[\s_.]?1(?![0-9])/i, pm25: /pm[\s_.]?2[\s_.]?5/i, pm10: /pm[\s_.]?10/i, nox: /nox/i, voc: /voc|volatile/i };
@@ -614,13 +619,139 @@ class GardenTrackerCard extends HTMLElement {
         ...Object.entries({ pm1: "PM1", pm25: "PM2.5", pm10: "PM10", nox: "NOx", voc: "VOC" }).map(([k, t]) => ({ name: `air_${k}`, label: `Air quality, ${t} sensors (tap to include)`, type: "multi", options: W(c.air_entities[k], (a, u, id) => airMatch[k].test(id + " " + (a.friendly_name || "")) || a.device_class === ({ pm1: "pm1", pm25: "pm25", pm10: "pm10", nox: "nitrogen_oxides", voc: "volatile_organic_compounds" })[k]), value: c.air_entities[k].join(",") })),
         { name: "usda_zone", label: "What USDA says your zone is", type: "text", placeholder: "7a", value: c.usda_zone || "" },
         { name: "frost_f", label: "Counts as a frost at or below (°F)", type: "number", step: "0.5", value: c.frost_f },
+        { name: "heat_f", label: "Heat alert at or above (°F)", type: "number", step: "1", value: c.heat_f },
+        { name: "weather_entity", label: "Weather forecast for frost and heat alerts", type: "seg", options: [["", "None"], ...Object.entries((this._hass && this._hass.states) || {}).filter(([id]) => id.startsWith("weather.")).map(([id, s2]) => [id, (s2.attributes && s2.attributes.friendly_name) || id])], value: c.weather_entity || "" },
       ],
       note: "Several sensors of one kind are averaged. Rain needs totals that count up through the day, week or year, not a rain rate. Past weather is read from Home Assistant's long-term statistics for these sensors, so history is there right away. Humidity and sun cards show once you pick sensors for them.",
       submit: (x) => {
         const list = (v) => String(v || "").split(",").filter(Boolean);
-        return this._call("set_microclimate", { temp_entities: list(x.temp_entities), rain_entities: list(x.rain_entities), humidity_entities: list(x.humidity_entities), solar_entities: list(x.solar_entities), air_entities: { pm1: list(x.air_pm1), pm25: list(x.air_pm25), pm10: list(x.air_pm10), nox: list(x.air_nox), voc: list(x.air_voc) }, usda_zone: x.usda_zone || " ", frost_f: x.frost_f });
+        return this._call("set_microclimate", { temp_entities: list(x.temp_entities), rain_entities: list(x.rain_entities), humidity_entities: list(x.humidity_entities), solar_entities: list(x.solar_entities), air_entities: { pm1: list(x.air_pm1), pm25: list(x.air_pm25), pm10: list(x.air_pm10), nox: list(x.air_nox), voc: list(x.air_voc) }, usda_zone: x.usda_zone || " ", frost_f: x.frost_f, heat_f: x.heat_f, weather_entity: x.weather_entity || "" });
       },
     };
+  }
+  _weatherAlerts() {
+    return (this._snap.alerts || []).filter((a) => !a.acked).map((a) =>
+      `<div class="wxa ${a.kind}"><b>${this._icon(a.kind === "frost" ? "snowflake-alert" : "weather-sunny-alert")} ${esc(a.title)}</b><div class="small" style="margin-top:4px">${esc(a.text)}</div><div class="row">${this._btn("ack-alert", "check", a.kind === "frost" ? "Covered them" : "Got it", `data-a="${esc(a.id)}"`, "grow")}</div></div>`).join("");
+  }
+  _remindersCard() {
+    const r = this._snap.reminders || [];
+    if (!r.length) return "";
+    return `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("notebook-outline")} Notes from last year</div><span class="small mut">${r.length} ${r.length === 1 ? "note" : "notes"}</span></div>` +
+      r.map((x) => `<div class="rem"><div class="row"><b class="grow" data-act="open-v" data-v="${x.v}" style="cursor:pointer">${esc(x.name)}${x.garden_name ? `, ${esc(x.garden_name)}` : ""}</b><span class="pill ${x.state === "open" ? "spray" : "info"}" style="margin:0">${esc(x.label)}</span></div><div class="small" style="margin-top:4px">${esc(x.note)}</div><div class="small mut">Your note, ${esc(x.year)}</div><div class="row">${this._btn("rem-done", "check", "Done", `data-v="${x.v}" data-n="${x.id}" data-c="${x.cycle}"`)}${this._btn("rem-snooze", "clock-outline", "Snooze a week", `data-v="${x.v}" data-n="${x.id}"`)}</div></div>`).join("") + `</div>`;
+  }
+  _pastVarieties(species) {
+    if (!species) return [];
+    const seen = new Map();
+    for (const v of [...this._snap.varieties].sort((a, b) => String(b.planted || "").localeCompare(String(a.planted || "")))) {
+      if (v.species !== species) continue;
+      const k = v.name.trim().toLowerCase();
+      if (!seen.has(k)) seen.set(k, v.name.trim());
+    }
+    return [...seen.values()];
+  }
+  _yieldRows(src, max) {
+    return src.years.slice(0, max || 6).map((y) => `<div class="row small" style="margin:2px 0"><span class="grow">${y.year}</span><span class="mut">${num(y.lbs, 1)} lb from ${y.plants} ${y.plants === 1 ? "plant" : "plants"}</span><b style="min-width:84px;text-align:right">${num(y.per_plant, 1)} lb each</b></div>`).join("");
+  }
+  _yieldHint(species, name, n, canUse) {
+    const Y = this._snap.yields || {}, key = `${species}|${String(name || "").trim().toLowerCase()}`;
+    const vh = Y.varieties && Y.varieties[key], th = Y.types && Y.types[species], src = vh || th;
+    if (!src || !src.per_plant) return "";
+    const title = vh ? `${esc(vh.name)}, your past seasons` : `${esc(th.name)}, all your varieties${name ? ` (no ${esc(name)} yet)` : ""}`;
+    const pp = src.per_plant;
+    return `<div class="card" style="margin-top:8px"><div class="sec">${title}</div>${this._yieldRows(src, 4)}<p class="small" style="margin:6px 0 0">Average ${num(pp, 1)} lb per plant${n > 1 ? `, so about ${num(pp * n, 0)} lb from ${n} plants` : ""}. ${canUse ? `<button data-act="use-yield" data-n="${num(pp, 1)}">Use ${num(pp, 1)} lb per plant</button>` : ""}</p></div>`;
+  }
+  _lossLine(y) {
+    const r = Object.entries(y.reasons || {}).sort((a, b) => b[1] - a[1]).map(([k, c]) => `${c} ${k.replace(/_/g, " ")}`).join(", ");
+    return `<div class="row small" style="margin:2px 0"><span class="grow">${y.year}</span><span class="mut">${y.lost} of ${y.planted} lost${r ? ` (${esc(r)})` : ""}</span><b style="min-width:52px;text-align:right">${y.pct}%</b></div>`;
+  }
+  _lossSummary(src, n) {
+    const r = Object.entries(src.reasons || {}).sort((a, b) => b[1] - a[1]).map(([k, c]) => `${c} ${k.replace(/_/g, " ")}`).join(", ");
+    if (!src.lost) return `No plants lost${src.seasons > 1 ? ` in ${src.seasons} seasons` : " so far"}.`;
+    const more = n > 1 && src.pct < 100 ? ` To end up with ${n}, plant ${Math.ceil(n / (1 - src.pct / 100))}.` : "";
+    return `About ${src.pct}% lost${src.seasons > 1 ? ` over ${src.seasons} seasons` : ""}${r ? ` (${esc(r)})` : ""}.${more}`;
+  }
+  _lossHint(species, name, n) {
+    const M = this._snap.mortality || {}, vh = M.varieties && M.varieties[`${species}|${String(name || "").trim().toLowerCase()}`], th = M.types && M.types[species], src = vh || th;
+    if (!src) return "";
+    const title = vh ? `${esc(vh.name)}, plant losses` : `${esc(th.name)}, plant losses (all your varieties${name ? `, no ${esc(name)} yet` : ""})`;
+    return `<div class="card" style="margin-top:8px"><div class="sec">${title}</div>${src.years.slice(0, 4).map((y) => this._lossLine(y)).join("")}<p class="small" style="margin:6px 0 0">${this._lossSummary(src, n)}</p></div>`;
+  }
+  _lossCard(v) {
+    const M = this._snap.mortality || {}, vh = M.varieties && M.varieties[`${v.species}|${String(v.name).trim().toLowerCase()}`];
+    if (!vh) return "";
+    return `<div class="card"><div class="sec">Plant losses</div>${vh.years.map((y) => this._lossLine(y)).join("")}<p class="small" style="margin:6px 0 0">${this._lossSummary(vh, 0)}</p></div>`;
+  }
+  _yieldCard(v) {
+    const Y = this._snap.yields || {}, vh = Y.varieties && Y.varieties[`${v.species}|${String(v.name).trim().toLowerCase()}`], th = Y.types && Y.types[v.species];
+    if (!vh) return "";
+    const typeLine = th && th.lbs > vh.lbs ? `<p class="small mut" style="margin:6px 0 0">All your ${esc(th.name)}: ${num(th.lbs, 1)} lb in all, ${num(th.per_plant, 1)} lb per plant.</p>` : "";
+    return `<div class="card"><div class="sec">Pounds by season</div>${this._yieldRows(vh)}<p class="small" style="margin:6px 0 0">${vh.seasons > 1 ? `Average ${num(vh.per_plant, 1)} lb per plant over ${vh.seasons} seasons, ${num(vh.lbs, 1)} lb in all.` : `${num(vh.lbs, 1)} lb so far.`}</p>${typeLine}</div>`;
+  }
+  _harvestChip() {
+    const p = this._snap.harvest_progress;
+    if (!p || !(p.types.length || p.unknown.length)) return "";
+    return `<button class="chip" data-act="open-harvest">${this._icon("basket-outline")} Harvest${p.expected ? ` · ${p.pct}%` : ""}</button>`;
+  }
+  _harvestView() {
+    const p = this._snap.harvest_progress;
+    if (!p || !(p.types.length || p.unknown.length)) { this._view = { v: "home" }; return this._homeView(); }
+    const lb = (x) => `${num(x, 1)} lb`, SRC = { estimate: "your estimate", past: "from past seasons", type: "from your other plants of this type" };
+    let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="ttl grow">Harvest ${p.year}</div></div>`;
+    if (p.expected) {
+      h += `<div class="card"><div class="row" style="align-items:baseline"><span class="big">${num(p.picked, 0)}</span><span class="small mut">of ${num(p.expected, 0)} lb expected</span><span class="grow"></span><b>${p.pct}%</b></div><div class="bar" style="height:14px;margin:8px 0"><i style="width:${Math.max(p.picked ? 2 : 0, p.pct)}%"></i></div><div class="small">${p.left > 0 ? `<b>${num(p.left, 0)} lb</b> still to pick.` : "Everything you expected is picked."}${p.unknown_picked ? ` <span class="mut">Plus ${lb(p.unknown_picked)} from plants with no estimate.</span>` : ""}</div></div>`;
+    } else {
+      h += `<div class="card"><div class="small">${lb(p.unknown_picked)} picked so far. Nothing has an expected yield yet, so there's no total to compare with. Enter an expected yield per plant, or it fills in from past seasons.</div></div>`;
+    }
+    for (const t of p.types) {
+      h += `<div class="card"><div class="row" style="align-items:baseline"><b class="grow">${esc(t.name)}</b><span class="small mut">${lb(t.picked)} of ${lb(t.expected)}</span></div><div class="bar" style="margin:6px 0"><i style="width:${Math.max(t.picked ? 2 : 0, t.pct)}%"></i></div><div class="small mut">${t.left > 0 ? `${lb(t.left)} left` : "All picked"}</div>`;
+      if (t.items.length > 1 || t.items[0].name.toLowerCase() !== t.name.toLowerCase()) {
+        h += t.items.map((i) => `<div class="rem"><div class="row" style="align-items:baseline"><span class="grow" data-act="open-v" data-v="${i.id}" style="cursor:pointer">${esc(i.name)}${i.garden_name ? `<span class="small mut">, ${esc(i.garden_name)}</span>` : ""}</span><span class="small">${lb(i.picked)} of ${lb(i.expected)}</span></div><div class="bar" style="height:6px;margin:4px 0"><i style="width:${Math.max(i.picked ? 2 : 0, i.pct)}%"></i></div><div class="small mut">${i.left > 0 ? `${lb(i.left)} left` : "All picked"} · ${i.plants} ${i.plants === 1 ? "plant" : "plants"}, ${SRC[i.source]}</div></div>`).join("");
+      } else {
+        h += `<div class="small mut" style="margin-top:2px">${t.items[0].plants} ${t.items[0].plants === 1 ? "plant" : "plants"}, ${SRC[t.items[0].source]}</div>`;
+      }
+      h += `</div>`;
+    }
+    if (p.unknown.length) {
+      h += `<div class="card"><div class="sec">No estimate yet</div>${p.unknown.map((i) => `<div class="row" style="margin:6px 0"><span class="grow" data-act="open-v" data-v="${i.id}" style="cursor:pointer">${esc(i.name)} <span class="small mut">${esc(i.species_name)}${i.garden_name ? `, ${esc(i.garden_name)}` : ""}</span></span><span class="small">${lb(i.picked)} picked</span></div>`).join("")}<p class="small mut" style="margin:6px 0 0">Add an expected yield per plant on the plant's page and it counts toward the total.</p></div>`;
+    }
+    return h;
+  }
+  _reviewChip() {
+    return Object.keys(this._snap.years || {}).length ? `<button class="chip" data-act="open-review">${this._icon("chart-box-outline")} Year in review</button>` : "";
+  }
+  _reviewView() {
+    const years = this._snap.years || {}, keys = Object.keys(years).sort().reverse(), Y = this._snap.yields || { varieties: {}, types: {} };
+    if (!keys.length) { this._view = { v: "home" }; return this._homeView(); }
+    const all = this._view.year === "all";
+    const yr = keys.includes(String(this._view.year)) ? String(this._view.year) : keys[0], y = all ? null : years[yr];
+    const lb = (x) => `${num(x, 1)} lb`, per = (x) => (x ? `${num(x, 1)} lb per plant` : "");
+    let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="ttl grow">${all ? "Every season" : `${yr} ${y.in_progress ? "so far" : "in review"}`}</div></div>`;
+    h += `<div class="chips">${keys.map((k) => `<button class="chip ${!all && k === yr ? "on" : ""}" data-act="review-year" data-y="${k}">${k}</button>`).join("")}<button class="chip ${all ? "on" : ""}" data-act="review-year" data-y="all">All years</button></div>`;
+    const bars = (list, nameOf, subOf) => {
+      const max = Math.max(...list.map((c) => c.lbs), 1);
+      return list.map((c) => `<div style="margin:8px 0"><div class="row"><span class="grow">${esc(nameOf(c))}</span><b>${lb(c.lbs)}</b></div><div class="bar${c.low ? " low" : ""}"><i style="width:${Math.max(2, Math.round(c.lbs / max * 100))}%"></i></div><div class="small mut">${subOf(c)}</div></div>`).join("");
+    };
+    if (all) {
+      const types = Object.values(Y.types).sort((a, b) => b.lbs - a.lbs), vars = Object.values(Y.varieties).sort((a, b) => b.lbs - a.lbs);
+      h += `<div class="card"><div class="sec">Pounds by plant type</div>${types.length ? bars(types, (c) => c.name, (c) => `${c.plants} ${c.plants === 1 ? "plant" : "plants"} over ${c.seasons} ${c.seasons === 1 ? "season" : "seasons"}${c.per_plant ? ` · ${per(c.per_plant)}` : ""}`) : `<p class="small mut">No weighed harvests yet.</p>`}</div>`;
+      if (vars.length) h += `<div class="card"><div class="sec">Pounds by variety</div>${bars(vars, (c) => `${c.name}${vars.some((o) => o !== c && o.name.toLowerCase() === c.name.toLowerCase()) ? ` (${c.species_name})` : ""}`, (c) => `${c.species_name} · ${c.plants} ${c.plants === 1 ? "plant" : "plants"} over ${c.seasons} ${c.seasons === 1 ? "season" : "seasons"}${c.per_plant ? ` · ${per(c.per_plant)}` : ""}`)}</div>`;
+      return h;
+    }
+    const stats = [["Harvested", lb(y.lbs)]];
+    if (y.change_pct !== null) stats.push(["Vs. last year", `${y.change_pct > 0 ? "+" : ""}${y.change_pct}%`]);
+    stats.push(["Picks logged", String(y.picks)], ["Sprays", String(y.sprays)], ["Feedings", String(y.feeds)], ["Plants lost", String(y.lost)]);
+    h += `<div class="card">${y.in_progress ? `<div class="small mut">Still in progress, so it isn't compared with last year yet.</div>` : ""}${this._statGrid(stats)}</div>`;
+    if (y.crops.length) {
+      h += `<div class="card"><div class="sec">Pounds by plant type</div>${bars(y.crops.map((c) => ({ ...c, low: c.prev && c.lbs < c.prev * 0.8 })), (c) => c.name, (c) => `${c.plants ? `${c.plants} ${c.plants === 1 ? "plant" : "plants"} · ${per(c.per_plant)}` : ""}${c.prev ? `${c.plants ? " · " : ""}${lb(c.prev)} last year` : ""}`)}</div>`;
+    }
+    if (y.varieties.length) h += `<div class="card"><div class="sec">Pounds by variety</div>${bars(y.varieties, (c) => c.name, (c) => `${c.species_name} · ${c.plants} ${c.plants === 1 ? "plant" : "plants"} · ${per(c.per_plant)}`)}</div>`;
+    const facts = [];
+    if (y.best_garden) facts.push(`Best place: ${esc(y.best_garden.name)}, ${lb(y.best_garden.lbs)}.`);
+    if (y.drop) facts.push(`Biggest drop: ${esc(y.drop.name)}, ${Math.abs(y.drop.pct)}% under last year.`);
+    if (y.last_spring_frost || y.first_fall_frost) facts.push(`Frost: last in spring ${y.last_spring_frost ? fmtDate(y.last_spring_frost, true) : "none recorded"}, first in fall ${y.first_fall_frost ? fmtDate(y.first_fall_frost, true) : "none recorded"}.`);
+    facts.push(y.notes ? `Notes you wrote this year: ${y.notes}.` : "No notes written for this year yet.");
+    h += `<div class="card"><div class="sec">What stood out</div>${facts.map((f) => `<p class="small" style="margin:6px 0">${f}</p>`).join("")}</div>`;
+    return h;
   }
   _homeView() {
     const gs = this._gardens(), every = this._vars();
@@ -633,8 +764,9 @@ class GardenTrackerCard extends HTMLElement {
     if (!gs.length && !every.length) {
       return h + `<div class="msg">${pastN ? "Add a garden to start adding plants." : "Create your first garden to start adding plants."} Trees can be added without a garden.<br><br>${this._btn("form-garden", "plus", "Add garden", "", "primary")}</div>` + (pastN ? `<button style="width:100%" data-act="open-archive">${this._icon("history")} History (${pastN})</button>` : "");
     }
-    h += `<div class="chips">${gs.map((g) => `<button class="chip" data-act="open-g" data-g="${g.id}">${g.kind === "garden" ? "" : this._icon(KIND_ICON[g.kind]) + " "}${esc(g.name)}</button>`).join("")}${this._microChip()}${pastN ? `<button class="chip" data-act="open-archive">${this._icon("history")} History</button>` : ""}${this._config.garden ? "" : `<button class="chip" data-act="form-garden">${this._icon("plus")} Add</button>`}</div>`;
+    h += `<div class="chips">${gs.map((g) => `<button class="chip" data-act="open-g" data-g="${g.id}">${g.kind === "garden" ? "" : this._icon(KIND_ICON[g.kind]) + " "}${esc(g.name)}</button>`).join("")}${this._microChip()}${this._harvestChip()}${this._reviewChip()}${pastN ? `<button class="chip" data-act="open-archive">${this._icon("history")} History</button>` : ""}${this._config.garden ? "" : `<button class="chip" data-act="form-garden">${this._icon("plus")} Add</button>`}</div>`;
     if (!this._web) h += gs.map((g) => this._sensorBanner(g)).join("");
+    h += this._weatherAlerts() + this._remindersCard();
     const cnt = (l) => vs.filter((v) => v.status.level === l).length;
     const filters = [["all", `All ${vs.length}`], ["spray", `Spray due ${cnt("spray")}`], ["hold", `Harvest hold ${cnt("hold")}`], ["ok", `On track ${cnt("ok")}`]];
     if (nTrees && nPlants) h += `<div class="chips tabs">${[["all", `All ${every.length}`], ["trees", `Trees ${nTrees}`], ["plants", `Plants ${nPlants}`]].map(([k, t]) => `<button class="chip ${this._tab === k ? "on" : ""}" data-act="tab" data-s="${k}">${t}</button>`).join("")}</div>`;
@@ -947,6 +1079,7 @@ class GardenTrackerCard extends HTMLElement {
     if (tree) h += this._pruneCard(v, arch) + this._sprayCard(v, arch);
     h += this._feedCard(v, arch, tree);
     h += this._adjunctChips(v);
+    h += this._yieldCard(v) + this._lossCard(v);
     h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">Notes for next year</div>${arch ? "" : this._btn("form-review", "plus", "Add", `data-v="${id}"`)}</div>${v.notes ? `<p class="small" style="margin:6px 0">${esc(v.notes)}</p>` : ""}${v.reviews.map((r) => this._logRow("review", id, r.id, esc(r.notes), String(r.year))).join("") || `<div class="small mut" style="margin-top:6px">No notes yet.</div>`}</div>`;
     if (!arch) {
       if (tree) h += `<div class="card">${this._confirm === "rm" ? `<div class="conf">Remove ${esc(v.name)} and all its history? This can't be undone.<div class="row"><button data-act="cancel-del">Keep</button><button class="danger" data-act="do-rm" data-v="${id}">Remove tree</button></div></div>` : `<button class="danger" data-act="ask-rm">${this._icon("delete-outline")} Remove tree</button>`}</div>`;
@@ -1250,6 +1383,12 @@ class GardenTrackerCard extends HTMLElement {
       case "open-v": return this._go({ v: "variety", id: d.v });
       case "open-g": return this._go({ v: "garden", id: d.g });
       case "open-archive": return this._go({ v: "archive" });
+      case "open-review": return this._go({ v: "review" });
+      case "open-harvest": return this._go({ v: "harvest" });
+      case "review-year": this._view = { v: "review", year: d.y }; return this._render();
+      case "rem-done": return this._act("review_done", { plant: d.v, note: d.n, cycle: Number(d.c) });
+      case "rem-snooze": return this._act("review_snooze", { plant: d.v, note: d.n, days: 7 });
+      case "ack-alert": return this._act("ack_alert", { alert: d.a });
       case "open-micro": return this._go({ v: "micro" });
       case "open-layout": this._season = null; this._placeRow = "0"; this._placeStart = ""; this._brush = null; this._bq = null; this._selRow = null; this._brushLen = ""; return this._go({ v: "layout", id: d.g });
       case "open-water": return this._go({ v: "water", id: d.g });
@@ -1401,6 +1540,7 @@ class GardenTrackerCard extends HTMLElement {
       case "edit-entry": return this._open(this._fEntry(d.k, d.p, d.e));
       case "pick": this._form.values[d.f] = d.val; return this._render();
       case "use-days": this._form.values.days_to_harvest = d.n; return this._render();
+      case "use-yield": this._form.values.expected_yield = d.n; return this._render();
       case "form-cancel": this._form = null; return this._render();
       case "form-submit": return this._submit();
     }
@@ -1519,6 +1659,11 @@ class GardenTrackerCard extends HTMLElement {
       }
       else if (x.type === "multi") { const on = new Set(String(val).split(",").filter(Boolean)); ctl = `<div class="seg" style="flex-wrap:wrap">${x.options.map(([v, t]) => `<button data-act="toggle" data-f="${x.name}" data-val="${esc(v)}" class="${on.has(v) ? "on" : ""}">${esc(t)}</button>`).join("") || `<span class="small mut">No matching sensors found. Type entity ids below.</span>`}</div>`; }
       else if (x.type === "seg" || x.type === "chips") ctl = `<div class="seg">${x.options.map(([v, t]) => `<button data-act="pick" data-f="${x.name}" data-val="${esc(v)}" class="${val === v ? "on" : ""}">${esc(t)}</button>`).join("")}</div>`;
+      else if (x.type === "variety") {
+        const names = x.suggest ? x.suggest(vals) : [];
+        ctl = `<input data-f="${x.name}" type="text" value="${esc(val)}" ${x.placeholder ? `placeholder="${esc(x.placeholder)}"` : ""}>`;
+        if (names.length) ctl += `<div class="small mut" style="margin:6px 0 2px">You've grown these before. Tap one, or type a new variety.</div><div class="seg" style="flex-wrap:wrap">${names.map((n) => `<button data-act="pick" data-f="${x.name}" data-val="${esc(n)}" class="${String(val).trim().toLowerCase() === n.toLowerCase() ? "on" : ""}">${esc(n)}</button>`).join("")}</div>`;
+      }
       else if (x.type === "date") ctl = this._dateField(x, val);
       else if (x.type === "textarea") ctl = `<textarea data-f="${x.name}" rows="3">${esc(val)}</textarea>`;
       else ctl = `<input data-f="${x.name}" type="${x.type || "text"}" value="${esc(val)}" ${x.step ? `step="${x.step}"` : ""} ${x.placeholder ? `placeholder="${esc(x.placeholder)}"` : ""} ${x.type === "number" ? 'inputmode="decimal"' : ""}>`;
@@ -1597,7 +1742,7 @@ class GardenTrackerCard extends HTMLElement {
         { name: "species_other", label: "Type name", type: "text", req: true, show: (v) => v.species === "other", span: 3 },
         { name: "kind", label: "Kind", type: "seg", options: [["plant", "Plant"], ["tree", "Tree"]], value: "plant", show: (v) => v.species === "other", span: 3 },
         { name: "single_harvest", label: "Pulled when harvested?", type: "seg", options: [["false", "No"], ["true", "Yes"]], value: "false", show: (v) => v.species === "other" && v.kind !== "tree", span: 3 },
-        { name: "variety", label: "Variety", type: "text", req: true, placeholder: "Variety name", value: this._generic(this._snap.species.tomato ? "tomato" : sp[0] ? sp[0].key : "") },
+        { name: "variety", label: "Variety", type: "variety", req: true, placeholder: "Variety name", suggest: (v) => this._pastVarieties(key(v)), value: this._generic(this._snap.species.tomato ? "tomato" : sp[0] ? sp[0].key : "") },
         ...this._containerFields("", (v) => { const x = this._snap.gardens.find((y) => y.id === v.garden); return !!x && x.kind !== "garden"; }, false),
         { name: "plants", label: "Number of plants", type: "number", step: "1", value: 1, span: 3 },
         { name: "label_style", label: "Name the plants", type: "chips", options: [["plant", "Plant 1, 2, 3"], ["compass", "North, South, East, West"], ["row", "Row 1, 2, 3"]], value: "plant", show: (v) => yearly(v) && Number(v.plants) > 1 },
@@ -1625,6 +1770,7 @@ class GardenTrackerCard extends HTMLElement {
         const past = this._snap.varieties.filter((x) => x.species === key(v) && v.variety && x.name.toLowerCase() === v.variety.toLowerCase());
         const s = past.map((x) => x.seasons).sort((a, b) => b.length - a.length)[0];
         const last = s && s.filter((z) => z.days_to_first !== null).pop();
+        h += this._yieldHint(key(v), v.variety, Number(v.plants) || 1, true) + this._lossHint(key(v), v.variety, Number(v.plants) || 1);
         if (last && kind(v) !== "tree") h += `<div class="small" style="margin-top:8px">From your past seasons: ${esc(v.variety)} took ${last.days_to_first} days. <button data-act="use-days" data-n="${last.days_to_first}">Use ${last.days_to_first}</button></div>`;
         return h;
       },
@@ -1821,6 +1967,7 @@ class GardenTrackerCard extends HTMLElement {
         { name: "planted_date", label: "Planting date", type: "date", value: this._snap.today, span: 3 },
       ],
       note: "Copies the variety and days to harvest. Past seasons feed the projection automatically.",
+      preview: (x) => this._yieldHint(v.species, v.name, Number(x.plants) || 1, false) + this._lossHint(v.species, v.name, Number(x.plants) || 1),
       submit: (x) => this._call("plant_again", { plant: v.id, ...x, garden: x.garden || "" }),
       after: () => { this._view = { v: "home" }; this._nav = []; },
     };
