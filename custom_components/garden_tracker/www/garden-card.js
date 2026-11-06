@@ -638,27 +638,52 @@ class GardenTrackerCard extends HTMLElement {
     return `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("notebook-outline")} Notes from last year</div><span class="small mut">${r.length} ${r.length === 1 ? "note" : "notes"}</span></div>` +
       r.map((x) => `<div class="rem"><div class="row"><b class="grow" data-act="open-v" data-v="${x.v}" style="cursor:pointer">${esc(x.name)}${x.garden_name ? `, ${esc(x.garden_name)}` : ""}</b><span class="pill ${x.state === "open" ? "spray" : "info"}" style="margin:0">${esc(x.label)}</span></div><div class="small" style="margin-top:4px">${esc(x.note)}</div><div class="small mut">Your note, ${esc(x.year)}</div><div class="row">${this._btn("rem-done", "check", "Done", `data-v="${x.v}" data-n="${x.id}" data-c="${x.cycle}"`)}${this._btn("rem-snooze", "clock-outline", "Snooze a week", `data-v="${x.v}" data-n="${x.id}"`)}</div></div>`).join("") + `</div>`;
   }
+  _yieldRows(src, max) {
+    return src.years.slice(0, max || 6).map((y) => `<div class="row small" style="margin:2px 0"><span class="grow">${y.year}</span><span class="mut">${num(y.lbs, 1)} lb from ${y.plants} ${y.plants === 1 ? "plant" : "plants"}</span><b style="min-width:84px;text-align:right">${num(y.per_plant, 1)} lb each</b></div>`).join("");
+  }
+  _yieldHint(species, name, n, canUse) {
+    const Y = this._snap.yields || {}, key = `${species}|${String(name || "").trim().toLowerCase()}`;
+    const vh = Y.varieties && Y.varieties[key], th = Y.types && Y.types[species], src = vh || th;
+    if (!src || !src.per_plant) return "";
+    const title = vh ? `${esc(vh.name)}, your past seasons` : `${esc(th.name)}, all your varieties${name ? ` (no ${esc(name)} yet)` : ""}`;
+    const pp = src.per_plant;
+    return `<div class="card" style="margin-top:8px"><div class="sec">${title}</div>${this._yieldRows(src, 4)}<p class="small" style="margin:6px 0 0">Average ${num(pp, 1)} lb per plant${n > 1 ? `, so about ${num(pp * n, 0)} lb from ${n} plants` : ""}. ${canUse ? `<button data-act="use-yield" data-n="${num(pp, 1)}">Use ${num(pp, 1)} lb per plant</button>` : ""}</p></div>`;
+  }
+  _yieldCard(v) {
+    const Y = this._snap.yields || {}, vh = Y.varieties && Y.varieties[`${v.species}|${String(v.name).trim().toLowerCase()}`], th = Y.types && Y.types[v.species];
+    if (!vh) return "";
+    const typeLine = th && th.lbs > vh.lbs ? `<p class="small mut" style="margin:6px 0 0">All your ${esc(th.name)}: ${num(th.lbs, 1)} lb in all, ${num(th.per_plant, 1)} lb per plant.</p>` : "";
+    return `<div class="card"><div class="sec">Pounds by season</div>${this._yieldRows(vh)}<p class="small" style="margin:6px 0 0">${vh.seasons > 1 ? `Average ${num(vh.per_plant, 1)} lb per plant over ${vh.seasons} seasons, ${num(vh.lbs, 1)} lb in all.` : `${num(vh.lbs, 1)} lb so far.`}</p>${typeLine}</div>`;
+  }
   _reviewChip() {
     return Object.keys(this._snap.years || {}).length ? `<button class="chip" data-act="open-review">${this._icon("chart-box-outline")} Year in review</button>` : "";
   }
   _reviewView() {
-    const years = this._snap.years || {}, keys = Object.keys(years).sort().reverse();
+    const years = this._snap.years || {}, keys = Object.keys(years).sort().reverse(), Y = this._snap.yields || { varieties: {}, types: {} };
     if (!keys.length) { this._view = { v: "home" }; return this._homeView(); }
-    const yr = keys.includes(String(this._view.year)) ? String(this._view.year) : keys[0], y = years[yr];
-    const lb = (x) => `${num(x, 1)} lb`;
-    let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="ttl grow">${yr} ${y.in_progress ? "so far" : "in review"}</div></div>`;
-    if (keys.length > 1) h += `<div class="chips">${keys.map((k) => `<button class="chip ${k === yr ? "on" : ""}" data-act="review-year" data-y="${k}">${k}</button>`).join("")}</div>`;
+    const all = this._view.year === "all";
+    const yr = keys.includes(String(this._view.year)) ? String(this._view.year) : keys[0], y = all ? null : years[yr];
+    const lb = (x) => `${num(x, 1)} lb`, per = (x) => (x ? `${num(x, 1)} lb per plant` : "");
+    let h = `<div class="hd">${this._btn("back", "arrow-left", "", "", "ic")}<div class="ttl grow">${all ? "Every season" : `${yr} ${y.in_progress ? "so far" : "in review"}`}</div></div>`;
+    h += `<div class="chips">${keys.map((k) => `<button class="chip ${!all && k === yr ? "on" : ""}" data-act="review-year" data-y="${k}">${k}</button>`).join("")}<button class="chip ${all ? "on" : ""}" data-act="review-year" data-y="all">All years</button></div>`;
+    const bars = (list, nameOf, subOf) => {
+      const max = Math.max(...list.map((c) => c.lbs), 1);
+      return list.map((c) => `<div style="margin:8px 0"><div class="row"><span class="grow">${esc(nameOf(c))}</span><b>${lb(c.lbs)}</b></div><div class="bar${c.low ? " low" : ""}"><i style="width:${Math.max(2, Math.round(c.lbs / max * 100))}%"></i></div><div class="small mut">${subOf(c)}</div></div>`).join("");
+    };
+    if (all) {
+      const types = Object.values(Y.types).sort((a, b) => b.lbs - a.lbs), vars = Object.values(Y.varieties).sort((a, b) => b.lbs - a.lbs);
+      h += `<div class="card"><div class="sec">Pounds by plant type</div>${types.length ? bars(types, (c) => c.name, (c) => `${c.plants} ${c.plants === 1 ? "plant" : "plants"} over ${c.seasons} ${c.seasons === 1 ? "season" : "seasons"}${c.per_plant ? ` · ${per(c.per_plant)}` : ""}`) : `<p class="small mut">No weighed harvests yet.</p>`}</div>`;
+      if (vars.length) h += `<div class="card"><div class="sec">Pounds by variety</div>${bars(vars, (c) => `${c.name}${vars.some((o) => o !== c && o.name.toLowerCase() === c.name.toLowerCase()) ? ` (${c.species_name})` : ""}`, (c) => `${c.species_name} · ${c.plants} ${c.plants === 1 ? "plant" : "plants"} over ${c.seasons} ${c.seasons === 1 ? "season" : "seasons"}${c.per_plant ? ` · ${per(c.per_plant)}` : ""}`)}</div>`;
+      return h;
+    }
     const stats = [["Harvested", lb(y.lbs)]];
     if (y.change_pct !== null) stats.push(["Vs. last year", `${y.change_pct > 0 ? "+" : ""}${y.change_pct}%`]);
     stats.push(["Picks logged", String(y.picks)], ["Sprays", String(y.sprays)], ["Feedings", String(y.feeds)], ["Plants lost", String(y.lost)]);
     h += `<div class="card">${y.in_progress ? `<div class="small mut">Still in progress, so it isn't compared with last year yet.</div>` : ""}${this._statGrid(stats)}</div>`;
     if (y.crops.length) {
-      const max = Math.max(...y.crops.map((c) => c.lbs), 1);
-      h += `<div class="card"><div class="sec">Pounds by plant type</div>${y.crops.map((c) => {
-        const low = c.prev && c.lbs < c.prev * 0.8;
-        return `<div style="margin:8px 0"><div class="row"><span class="grow">${esc(c.name)}</span><span class="small mut">${c.prev ? `${lb(c.prev)} last year · ` : ""}<b style="color:var(--primary-text-color)">${lb(c.lbs)}</b></span></div><div class="bar${low ? " low" : ""}"><i style="width:${Math.max(2, Math.round(c.lbs / max * 100))}%"></i></div></div>`;
-      }).join("")}</div>`;
+      h += `<div class="card"><div class="sec">Pounds by plant type</div>${bars(y.crops.map((c) => ({ ...c, low: c.prev && c.lbs < c.prev * 0.8 })), (c) => c.name, (c) => `${c.plants ? `${c.plants} ${c.plants === 1 ? "plant" : "plants"} · ${per(c.per_plant)}` : ""}${c.prev ? `${c.plants ? " · " : ""}${lb(c.prev)} last year` : ""}`)}</div>`;
     }
+    if (y.varieties.length) h += `<div class="card"><div class="sec">Pounds by variety</div>${bars(y.varieties, (c) => c.name, (c) => `${c.species_name} · ${c.plants} ${c.plants === 1 ? "plant" : "plants"} · ${per(c.per_plant)}`)}</div>`;
     const facts = [];
     if (y.best_garden) facts.push(`Best place: ${esc(y.best_garden.name)}, ${lb(y.best_garden.lbs)}.`);
     if (y.drop) facts.push(`Biggest drop: ${esc(y.drop.name)}, ${Math.abs(y.drop.pct)}% under last year.`);
@@ -993,6 +1018,7 @@ class GardenTrackerCard extends HTMLElement {
     if (tree) h += this._pruneCard(v, arch) + this._sprayCard(v, arch);
     h += this._feedCard(v, arch, tree);
     h += this._adjunctChips(v);
+    h += this._yieldCard(v);
     h += `<div class="card"><div class="row"><div class="sec grow" style="margin:0">Notes for next year</div>${arch ? "" : this._btn("form-review", "plus", "Add", `data-v="${id}"`)}</div>${v.notes ? `<p class="small" style="margin:6px 0">${esc(v.notes)}</p>` : ""}${v.reviews.map((r) => this._logRow("review", id, r.id, esc(r.notes), String(r.year))).join("") || `<div class="small mut" style="margin-top:6px">No notes yet.</div>`}</div>`;
     if (!arch) {
       if (tree) h += `<div class="card">${this._confirm === "rm" ? `<div class="conf">Remove ${esc(v.name)} and all its history? This can't be undone.<div class="row"><button data-act="cancel-del">Keep</button><button class="danger" data-act="do-rm" data-v="${id}">Remove tree</button></div></div>` : `<button class="danger" data-act="ask-rm">${this._icon("delete-outline")} Remove tree</button>`}</div>`;
@@ -1452,6 +1478,7 @@ class GardenTrackerCard extends HTMLElement {
       case "edit-entry": return this._open(this._fEntry(d.k, d.p, d.e));
       case "pick": this._form.values[d.f] = d.val; return this._render();
       case "use-days": this._form.values.days_to_harvest = d.n; return this._render();
+      case "use-yield": this._form.values.expected_yield = d.n; return this._render();
       case "form-cancel": this._form = null; return this._render();
       case "form-submit": return this._submit();
     }
@@ -1676,6 +1703,7 @@ class GardenTrackerCard extends HTMLElement {
         const past = this._snap.varieties.filter((x) => x.species === key(v) && v.variety && x.name.toLowerCase() === v.variety.toLowerCase());
         const s = past.map((x) => x.seasons).sort((a, b) => b.length - a.length)[0];
         const last = s && s.filter((z) => z.days_to_first !== null).pop();
+        h += this._yieldHint(key(v), v.variety, Number(v.plants) || 1, true);
         if (last && kind(v) !== "tree") h += `<div class="small" style="margin-top:8px">From your past seasons: ${esc(v.variety)} took ${last.days_to_first} days. <button data-act="use-days" data-n="${last.days_to_first}">Use ${last.days_to_first}</button></div>`;
         return h;
       },
@@ -1872,6 +1900,7 @@ class GardenTrackerCard extends HTMLElement {
         { name: "planted_date", label: "Planting date", type: "date", value: this._snap.today, span: 3 },
       ],
       note: "Copies the variety and days to harvest. Past seasons feed the projection automatically.",
+      preview: (x) => this._yieldHint(v.species, v.name, Number(x.plants) || 1, false),
       submit: (x) => this._call("plant_again", { plant: v.id, ...x, garden: x.garden || "" }),
       after: () => { this._view = { v: "home" }; this._nav = []; },
     };

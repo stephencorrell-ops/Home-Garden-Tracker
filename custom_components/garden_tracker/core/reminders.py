@@ -151,6 +151,55 @@ def forecast_alerts(forecast: list[dict], today: date, plants: list[dict], frost
     return alerts
 
 
+# ---- pounds per variety and per plant -------------------------------------------------------
+
+def _per(lbs: float, plants: int) -> float | None:
+    return round(lbs / plants, 2) if plants else None
+
+
+def _rows(varieties: list[dict]) -> dict[tuple[str, str, str], dict]:
+    """Pounds picked and plants grown for each variety in each year. A planting that gave fruit in several years
+    (a tree) counts its plants again each year, so the average stays pounds per plant per year."""
+    rows: dict[tuple[str, str, str], dict] = {}
+    for v in varieties:
+        name = v["name"].strip()
+        n = len(v.get("plants", []))
+        by_year: dict[str, float] = {}
+        for h in v.get("harvests", []):
+            by_year[h["date"][:4]] = by_year.get(h["date"][:4], 0.0) + (h.get("lbs") or 0.0)
+        for y, lbs in by_year.items():
+            r = rows.setdefault((v["species"], name.lower(), y), {"name": name, "species": v["species"], "year": int(y), "lbs": 0.0, "plants": 0})
+            r["lbs"] += lbs
+            r["plants"] += n
+    return rows
+
+
+def yield_history(varieties: list[dict], names: dict[str, str]) -> dict:
+    """What each variety and each plant type has given, season by season, newest first, with the average per plant."""
+    rows = _rows(varieties)
+    by_var: dict[str, dict] = {}
+    by_type: dict[str, dict] = {}
+    for (species, vk, _y), r in sorted(rows.items(), key=lambda kv: kv[0][2], reverse=True):
+        if r["lbs"] <= 0:
+            continue
+        for bucket, key, label in ((by_var, f"{species}|{vk}", r["name"]), (by_type, species, names.get(species) or species)):
+            e = bucket.setdefault(key, {"key": key, "name": label, "species": species, "species_name": names.get(species) or species,
+                                        "years": {}, "lbs": 0.0, "plants": 0})
+            y = e["years"].setdefault(r["year"], {"year": r["year"], "lbs": 0.0, "plants": 0})
+            y["lbs"] += r["lbs"]
+            y["plants"] += r["plants"]
+            e["lbs"] += r["lbs"]
+            e["plants"] += r["plants"]
+    for bucket in (by_var, by_type):
+        for e in bucket.values():
+            e["years"] = [{"year": y["year"], "lbs": round(y["lbs"], 1), "plants": y["plants"], "per_plant": _per(y["lbs"], y["plants"])}
+                          for y in sorted(e["years"].values(), key=lambda y: -y["year"])]
+            e["seasons"] = len(e["years"])
+            e["per_plant"] = _per(e["lbs"], e["plants"])
+            e["lbs"] = round(e["lbs"], 1)
+    return {"varieties": by_var, "types": by_type}
+
+
 # ---- a look back at each year ---------------------------------------------------------------
 
 def year_summaries(varieties: list[dict], names: dict[str, str], garden_names: dict[str, str], frost_years: list[dict],
@@ -158,6 +207,7 @@ def year_summaries(varieties: list[dict], names: dict[str, str], garden_names: d
     """What happened in each year you have records for, newest first. The current year counts as still in progress until
     November, so it is not compared with a finished year."""
     frost = {str(f["year"]): f for f in frost_years}
+    rows = _rows(varieties)
     years: dict[str, dict] = {}
 
     def y(k: str) -> dict:
@@ -193,9 +243,18 @@ def year_summaries(varieties: list[dict], names: dict[str, str], garden_names: d
         prev = None if open_year else years.get(str(int(k) - 1))
         prev_lbs = round(prev["lbs"], 1) if prev and prev["lbs"] else None
         crops = []
+        plants_by_type: dict[str, int] = {}
+        vlist = []
+        for (species, _vk, ry), r in rows.items():
+            if ry == k and r["lbs"] > 0:
+                plants_by_type[species] = plants_by_type.get(species, 0) + r["plants"]
+                vlist.append({"name": r["name"], "species": species, "species_name": names.get(species) or species,
+                              "lbs": round(r["lbs"], 1), "plants": r["plants"], "per_plant": _per(r["lbs"], r["plants"])})
+        vlist.sort(key=lambda x: (-x["lbs"], x["name"].lower()))
         for c in sorted(e["crops"].values(), key=lambda c: -c["lbs"]):
             before = prev["crops"].get(c["key"], {}).get("lbs") if prev else None
-            crops.append({"key": c["key"], "name": c["name"], "lbs": round(c["lbs"], 1),
+            crops.append({"key": c["key"], "name": c["name"], "lbs": round(c["lbs"], 1), "plants": plants_by_type.get(c["key"], 0),
+                          "per_plant": _per(c["lbs"], plants_by_type.get(c["key"], 0)),
                           "prev": round(before, 1) if before else None})
         # the biggest drop from last year, among crops that gave at least 5 lb then
         drop = None
@@ -211,7 +270,7 @@ def year_summaries(varieties: list[dict], names: dict[str, str], garden_names: d
         f = frost.get(k)
         out[k] = {"year": int(k), "lbs": round(e["lbs"], 1), "prev_lbs": prev_lbs,
                   "change_pct": round((e["lbs"] - prev_lbs) / prev_lbs * 100) if prev_lbs else None,
-                  "crops": crops, "picks": e["picks"], "sprays": e["sprays"], "feeds": e["feeds"], "lost": e["lost"], "notes": e["notes"],
+                  "crops": crops, "varieties": vlist, "picks": e["picks"], "sprays": e["sprays"], "feeds": e["feeds"], "lost": e["lost"], "notes": e["notes"],
                   "best_garden": {"name": best[0], "lbs": round(best[1], 1)} if best and len(e["gardens"]) > 1 else None,
                   "drop": drop, "in_progress": open_year, "last_spring_frost": f and f.get("last_spring"), "first_fall_frost": f and f.get("first_fall")}
     return out

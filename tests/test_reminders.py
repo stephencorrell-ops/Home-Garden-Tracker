@@ -159,3 +159,38 @@ class YearInReview(unittest.TestCase):
         self.assertTrue(y["in_progress"])
         self.assertIsNone(y["change_pct"])
         self.assertIsNone(y["drop"])
+
+
+class YieldHistory(unittest.TestCase):
+    def setUp(self):
+        self.m = make(date(2026, 11, 5))
+        g = self.m.add_garden("Back Garden")
+        self.a25 = self.m.add_variety(g, "tomato", "Sungold", 8)
+        self.a26 = self.m.add_variety(g, "tomato", "Sungold", 6)
+        self.b26 = self.m.add_variety(g, "tomato", "Roma", 4)
+        self.m.log_harvest(self.a25, 40, "2025-08-01")
+        self.m.log_harvest(self.a25, 2, "2025-09-01")
+        self.m.log_harvest(self.a26, 60, "2026-08-01")
+        self.m.log_harvest(self.b26, 20, "2026-08-05")
+
+    def test_variety_pounds_and_average_per_plant_by_season(self):
+        v = self.m.snapshot()["yields"]["varieties"]["tomato|sungold"]
+        self.assertEqual([(y["year"], y["lbs"], y["plants"], y["per_plant"]) for y in v["years"]], [(2026, 60.0, 6, 10.0), (2025, 42.0, 8, 5.25)])
+        self.assertEqual(v["lbs"], 102.0)
+        self.assertEqual(v["per_plant"], round(102 / 14, 2))
+        self.assertEqual(v["seasons"], 2)
+
+    def test_plant_type_totals_add_up_every_variety(self):
+        t = self.m.snapshot()["yields"]["types"]["tomato"]
+        self.assertEqual(t["lbs"], 122.0)
+        self.assertEqual(t["years"][0], {"year": 2026, "lbs": 80.0, "plants": 10, "per_plant": 8.0})
+
+    def test_year_in_review_lists_varieties_with_per_plant(self):
+        y = self.m.snapshot()["years"]["2026"]
+        self.assertEqual([(v["name"], v["lbs"], v["per_plant"]) for v in y["varieties"]], [("Sungold", 60.0, 10.0), ("Roma", 20.0, 5.0)])
+        self.assertEqual(y["crops"][0]["per_plant"], 8.0)
+
+    def test_a_variety_with_no_pounds_has_no_history(self):
+        g = list(self.m.data["gardens"])[0]
+        self.m.add_variety(g, "pepper", "Jalapeno", 3)
+        self.assertNotIn("pepper|jalapeno", self.m.snapshot()["yields"]["varieties"])

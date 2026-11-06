@@ -2175,6 +2175,10 @@ class GardenModel:
         return rem.due_notes(list(self.data["varieties"].values()), names, gnames, today, st["frost_last"], st["frost_first"],
                              self.data.get("crop_days") or {})
 
+    def _yields_view(self, species: dict) -> dict:
+        names = {k: sp["name"] for k, sp in species.items()}
+        return rem.yield_history(list(self.data["varieties"].values()), names)
+
     def _years_view(self, today: date, species: dict) -> dict:
         names = {k: sp["name"] for k, sp in species.items()}
         gnames = {g["id"]: g["name"] for g in self.data["gardens"].values()}
@@ -2489,7 +2493,7 @@ class GardenModel:
         return {"today": today.isoformat(), "micro": self._micro_view(today), "species": species, "gardens": gardens,
                 "varieties": varieties, "past_gardens": self._past_gardens(), "variety_traits": list(self.data["variety_traits"].values()), "can_undo": self._trash is not None,
                 "harvest_years": self._harvest_years(species), "reminders": self._reminders_view(today, species),
-                "alerts": self._alerts_view(today), "years": self._years_view(today, species),
+                "alerts": self._alerts_view(today), "years": self._years_view(today, species), "yields": self._yields_view(species),
                 "forecast": {"source": (self.data.get("forecast") or {}).get("source", ""), "days": (self.data.get("forecast") or {}).get("days", [])}, "containers": list(DEFAULT_CONTAINERS), "container_per_tray": dict(CONTAINER_PER_TRAY),
                 "reasons": REASONS}
 
