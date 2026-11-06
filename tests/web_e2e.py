@@ -354,8 +354,12 @@ def main():
         card.evaluate("el => { el._snap = window.__garden.engine.snapshot(); el._render(); }")
         card.locator("[data-act=open-review]").click()
         pg.wait_for_timeout(200)
-        check("in review" in card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText") and "Pounds by plant type" in card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText"), "the year in review page opens with totals by plant type")
+        check("Pounds by plant type" in card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText"), "the year in review page opens with totals by plant type")
         if SHOTS: pg.screenshot(path=str(SHOTS / "review.png"), full_page=True)
+        card.locator("[data-act=review-year]").nth(1).click()
+        pg.wait_for_timeout(200)
+        check("Vs. last year" in card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText"), "a finished year is compared with the year before")
+        if SHOTS: pg.screenshot(path=str(SHOTS / "review-2025.png"), full_page=True)
         pg.evaluate("async (d) => { await window.__garden.engine.setToday(d); }", date.today().isoformat())
         card.evaluate("(el, sv) => { el._snap = window.__garden.engine.snapshot(); el._view = sv.view; el._nav = sv.nav; el._render(); }", saved)
         # garlic planted straight into a garden is already in the ground: no up-potting / in-ground prompt
