@@ -1041,7 +1041,7 @@ class GardenTrackerCard extends HTMLElement {
     }
     if (v.total_lbs > 0) h += `<div class="small mut" style="margin-top:8px">Harvested so far: ${num(v.total_lbs, 1)} lb</div>`;
     const q = inPlace ? [["form-move", "arrow-right-bold", "Move"], ["form-upot", "arrow-up-bold-box-outline", "Up-pot"]]
-      : tree ? [["form-spray", "spray", "Sprayed"], ["form-harvest", "basket", "Harvest"]] : [["form-fert", "sprout", "Fed"], ["form-harvest", "basket", "Harvest"]];
+      : tree ? [...(this._quiet(v) ? [] : [["form-spray", "spray", "Sprayed"]]), ["form-harvest", "basket", "Harvest"]] : [["form-fert", "sprout", "Fed"], ["form-harvest", "basket", "Harvest"]];
     h += `<div class="row" style="margin-top:10px">${q.map(([a, i, t]) => `<button class="grow" data-act="${a}" data-v="${v.id}">${this._icon(i)} ${t}</button>`).join("")}</div></div>`;
     return h;
   }
@@ -1117,6 +1117,13 @@ class GardenTrackerCard extends HTMLElement {
     }
     return h + (dd ? this._harvestDd(v) : "") + `</div>`;
   }
+  // Nov 1 to Jan 31: trees are dormant, so bloom and spray logging is tucked away
+  // unless a spray window is open or starts within 45 days, or a trap says spray now.
+  _winter() { const m = Number(String(this._snap.today).slice(5, 7)); return m >= 11 || m <= 1; }
+  _sprayOpen(v) {
+    return (v.pests || []).some((p) => (p.calendar && p.calendar.some((w) => w.state === "open" || (w.state === "upcoming" && (new Date(w.from) - new Date(this._snap.today)) / 864e5 <= 45))) || (p.trap && ["spray", "late"].includes(p.trap.state)) || (p.est_days !== null && p.est_days !== undefined && p.est_days <= 45));
+  }
+  _quiet(v) { return this._winter() && !this._sprayOpen(v); }
   _harvestDd(v) {
     const g = v.harvest_dd;
     if (!this._show.dd || v.archived) return "";
@@ -1124,7 +1131,7 @@ class GardenTrackerCard extends HTMLElement {
     const tag = `<span class="pill info" style="margin:0 0 0 6px;font-size:10px;padding:1px 6px">Experimental</span>`;
     const bl = v.blooms || [];
     const blooms = bl.slice(0, 3).map((b) => this._logRow("bloom", v.id, b.id, "Full bloom", fmtDate(b.date, true) + (b.notes ? " · " + esc(b.notes) : ""))).join("");
-    const btn = this._btn("form-bloom", "flower", "Log full bloom", `data-v="${v.id}"`);
+    const btn = this._winter() ? "" : this._btn("form-bloom", "flower", "Log full bloom", `data-v="${v.id}"`);
     let line = "";
     if (g) {
       const past = g.years.slice(0, 3).map((y) => `${n(y.dd)} (${y.year})`).join(", ");
@@ -1132,7 +1139,7 @@ class GardenTrackerCard extends HTMLElement {
       const now = g.this_pick != null ? `This year's first pick came at ${n(g.this_pick)}.` : g.to_go ? `${n(g.now)} so far this year, about ${n(g.to_go)} to go.` : "";
       line = `<div class="small mut" style="margin-top:4px" data-t="harvest-dd">Degree days, ${from} to first pick: usually about ${n(g.usual)} (${past}). ${now}</div>`;
     }
-    return `<div style="margin-top:8px;border-top:1px solid var(--line,#e4e9e1);padding-top:6px"><div class="small mut">Degree days${tag}</div>${line}${blooms}<div class="row" style="margin-top:6px">${btn}</div>${g ? "" : `<div class="small mut" style="margin-top:4px">Needs a first pick logged in an earlier year, with weather history for it. Logging full bloom each spring makes it more accurate.</div>`}</div>`;
+    return `<div style="margin-top:8px;border-top:1px solid var(--line,#e4e9e1);padding-top:6px"><div class="small mut">Degree days${tag}</div>${line}${blooms}${btn ? `<div class="row" style="margin-top:6px">${btn}</div>` : ""}${g ? "" : `<div class="small mut" style="margin-top:4px">Needs a first pick logged in an earlier year, with weather history for it. Logging full bloom each spring makes it more accurate.</div>`}</div>`;
   }
   _harvestCard(v, arch) {
     const id = v.id;
@@ -1175,6 +1182,10 @@ class GardenTrackerCard extends HTMLElement {
   }
   _sprayCard(v, arch) {
     const s = v.spray, id = v.id;
+    if (!arch && this._quiet(v)) {
+      if (!v.sprays.length) return "";
+      return `<div class="card"><div class="sec">Spray log</div><div class="small mut" style="margin-bottom:4px">Spray tracking is paused for winter.</div>${v.sprays.map((x) => this._logRow("spray", id, x.id, esc(x.product), fmtDate(x.date))).join("")}</div>`;
+    }
     let h = `<div class="card"><div class="row"><div class="sec grow" style="margin:0">Pest management</div>${arch ? "" : this._btn("form-spray", "spray", "Sprayed", `data-v="${id}"`, "primary")}</div>`;
     h += this._statGrid([["Next spray", s.next_in === null ? "–" : dIn(s.next_in)], ["Safe to harvest", s.safe_in === null ? "–" : s.safe_in === 0 ? "now" : `${s.safe_in} d`], ["Spray cutoff", s.cutoff_in === null ? "–" : dIn(s.cutoff_in)]]);
     for (const p of v.pests) {
