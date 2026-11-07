@@ -4,6 +4,11 @@ All notable changes to Garden Tracker. Newest first.
 
 After updating in HACS, restart Home Assistant and refresh your dashboard (close and reopen the app on a phone or tablet) so the new card loads.
 
+## 0.33.0 - 2026-11-06
+
+- **Quiet winter for trees.** From Nov 1 to Jan 31 a tree's page hides Log full bloom, the Sprayed button and Pest management, pruning, Log harvest and the feeding buttons. Spray stays visible if a window is open or starts within 45 days, and harvest if the expected date is close. Pruning shows once its reminder starts within 45 days. Past entries stay in view. A Show all pill on the tree page, and a "Tree items in winter" setting under What to show, bring everything back.
+- **Trees can't be "pulled early".** Trees show only Alive and Dead, and the lost-plants form skips the choice for them.
+
 ## 0.32.0 - 2026-11-05
 
 - **Notes from last year come back.** Notes you wrote for next year show on Home when that plant's planting window is open or about to open (trees show before bloom). Past plants count. Done hides a note for the season, Snooze hides it for a week.
