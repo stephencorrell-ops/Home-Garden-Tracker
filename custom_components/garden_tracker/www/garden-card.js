@@ -340,7 +340,7 @@ class GardenTrackerCard extends HTMLElement {
     this._tab = this._pref("tab", "all");
     this._compact = this._pref("compact", true);
     this._microOpen = this._pref("micro_open", []);
-    this._show = { water: true, micro: true, cover: true, chores: true, frost: true, dd: true, ...this._pref("show", {}) };
+    this._show = { water: true, micro: true, cover: true, chores: true, frost: true, dd: true, offseason: false, ...this._pref("show", {}) };
     if (!this.shadowRoot) {
       this.attachShadow({ mode: "open" });
       this.shadowRoot.addEventListener("click", (e) => this._onClick(e));
@@ -1072,6 +1072,7 @@ class GardenTrackerCard extends HTMLElement {
     } else {
       h += `<div class="card"><div class="row">${this._picBox(v)}<div class="grow"><span class="pill ${v.status.level}" style="margin:0">${esc(v.status.text)}</span></div></div>${this._statGrid(this._stats(v))}${tree || v.location_kind === "garden" || v.in_ground ? "" : `<div class="row" style="margin-top:10px"><button class="grow" data-act="form-stage" data-v="${id}">${this._icon("sprout")} Log up-potting or in-ground</button></div>`}</div>`;
     }
+    h += this._offseasonRow(v);
     h += this._whereCard(v);
     h += this._projection(v);
     h += this._firstHarvests(v);
@@ -1119,7 +1120,13 @@ class GardenTrackerCard extends HTMLElement {
   }
   // Nov 1 to Jan 31: trees are dormant, so bloom and spray logging is tucked away
   // unless a spray window is open or starts within 45 days, or a trap says spray now.
-  _winter() { const m = Number(String(this._snap.today).slice(5, 7)); return m >= 11 || m <= 1; }
+  _winterNow() { const m = Number(String(this._snap.today).slice(5, 7)); return m >= 11 || m <= 1; }
+  _winter() { return this._winterNow() && !this._show.offseason; }
+  _offseasonRow(v) {
+    if (v.kind !== "tree" || v.archived || !this._winterNow()) return "";
+    const on = this._show.offseason;
+    return `<div class="row" style="margin:0 0 8px;align-items:center"><div class="small mut grow">${on ? "Showing off-season items for trees." : "Winter: pruning, harvest, feeding and spray logging are hidden until they are close."}</div><button data-act="toggle-offseason">${on ? "Hide again" : "Show all"}</button></div>`;
+  }
   _sprayOpen(v) {
     return (v.pests || []).some((p) => (p.calendar && p.calendar.some((w) => w.state === "open" || (w.state === "upcoming" && (new Date(w.from) - new Date(this._snap.today)) / 864e5 <= 45))) || (p.trap && ["spray", "late"].includes(p.trap.state)) || (p.est_days !== null && p.est_days !== undefined && p.est_days <= 45));
   }
@@ -1484,6 +1491,7 @@ class GardenTrackerCard extends HTMLElement {
       case "toggle-log": this._showLog = !this._showLog; return this._render();
       case "undo": return this._act("undo_delete", {}, () => { this._undo = false; });
       case "ask-del": this._confirm = d.key; return this._render();
+      case "toggle-offseason": this._show.offseason = !this._show.offseason; this._setPref("show", this._show); return this._render();
       case "ask-rm": this._confirm = "rm"; return this._render();
       case "ask-rmg": this._confirm = "rmg"; return this._render();
       case "cancel-del": this._confirm = null; return this._render();
@@ -1732,10 +1740,11 @@ class GardenTrackerCard extends HTMLElement {
         { name: "cover", label: "Cover crops", type: "seg", options: seg, value: on("cover") },
         { name: "micro", label: "Weather and microclimate", type: "seg", options: seg, value: on("micro") },
         { name: "dd", label: "Degree days for harvest (experimental)", type: "seg", options: seg, value: on("dd") },
+        { name: "offseason", label: "Tree items in winter (Nov to Jan)", type: "seg", options: [["0", "Hide until close"], ["1", "Always show"]], value: on("offseason") },
       ],
       note: "Saved on this device only. Hiding something only hides it from view; nothing is deleted.",
       submit: (x) => {
-        for (const k of ["water", "chores", "cover", "micro", "dd"]) if (x[k] !== undefined) this._show[k] = x[k] === "1";
+        for (const k of ["water", "chores", "cover", "micro", "dd", "offseason"]) if (x[k] !== undefined) this._show[k] = x[k] === "1";
         if (x.compact !== undefined) { this._compact = x.compact === "1"; this._setPref("compact", this._compact); }
         if (x.sort) { this._sort = x.sort; this._setPref("sort", x.sort); }
         this._setPref("show", this._show);
