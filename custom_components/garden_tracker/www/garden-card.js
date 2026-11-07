@@ -1041,8 +1041,8 @@ class GardenTrackerCard extends HTMLElement {
     }
     if (v.total_lbs > 0) h += `<div class="small mut" style="margin-top:8px">Harvested so far: ${num(v.total_lbs, 1)} lb</div>`;
     const q = inPlace ? [["form-move", "arrow-right-bold", "Move"], ["form-upot", "arrow-up-bold-box-outline", "Up-pot"]]
-      : tree ? [...(this._quiet(v) ? [] : [["form-spray", "spray", "Sprayed"]]), ["form-harvest", "basket", "Harvest"]] : [["form-fert", "sprout", "Fed"], ["form-harvest", "basket", "Harvest"]];
-    h += `<div class="row" style="margin-top:10px">${q.map(([a, i, t]) => `<button class="grow" data-act="${a}" data-v="${v.id}">${this._icon(i)} ${t}</button>`).join("")}</div></div>`;
+      : tree ? [...(this._quiet(v) ? [] : [["form-spray", "spray", "Sprayed"]]), ...(this._quietHarvest(v) ? [] : [["form-harvest", "basket", "Harvest"]])] : [["form-fert", "sprout", "Fed"], ["form-harvest", "basket", "Harvest"]];
+    h += `${q.length ? `<div class="row" style="margin-top:10px">${q.map(([a, i, t]) => `<button class="grow" data-act="${a}" data-v="${v.id}">${this._icon(i)} ${t}</button>`).join("")}</div>` : ""}</div>`;
     return h;
   }
 
@@ -1124,6 +1124,9 @@ class GardenTrackerCard extends HTMLElement {
     return (v.pests || []).some((p) => (p.calendar && p.calendar.some((w) => w.state === "open" || (w.state === "upcoming" && (new Date(w.from) - new Date(this._snap.today)) / 864e5 <= 45))) || (p.trap && ["spray", "late"].includes(p.trap.state)) || (p.est_days !== null && p.est_days !== undefined && p.est_days <= 45));
   }
   _quiet(v) { return this._winter() && !this._sprayOpen(v); }
+  // true when the date is within `days` days ahead (or already past)
+  _soon(iso, days = 45) { return !!iso && (new Date(iso) - new Date(this._snap.today)) / 864e5 <= days; }
+  _quietHarvest(v) { return v.kind === "tree" && this._winter() && !this._soon(v.expected_harvest); }
   _harvestDd(v) {
     const g = v.harvest_dd;
     if (!this._show.dd || v.archived) return "";
@@ -1143,7 +1146,9 @@ class GardenTrackerCard extends HTMLElement {
   }
   _harvestCard(v, arch) {
     const id = v.id;
-    let h = `<div class="card"><div class="row"><div class="grow"><div class="sec" style="margin:0">Harvest</div><div class="big">${num(v.total_lbs, 1)} lb</div></div>${!arch && v.alive ? this._btn("form-harvest", "basket", v.single_harvest ? "Harvest" : "Log harvest", `data-v="${id}"`, "primary") : ""}</div>`;
+    const quiet = !arch && this._quietHarvest(v);
+    if (quiet && !v.harvests.length) return "";
+    let h = `<div class="card"><div class="row"><div class="grow"><div class="sec" style="margin:0">Harvest</div><div class="big">${num(v.total_lbs, 1)} lb</div></div>${!arch && v.alive && !quiet ? this._btn("form-harvest", "basket", v.single_harvest ? "Harvest" : "Log harvest", `data-v="${id}"`, "primary") : ""}</div>`;
     const wait = v.harvests.filter((x) => x.pending).length;
     if (wait) h += `<div class="pill info" style="margin:6px 0 0">${wait} pick${wait === 1 ? "" : "s"} waiting for a weight</div>`;
     if (v.single_harvest) h += `<div class="small mut" style="margin-top:4px">Pulled when harvested: each plant is finished once it is harvested.</div>`;
@@ -1171,6 +1176,7 @@ class GardenTrackerCard extends HTMLElement {
   _pruneCard(v, arch) {
     const p = v.pruning, id = v.id;
     if (!p) return "";
+    if (!arch && p.state === "waiting" && !this._soon(p.start)) return "";
     const done = p.last ? `${p.state === "skipped" ? "No pruning needed" : "Pruned"} ${fmtDate(p.last.date)}` : "";
     const msg = { due: `Time to prune. ${p.note} This reminder stays until you mark the tree pruned or not needing it.`, waiting: `The reminder starts ${fmtDate(p.start, true)}. ${p.note}`, pruned: `${done}. No more reminders this year.`, skipped: `${done}. No more reminders this year.` }[p.state];
     let h = `<div class="card"><div class="row"><div class="sec grow" style="margin:0">${this._icon("scissors-cutting")} Pruning</div><span class="pill ${p.state === "due" ? "spray" : p.state === "waiting" ? "info" : "ok"}" style="margin:0">${{ due: "Due now", waiting: "Not yet", pruned: "Done", skipped: "Not needed" }[p.state]}</span></div>`;
@@ -1211,10 +1217,12 @@ class GardenTrackerCard extends HTMLElement {
     return h + `</div>`;
   }
   _feedCard(v, arch, tree) {
+    const quiet = tree && !arch && this._winter();
+    if (quiet && !v.fertilizations.length) return "";
     if (tree && !v.fertilizations.length) {
       return arch ? "" : `<div class="card"><div class="row"><div class="small mut grow">Feeding is optional for trees.</div>${this._btn("form-fert", "sprout", "Log feeding", `data-v="${v.id}"`)}</div></div>`;
     }
-    let h = `<div class="card"><div class="row"><div class="sec grow" style="margin:0">Fertilizer</div>${arch ? "" : this._btn("form-fert", "sprout", "Fertilized", `data-v="${v.id}"`, "primary")}</div>`;
+    let h = `<div class="card"><div class="row"><div class="sec grow" style="margin:0">Fertilizer</div>${arch || quiet ? "" : this._btn("form-fert", "sprout", "Fertilized", `data-v="${v.id}"`, "primary")}</div>`;
     if (v.feeding_off && !tree) h += `<div class="small mut" style="margin:6px 0">No feeding plan between the first fall frost and the last spring frost.</div>`;
     if (v.feeding) {
       const f = v.feeding;

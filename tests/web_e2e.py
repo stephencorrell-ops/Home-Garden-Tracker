@@ -476,6 +476,7 @@ def main():
         pg.wait_for_timeout(300)
         text = card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText")
         check("Log full bloom" not in text and "Pest management" not in text and "Sprayed" not in text, "winter hides bloom and spray logging on a tree with nothing coming up")
+        check("Log harvest" not in text and "Log feeding" not in text and "Fertilized" not in text and "Pruning" not in text, "winter also hides harvest, feeding and far-off pruning on a tree")
         card.evaluate("el => { el._snap.today = el._snap.today.slice(0, 4) + '-04-15'; el._go({ v: 'variety', id: el._snap.varieties.find((v) => v.name === 'Gala').id }); }")
         pg.wait_for_timeout(300)
         text = card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText")
