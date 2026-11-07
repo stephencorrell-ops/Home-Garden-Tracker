@@ -466,6 +466,30 @@ def main():
         text = card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText")
         check("290 / 425" in text and "in 4 days" in text and "likely" in text and "no trap needed" in text.lower(), "the plant page gives the projected date, its range and the trap-free note")
         if SHOTS: pg.screenshot(path=str(SHOTS / "projection.png"), full_page=True)
+        # winter: no spray or bloom logging on a tree with nothing coming up
+        card.evaluate("""el => {
+          const g = el._snap.varieties.find((v) => v.name === 'Gala');
+          g.pests = []; g.blooms = [];
+          el._snap.today = el._snap.today.slice(0, 4) + '-12-15';
+          el._go({ v: 'variety', id: g.id });
+        }""")
+        pg.wait_for_timeout(300)
+        text = card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText")
+        check("Log full bloom" not in text and "Pest management" not in text and "Sprayed" not in text, "winter hides bloom and spray logging on a tree with nothing coming up")
+        check("Log harvest" not in text and "Log feeding" not in text and "Fertilized" not in text and "Pruning" not in text, "winter also hides harvest, feeding and far-off pruning on a tree")
+        check("Show all" in text, "a winter tree page offers a Show all pill")
+        card.evaluate("el => el.shadowRoot.querySelector('[data-act=toggle-offseason]').click()")
+        pg.wait_for_timeout(300)
+        text = card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText")
+        check("Log full bloom" in text and "Log harvest" in text and "Hide again" in text, "Show all brings back bloom, harvest and the rest")
+        card.evaluate("el => el.shadowRoot.querySelector('[data-act=toggle-offseason]').click()")
+        pg.wait_for_timeout(300)
+        text = card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText")
+        check("Log harvest" not in text and "Show all" in text, "Hide again puts winter back")
+        card.evaluate("el => { el._snap.today = el._snap.today.slice(0, 4) + '-04-15'; el._go({ v: 'variety', id: el._snap.varieties.find((v) => v.name === 'Gala').id }); }")
+        pg.wait_for_timeout(300)
+        text = card.evaluate("el => el.shadowRoot.querySelector('ha-card').innerText")
+        check("Pest management" in text, "spring brings the spray section back")
         card.evaluate("el => { el._snap.varieties.find((v) => v.name === 'Gala').pests = el._saved; el._go({ v: 'home' }); }")
         # calendar sprays: a peach shows its leaf curl and twig borer windows, and a window alert reads as a card
         pg.evaluate("() => window.__garden.engine.call('add_variety', { garden: '', species: 'Peach', variety: 'Redhaven' })")
