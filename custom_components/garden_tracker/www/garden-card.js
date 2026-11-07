@@ -1151,7 +1151,7 @@ class GardenTrackerCard extends HTMLElement {
       h += `<div class="plant"><div class="row"><b style="font-weight:500" class="grow">${esc(p.label)}</b>${!arch && this._yearlyV(v) ? `<button class="ic" data-act="form-plant-name" data-v="${id}" data-p="${p.id}" aria-label="Rename ${esc(p.label)}">${this._icon("pencil")}</button>` : ""}<span style="font-size:18px;font-weight:500">${num(p.total, 1)} lb</span></div>`;
       if (p.status === "harvested") h += `<div class="pill ok" style="margin:6px 0 0">Harvested${p.status_date ? ", " + fmtDate(p.status_date) : ""}</div>`;
       else if (p.status !== "alive") h += `<div class="pill bad" style="margin:6px 0 0">${esc(STATUS_TEXT[p.status])}, ${esc(REASON_TEXT[p.reason] || p.reason)}${p.note ? `: ${esc(p.note)}` : ""}</div>`;
-      if (!arch && p.status !== "harvested") h += `<div class="seg" style="margin-top:8px">${["alive", "dead", "pulled"].map((s) => `<button class="${p.status === s ? (s === "alive" ? "on" : "bad") : ""}" data-act="${s === "alive" ? "plant-alive" : "form-status"}" data-v="${id}" data-p="${p.id}" data-s="${s}">${STATUS_TEXT[s]}</button>`).join("")}</div>`;
+      if (!arch && p.status !== "harvested") h += `<div class="seg" style="margin-top:8px">${(v.kind === "tree" ? ["alive", "dead"] : ["alive", "dead", "pulled"]).map((s) => `<button class="${p.status === s ? (s === "alive" ? "on" : "bad") : ""}" data-act="${s === "alive" ? "plant-alive" : "form-status"}" data-v="${id}" data-p="${p.id}" data-s="${s}">${STATUS_TEXT[s]}</button>`).join("")}</div>`;
       h += `</div>`;
     }
     if (v.harvests.length) h += `<div class="sec" style="margin:12px 0 0">Pick history</div>`;
@@ -1934,13 +1934,13 @@ class GardenTrackerCard extends HTMLElement {
       title: `Plants lost: ${v.name}`, submitLabel: "Confirm",
       fields: [
         { name: "count", label: `How many (of ${v.alive} alive)`, type: "number", step: "1", req: true, span: 3 },
-        { name: "status", label: "What happened", type: "seg", options: [["dead", "Died"], ["pulled", "Pulled early"]], value: "dead", span: 3 },
+        ...(v.kind === "tree" ? [] : [{ name: "status", label: "What happened", type: "seg", options: [["dead", "Died"], ["pulled", "Pulled early"]], value: "dead", span: 3 }]),
         { name: "reason", label: "Reason", type: "chips", options: Object.entries(REASON_TEXT), req: true },
         { name: "date", label: "Date", type: "date", value: this._snap.today, span: 3 },
         { name: "note", label: "Note (optional)", type: "text", span: 3 },
       ],
       note: "Harvest so far stays with the lost plants. Later picks are split across the plants still alive.",
-      submit: (x) => this._call("mark_plants_lost", { plant: v.id, ...x }),
+      submit: (x) => this._call("mark_plants_lost", { plant: v.id, status: "dead", ...x }),
     };
   }
   _fPull(v) {
